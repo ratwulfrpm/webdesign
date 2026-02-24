@@ -1,0 +1,33 @@
+# ── apple-login root .htaccess ───────────────────────────────
+# Requires mod_rewrite and mod_headers (enabled by default in MAMP)
+
+Options -Indexes -MultiViews
+
+# ── Character set ─────────────────────────────────────────────
+AddDefaultCharset UTF-8
+
+# ── Prevent direct access to PHP includes & config ────────────
+<FilesMatch "^(db|auth|csrf)\.php$">
+    Require all denied
+</FilesMatch>
+
+# ── Block dotfiles ────────────────────────────────────────────
+<FilesMatch "^\.">
+    Require all denied
+</FilesMatch>
+
+# ── Basic HTTP security headers ───────────────────────────────
+<IfModule mod_headers.c>
+    Header always set X-Frame-Options          "DENY"
+    Header always set X-Content-Type-Options   "nosniff"
+    Header always set Referrer-Policy          "strict-origin-when-cross-origin"
+    Header always set X-XSS-Protection         "1; mode=block"
+</IfModule>
+
+# ── Disable server signature ──────────────────────────────────
+ServerSignature Off
+
+# ── Optional: redirect www → non-www (not needed for localhost) ─
+# RewriteEngine On
+# RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
+# RewriteRule ^ http://%1%{REQUEST_URI} [R=301,L]
