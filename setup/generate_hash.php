@@ -53,25 +53,51 @@ $pdo->exec("USE `{$DB_NAME}`");
 // ── Create table ──────────────────────────────────────────────
 $pdo->exec("
     CREATE TABLE IF NOT EXISTS `users` (
-        `id`            INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        `username`      VARCHAR(60)  NOT NULL,
-        `email`         VARCHAR(254) NOT NULL,
-        `password_hash` VARCHAR(255) NOT NULL,
-        `created_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        `updated_at`    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
-                                     ON UPDATE CURRENT_TIMESTAMP,
+        `id`                 INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        `username`           VARCHAR(60)  NOT NULL,
+        `email`              VARCHAR(254) NOT NULL,
+        `password_hash`      VARCHAR(255) NOT NULL,
+        `is_active`          TINYINT(1)   NOT NULL DEFAULT 1,
+        `role`               ENUM('admin','supplier') NOT NULL DEFAULT 'supplier',
+        `failed_attempts`    TINYINT UNSIGNED NOT NULL DEFAULT 0,
+        `locked_until`       DATETIME     NULL DEFAULT NULL,
+        `first_login`        TINYINT(1)   NOT NULL DEFAULT 1,
+        `preferred_language` VARCHAR(10)  NOT NULL DEFAULT 'es',
+        `full_name`          VARCHAR(200) NULL DEFAULT NULL,
+        `company_name`       VARCHAR(200) NULL DEFAULT NULL,
+        `phone`              VARCHAR(30)  NULL DEFAULT NULL,
+        `created_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `updated_at`         DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                          ON UPDATE CURRENT_TIMESTAMP,
         PRIMARY KEY (`id`),
         UNIQUE KEY `uq_username` (`username`),
         UNIQUE KEY `uq_email`    (`email`)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 ");
 
-// ── Upsert demo user ──────────────────────────────────────────
+// Also create password_requests table
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS `password_requests` (
+        `id`           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        `company_name` VARCHAR(200) NOT NULL,
+        `email`        VARCHAR(254) NOT NULL,
+        `username`     VARCHAR(60)  NULL DEFAULT NULL,
+        `notes`        TEXT         NULL DEFAULT NULL,
+        `status`       ENUM('pending','resolved') NOT NULL DEFAULT 'pending',
+        `requested_at` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        `resolved_at`  DATETIME     NULL DEFAULT NULL,
+        PRIMARY KEY (`id`)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+");
+
+// ── Upsert demo user (admin) ──────────────────────────────────
 $stmt = $pdo->prepare("
-    INSERT INTO `users` (`username`, `email`, `password_hash`)
-    VALUES (:username, :email, :hash)
+    INSERT INTO `users` (`username`, `email`, `password_hash`, `role`, `first_login`, `is_active`)
+    VALUES (:username, :email, :hash, 'admin', 0, 1)
     ON DUPLICATE KEY UPDATE
         `password_hash` = VALUES(`password_hash`),
+        `role`          = 'admin',
+        `first_login`   = 0,
         `updated_at`    = CURRENT_TIMESTAMP
 ");
 $stmt->execute([

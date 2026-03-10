@@ -1,6 +1,17 @@
 <?php
 /**
  * /apple-login/index.php — Login page
+ *
+ * Features:
+ *  - Login form: username/email + password + CSRF
+ *  - Lockout handling (3 failed attempts → 1 hour block)
+ *  - Account-inactive message
+ *  - Idle-timeout / deactivation messages from query params
+ *  - Language selector (ES / EN) via GET ?set_lang=xx
+ *  - Role-based post-login redirect:
+ *      admin            → /apple-login/admin/index.php
+ *      supplier + first → /apple-login/supplier/profile.php
+ *      supplier         → /apple-login/supplier/summary.php
  */
 
 // ── Security headers ─────────────────────────────────────────
@@ -13,7 +24,7 @@ header('Content-Type: text/html; charset=utf-8');
 session_set_cookie_params([
     'lifetime' => 0,
     'path'     => '/',
-    'secure'   => false,   // set to true when running HTTPS
+    'secure'   => false,   // set true for HTTPS
     'httponly' => true,
     'samesite' => 'Lax',
 ]);
@@ -21,15 +32,35 @@ session_start();
 
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/csrf.php';
+require_once __DIR__ . '/includes/lang.php';
 
-// Already logged in → go to dashboard
+// Language selection (PRG — returns if set_lang present)
+initLang();
+
+// Already logged in → send to the correct dashboard
 if (isLoggedIn()) {
-    header('Location: /apple-login/dashboard.php');
+    if ($_SESSION['role'] === 'admin') {
+        header('Location: /apple-login/admin/index.php');
+    } elseif ((int) ($_SESSION['first_login'] ?? 1) === 1) {
+        header('Location: /apple-login/supplier/profile.php');
+    } else {
+        header('Location: /apple-login/supplier/summary.php');
+    }
     exit;
 }
 
-// ── Handle POST ───────────────────────────────────────────────
-$error = '';
+// ── Informational messages from redirects ─────────────────────
+$info  = '';
+$reason = $_GET['reason'] ?? '';
+if ($reason === 'timeout') {
+    $info = t('error_timeout');
+} elseif ($reason === 'deactivated') {
+    $info = t('error_deactivated');
+}
+
+// ── Handle POST (login attempt) ───────────────────────────────
+$error      = '';
+$identifier = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
@@ -40,39 +71,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $identifier = trim(htmlspecialchars($_POST['identifier'] ?? '', ENT_QUOTES, 'UTF-8'));
     $password   = $_POST['password'] ?? '';
 
-    // 3) Basic presence validation
+    // 3) Basic presence check
     if ($identifier === '' || $password === '') {
-        $error = 'Please enter your Apple\u00a0ID and password.';
+        $error = t('error_empty');
     } else {
         // 4) Attempt authentication
-        $user = attemptLogin($identifier, $password);
+        $result = attemptLogin($identifier, $password);
 
-        if ($user === false) {
-            // Generic message — don't reveal whether the user exists
-            $error = 'Incorrect Apple\u00a0ID or password. Try again or&nbsp;<a href="#" class="link">reset your password</a>.';
-        } else {
-            createSession($user);
-            header('Location: /apple-login/dashboard.php');
+        if (is_array($result)) {
+            // Success — build session and redirect by role
+            createSession($result);
+
+            if ($result['role'] === 'admin') {
+                header('Location: /apple-login/admin/index.php');
+            } elseif ((int) $result['first_login'] === 1) {
+                header('Location: /apple-login/supplier/profile.php');
+            } else {
+                header('Location: /apple-login/supplier/summary.php');
+            }
             exit;
+
+        } elseif (strpos($result, 'LOCKED:') === 0) {
+            $minutes = (int) substr($result, 7);
+            $error   = t('error_locked', $minutes);
+
+        } elseif ($result === AUTH_INACTIVE) {
+            $error = t('error_inactive');
+
+        } else {
+            $error = t('error_invalid');
         }
     }
 }
+
+$lang = currentLang();
 ?>
 <!DOCTYPE html>
-<html lang="en">
+<html lang="<?= $lang ?>">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <title>Sign in — Local App</title>
+    <title><?= t('page_title') ?></title>
     <link rel="stylesheet" href="/apple-login/css/style.css">
 </head>
 <body>
 
+    <!-- Language selector -->
+    <div class="lang-selector" role="navigation" aria-label="<?= t('language_label') ?>">
+        <a href="?set_lang=es"
+           class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>"
+           hreflang="es"
+           aria-current="<?= $lang === 'es' ? 'true' : 'false' ?>">ES</a>
+        <span class="lang-sep">|</span>
+        <a href="?set_lang=en"
+           class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>"
+           hreflang="en"
+           aria-current="<?= $lang === 'en' ? 'true' : 'false' ?>">EN</a>
+    </div>
+
     <!-- Brand mark -->
     <div class="brand">
         <span class="brand-icon">
-            <!-- Simple leaf/abstract SVG — NOT an Apple asset -->
             <svg viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                 <path d="M22 4C13.166 4 6 11.166 6 20c0 6.188 3.41 11.572 8.443 14.418
                          .518.288 1.098-.118 1.028-.704l-.584-4.867a.998.998 0 0
@@ -86,8 +146,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <!-- Login card -->
     <div class="card" role="main">
-        <h1 class="card-title">Sign in</h1>
-        <p class="card-subtitle">Use your account to continue</p>
+        <h1 class="card-title"><?= t('sign_in') ?></h1>
+        <p class="card-subtitle"><?= t('sign_in_subtitle') ?></p>
+
+        <?php if ($info !== ''): ?>
+        <div class="alert alert-info" role="status">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="7.25" stroke="#0071e3" stroke-width="1.5"/>
+                <line x1="8" y1="7" x2="8" y2="11.25" stroke="#0071e3" stroke-width="1.5" stroke-linecap="round"/>
+                <circle cx="8" cy="5" r=".75" fill="#0071e3"/>
+            </svg>
+            <span><?= htmlspecialchars($info, ENT_QUOTES, 'UTF-8') ?></span>
+        </div>
+        <?php endif; ?>
 
         <?php if ($error !== ''): ?>
         <div class="alert alert-error" role="alert">
@@ -96,7 +167,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <line x1="8" y1="4.75" x2="8" y2="8.75" stroke="#ff3b30" stroke-width="1.5" stroke-linecap="round"/>
                 <circle cx="8" cy="11" r=".75" fill="#ff3b30"/>
             </svg>
-            <span><?= $error ?></span>
+            <span><?= htmlspecialchars($error, ENT_QUOTES, 'UTF-8') ?></span>
         </div>
         <?php endif; ?>
 
@@ -104,15 +175,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <?= csrfField() ?>
 
             <div class="form-group">
-                <!-- Email / username -->
+                <!-- Username / email -->
                 <div class="input-wrap">
-                    <label for="identifier">Email or username</label>
+                    <label for="identifier"><?= t('username_label') ?></label>
                     <input
                         type="text"
                         id="identifier"
                         name="identifier"
-                        value="<?= htmlspecialchars($_POST['identifier'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                        placeholder="name@example.com"
+                        value="<?= htmlspecialchars($identifier, ENT_QUOTES, 'UTF-8') ?>"
+                        placeholder="<?= t('username_placeholder') ?>"
                         autocomplete="username"
                         autofocus
                         required
@@ -124,7 +195,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 <!-- Password -->
                 <div class="input-wrap">
-                    <label for="password">Password</label>
+                    <label for="password"><?= t('password_label') ?></label>
                     <input
                         type="password"
                         id="password"
@@ -134,9 +205,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         required
                         maxlength="128"
                     >
-                    <button type="button" class="toggle-pw" aria-label="Show password" onclick="togglePassword()">
-                        <svg id="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <button type="button" class="toggle-pw"
+                            aria-label="<?= t('show_password') ?>"
+                            onclick="togglePassword()">
+                        <svg id="eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none"
+                             stroke="currentColor" stroke-width="1.8"
+                             stroke-linecap="round" stroke-linejoin="round">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
                             <circle cx="12" cy="12" r="3"/>
                         </svg>
@@ -144,13 +218,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </div>
 
-            <button type="submit" class="btn-primary">Sign in</button>
+            <button type="submit" class="btn-primary"><?= t('btn_sign_in') ?></button>
         </form>
 
         <div class="card-footer">
-            <a href="#">Forgot password?</a>
-            &nbsp;·&nbsp;
-            <a href="#">Create account</a>
+            <a href="/apple-login/forgot_password.php"><?= t('forgot_password') ?></a>
         </div>
     </div>
 
@@ -159,6 +231,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </footer>
 
     <script>
+    const SHOW_LABEL = <?= json_encode(t('show_password')) ?>;
+    const HIDE_LABEL = <?= json_encode(t('hide_password')) ?>;
+
     function togglePassword() {
         const input   = document.getElementById('password');
         const icon    = document.getElementById('eye-icon');
@@ -166,9 +241,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         const showing = input.type === 'text';
 
         input.type = showing ? 'password' : 'text';
-        btn.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+        btn.setAttribute('aria-label', showing ? SHOW_LABEL : HIDE_LABEL);
 
-        // Swap to "eye-off" icon when password is visible
         icon.innerHTML = showing
             ? '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>'
             : '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>' +
@@ -179,8 +253,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Prevent double-submit
     document.querySelector('form').addEventListener('submit', function () {
         const btn = this.querySelector('.btn-primary');
-        btn.disabled = true;
-        btn.textContent = 'Signing in…';
+        btn.disabled    = true;
+        btn.textContent = '…';
     });
     </script>
 </body>
