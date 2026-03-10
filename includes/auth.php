@@ -6,11 +6,12 @@
  *  - Login with email or username + bcrypt password
  *  - Lockout after 3 failed attempts for 1 hour
  *  - is_active check on login
- *  - Role-aware session (admin / supplier)
+ *  - Role-aware session (owner / admin / supplier / user)
  *  - first_login flag for supplier routing
  *  - Language preference loaded into session
  *  - Idle-timeout enforcement (30 minutes)
  *  - Per-request DB revalidation of is_active
+ *  - RBAC helpers: requireRole(), canManageRole(), getRoleRedirect()
  */
 
 require_once __DIR__ . '/../config/db.php';
@@ -213,4 +214,93 @@ function destroySession(): void
         );
     }
     session_destroy();
+}
+
+// ── RBAC ──────────────────────────────────────────────────────
+
+/**
+ * Role hierarchy weights. Higher = more privileges.
+ * Useful for comparisons:  ROLE_HIERARCHY['owner'] > ROLE_HIERARCHY['admin']
+ */
+define('ROLE_HIERARCHY', [
+    'owner'    => 4,
+    'admin'    => 3,
+    'supplier' => 2,
+    'user'     => 1,
+]);
+
+/**
+ * Allowed role → home URL map used for post-login redirect and guard redirects.
+ */
+define('ROLE_HOME', [
+    'owner'    => '/apple-login/owner/index.php',
+    'admin'    => '/apple-login/admin/index.php',
+    'supplier' => '/apple-login/supplier/summary.php',
+    'user'     => '/apple-login/user/dashboard.php',
+]);
+
+/**
+ * Redirects to the user's home panel and exits.
+ * Respects the supplier first_login flag.
+ */
+function redirectToHome(): void
+{
+    $role       = $_SESSION['role']        ?? 'user';
+    $firstLogin = (int) ($_SESSION['first_login'] ?? 0);
+
+    if ($role === 'supplier' && $firstLogin === 1) {
+        header('Location: /apple-login/supplier/profile.php');
+        exit;
+    }
+
+    $homes = ROLE_HOME;
+    $url   = $homes[$role] ?? '/apple-login/index.php';
+    header('Location: ' . $url);
+    exit;
+}
+
+/**
+ * Ensures the current session holds one of the $allowed roles.
+ * Requires requireAuth() to have been called first.
+ * On failure, redirects to the user's own panel (or login if unauthenticated).
+ *
+ * @param string[] $allowed  Role names that are permitted, e.g. ['owner','admin']
+ */
+function requireRole(array $allowed): void
+{
+    if (!isLoggedIn()) {
+        header('Location: /apple-login/index.php');
+        exit;
+    }
+
+    $role = $_SESSION['role'] ?? '';
+    if (!in_array($role, $allowed, true)) {
+        // Send them to their own home, not back to login
+        redirectToHome();
+    }
+}
+
+/**
+ * Returns true if $managerRole is allowed to manage $targetRole.
+ *
+ * Hierarchy:
+ *  owner   → can manage owner, admin, supplier, user (everyone)
+ *  admin   → can manage supplier, user only
+ *  others  → no management rights
+ */
+function canManageRole(string $managerRole, string $targetRole): bool
+{
+    $hierarchy = ROLE_HIERARCHY;
+
+    // owner can manage everyone (including other owners)
+    if ($managerRole === 'owner') {
+        return true;
+    }
+
+    // admin can manage roles BELOW admin (supplier=2, user=1)
+    if ($managerRole === 'admin') {
+        return isset($hierarchy[$targetRole]) && $hierarchy[$targetRole] < $hierarchy['admin'];
+    }
+
+    return false;
 }

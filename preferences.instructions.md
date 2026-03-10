@@ -58,8 +58,10 @@ applyTo: '**'
 ## Users
 | Username | Password | Role | first_login |
 |---|---|---|---|
+| owner | owner | owner | 0 |
 | admin | admin | admin | 0 |
-| demo | Demo123! | supplier | 1 (pending profile) |
+| proveedor | proveedor | supplier | 1 (pending profile) |
+| usuario | usuario | user | 0 |
 
 ## File Map
 ```
@@ -78,24 +80,63 @@ apple-login/
     en.php                — All English strings
     .htaccess             — Deny direct access
   css/style.css           — Full UI stylesheet (Apple-inspired)
-  admin/index.php         — Admin panel (user mgmt, activate/deactivate/unlock, password requests)
+  admin/index.php         — Admin panel (supplier+user mgmt, activate/deactivate/unlock/change_role, password requests)
+  owner/index.php         — Owner panel (ALL roles mgmt, full promote/demote, all actions)
   supplier/
     profile.php           — Full supplier profile (4 sections + contacts CRUD)
     summary.php           — Supplier dashboard (shows all profile data)
+  user/dashboard.php      — User dashboard (simple welcome screen)
   setup/
     create_db.sql         — Full schema (fresh install)
     migrate_db.sql        — Migration v1 (is_active, role, etc.)
     run_migration.php     — Migration v1 runner (browser-only)
     run_migration2.php    — Migration v2 runner (new columns, countries, contacts)
+    run_migration3.php    — Migration v3 runner (ENUM → owner/admin/supplier/user, seed 4 users)
     generate_hash.php     — Dev utility to generate bcrypt hashes
 ```
 
+## RBAC — Role-Based Access Control
+
+### Role Hierarchy (higher = more privileges)
+| Level | Role | Label ES | Home Panel |
+|---|---|---|---|
+| 4 | `owner` | Propietario | `/owner/index.php` |
+| 3 | `admin` | Administrador | `/admin/index.php` |
+| 2 | `supplier` | Proveedor | `/supplier/profile.php` or `/supplier/summary.php` |
+| 1 | `user` | Usuario | `/user/dashboard.php` |
+
+### RBAC Access Matrix
+| Who | Can manage |
+|---|---|
+| owner | Everyone — all 4 roles, any action |
+| admin | supplier and user roles only |
+| supplier | Themselves (own profile) |
+| user | No management |
+
+### RBAC Helpers (includes/auth.php)
+- `requireRole(array $allowed)` — asserts session role is in $allowed; redirects to own home on failure (not to login page)
+- `canManageRole(string $manager, string $target): bool` — owner: all; admin: supplier+user; others: false
+- `redirectToHome()` — redirects to ROLE_HOME[role]; respects supplier first_login=1 → profile
+- `ROLE_HIERARCHY` constant — associative array of role → weight
+- `ROLE_HOME` constant — associative array of role → home URL
+
+### Guards Pattern
+Every protected page top:
+```php
+requireAuth();     // idle timeout, DB is_active check
+initLang();
+requireRole(['owner']);  // or ['admin'], ['supplier'], ['user']
+```
+
 ## Routing Logic
+- Login → `owner` role → `/owner/index.php`
 - Login → `admin` role → `/admin/index.php`
 - Login → `supplier` + `first_login=1` → `/supplier/profile.php`
 - Login → `supplier` + `first_login=0` → `/supplier/summary.php`
+- Login → `user` role → `/user/dashboard.php`
 - Profile "Regresar" + `first_login=1` → logout
 - Profile "Regresar" + `first_login=0` → `/supplier/summary.php`
+- Unauthorized access to another role's panel → `redirectToHome()` (not to login)
 
 ## Security Patterns
 - CSRF: session-based single-use token, rotated after each validated POST
@@ -135,3 +176,4 @@ apple-login/
 - **2026-Mar**: Duplicate named PDO param `:id` used twice in WHERE clause → `SQLSTATE[HY093]`. Fixed by using `:email` and `:username` as separate params.
 - **2026-Mar**: Migration script ran via CLI where pdo_mysql is absent → always use browser for migrations on MAMP.
 - **2026-Mar**: `ADD COLUMN IF NOT EXISTS` not supported in MySQL 5.7 → check INFORMATION_SCHEMA before each ALTER.
+- **2026-Mar**: Manual role guards (`if role !== 'admin'`) redirect to `/index.php` (login page), leaving wrong-role users stuck. Use `requireRole()` which calls `redirectToHome()` instead.

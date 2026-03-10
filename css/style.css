@@ -659,8 +659,10 @@ html {
 
 .badge-active   { background: #e6f9ee; color: #1a7a3a; }
 .badge-inactive { background: #fff0f0; color: #c0392b; }
+.badge-owner    { background: #f0e6ff; color: #6b21a8; }
 .badge-admin    { background: #eef2ff; color: #3b4cc0; }
 .badge-supplier { background: #fff8e6; color: #9a6c00; }
+.badge-user     { background: #e6f4ff; color: #005a9e; }
 .badge-pending  { background: #fff3cd; color: #856404; }
 .badge-done     { background: #e6f9ee; color: #1a7a3a; }
 

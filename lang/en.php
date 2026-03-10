@@ -49,7 +49,26 @@ return [
     'role_label'           => 'Role',
     'role_admin'           => 'Administrator',
     'role_supplier'        => 'Supplier',
+    'role_owner'           => 'Owner',
+    'role_user'            => 'User',
     'welcome'              => 'Welcome',
+
+    // ── Owner panel ───────────────────────────────────────────
+    'owner_page_title'     => 'Owner Panel — Local App',
+    'owner_title'          => 'Business Administration',
+    'btn_set_role'         => 'Set role',
+    'feedback_activated'   => 'User activated.',
+    'feedback_deactivated' => 'User deactivated.',
+    'feedback_unlocked'    => 'Account unlocked.',
+    'feedback_role_changed'   => 'Role updated.',
+    'feedback_request_resolved' => 'Request marked as resolved.',
+
+    // ── User dashboard ────────────────────────────────────────
+    'user_page_title'     => 'User Dashboard — Local App',
+    'user_title'          => 'My account',
+    'user_welcome'        => 'Welcome, %s',
+    'user_session_info'   => 'You have signed in successfully.',
+    'user_idle_notice'    => 'Your session will close automatically after %d minutes of inactivity.',
 
     // ── Admin ─────────────────────────────────────────────────
     'admin_page_title'     => 'Administration — Local App',

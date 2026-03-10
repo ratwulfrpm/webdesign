@@ -39,12 +39,7 @@ require_once __DIR__ . '/../config/db.php';
 
 requireAuth();
 initLang();
-
-// Only suppliers
-if ($_SESSION['role'] !== 'supplier') {
-    header('Location: /apple-login/index.php');
-    exit;
-}
+requireRole(['supplier']);
 
 $pdo          = getDB();
 $lang         = currentLang();

@@ -30,12 +30,7 @@ require_once __DIR__ . '/../config/db.php';
 
 requireAuth();
 initLang();
-
-// Role guard
-if ($_SESSION['role'] !== 'supplier') {
-    header('Location: /apple-login/index.php');
-    exit;
-}
+requireRole(['supplier']);
 
 // First-login guard — must complete profile first
 if ((int) ($_SESSION['first_login'] ?? 1) === 1) {

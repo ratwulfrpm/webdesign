@@ -9,9 +9,11 @@
  *  - Idle-timeout / deactivation messages from query params
  *  - Language selector (ES / EN) via GET ?set_lang=xx
  *  - Role-based post-login redirect:
+ *      owner            → /apple-login/owner/index.php
  *      admin            → /apple-login/admin/index.php
  *      supplier + first → /apple-login/supplier/profile.php
  *      supplier         → /apple-login/supplier/summary.php
+ *      user             → /apple-login/user/dashboard.php
  */
 
 // ── Security headers ─────────────────────────────────────────
@@ -39,13 +41,7 @@ initLang();
 
 // Already logged in → send to the correct dashboard
 if (isLoggedIn()) {
-    if ($_SESSION['role'] === 'admin') {
-        header('Location: /apple-login/admin/index.php');
-    } elseif ((int) ($_SESSION['first_login'] ?? 1) === 1) {
-        header('Location: /apple-login/supplier/profile.php');
-    } else {
-        header('Location: /apple-login/supplier/summary.php');
-    }
+    redirectToHome();
     exit;
 }
 
@@ -81,14 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (is_array($result)) {
             // Success — build session and redirect by role
             createSession($result);
-
-            if ($result['role'] === 'admin') {
-                header('Location: /apple-login/admin/index.php');
-            } elseif ((int) $result['first_login'] === 1) {
-                header('Location: /apple-login/supplier/profile.php');
-            } else {
-                header('Location: /apple-login/supplier/summary.php');
-            }
+            redirectToHome();
             exit;
 
         } elseif (strpos($result, 'LOCKED:') === 0) {

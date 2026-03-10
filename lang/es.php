@@ -49,7 +49,26 @@ return [
     'role_label'           => 'Rol',
     'role_admin'           => 'Administrador',
     'role_supplier'        => 'Proveedor',
+    'role_owner'           => 'Propietario',
+    'role_user'            => 'Usuario',
     'welcome'              => 'Bienvenido',
+
+    // ── Owner panel ───────────────────────────────────────────
+    'owner_page_title'     => 'Panel de Propietario — Local App',
+    'owner_title'          => 'Administración de negocio',
+    'btn_set_role'         => 'Asignar rol',
+    'feedback_activated'   => 'Usuario activado.',
+    'feedback_deactivated' => 'Usuario desactivado.',
+    'feedback_unlocked'    => 'Cuenta desbloqueada.',
+    'feedback_role_changed'   => 'Rol actualizado.',
+    'feedback_request_resolved' => 'Solicitud marcada como resuelta.',
+
+    // ── User dashboard ────────────────────────────────────────
+    'user_page_title'     => 'Panel de Usuario — Local App',
+    'user_title'          => 'Mi cuenta',
+    'user_welcome'        => 'Bienvenido/a, %s',
+    'user_session_info'   => 'Has iniciado sesión correctamente.',
+    'user_idle_notice'    => 'Tu sesión cerrará automáticamente tras %d minutos de inactividad.',
 
     // ── Admin ─────────────────────────────────────────────────
     'admin_page_title'     => 'Administración — Local App',

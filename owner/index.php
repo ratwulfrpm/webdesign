@@ -1,11 +1,11 @@
 <?php
 /**
- * /apple-login/admin/index.php — System administration panel
+ * /apple-login/owner/index.php — Business-owner administration panel
  *
- * Access: role = 'admin' only.
+ * Access: role = 'owner' only.
  * Features:
- *  - User list (supplier + user roles only — admin cannot manage owner or other admins)
- *  - Activate / deactivate / unlock / change_role actions
+ *  - Full user list across ALL roles
+ *  - Activate / deactivate / unlock / change_role for any user (except self-deactivate)
  *  - Password-request queue with resolve action
  *  - Language selector
  *  - 30-min idle timeout enforced by requireAuth()
@@ -33,18 +33,18 @@ require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 
-// Auth checks
+// Auth + RBAC checks
 requireAuth();
 initLang();
-requireRole(['admin']);
+requireRole(['owner']);
 
 $pdo      = getDB();
 $feedback = '';
 
-// ── Handle admin POST actions ─────────────────────────────────
+// ── Handle owner POST actions ──────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrfValidate();
-    $action = $_POST['action'] ?? '';
+    $action = $_POST['action']     ?? '';
     $uid    = (int) ($_POST['user_id']    ?? 0);
     $rid    = (int) ($_POST['request_id'] ?? 0);
 
@@ -57,7 +57,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             break;
 
         case 'deactivate':
-            // Prevent admin from deactivating themselves
+            // Prevent owner from deactivating themselves
             if ($uid > 0 && $uid !== (int) $_SESSION['user_id']) {
                 $pdo->prepare('UPDATE users SET is_active = 0 WHERE id = ?')->execute([$uid]);
                 $feedback = t('feedback_deactivated');
@@ -72,6 +72,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             break;
 
+        case 'change_role':
+            // Owner can assign any valid role, but cannot change their own role
+            $newRole = $_POST['new_role'] ?? '';
+            $validRoles = ['owner', 'admin', 'supplier', 'user'];
+            if ($uid > 0
+                && in_array($newRole, $validRoles, true)
+                && $uid !== (int) $_SESSION['user_id']
+            ) {
+                $pdo->prepare('UPDATE users SET role = ? WHERE id = ?')->execute([$newRole, $uid]);
+                $feedback = t('feedback_role_changed');
+            }
+            break;
+
         case 'resolve_request':
             if ($rid > 0) {
                 $pdo->prepare(
@@ -80,31 +93,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $feedback = t('feedback_request_resolved');
             }
             break;
-
-        case 'change_role':
-            // Admin may only reassign between supplier ↔ user (not owner or admin)
-            $newRole = $_POST['new_role'] ?? '';
-            if ($uid > 0 && in_array($newRole, ['supplier', 'user'], true) && $uid !== (int) $_SESSION['user_id']) {
-                $pdo->prepare('UPDATE users SET role = ? WHERE id = ? AND role IN ("supplier","user")')
-                    ->execute([$newRole, $uid]);
-                $feedback = t('feedback_role_changed');
-            }
-            break;
     }
 
     // PRG — prevent re-submit on refresh
-    header('Location: /apple-login/admin/index.php');
+    header('Location: /apple-login/owner/index.php');
     exit;
 }
 
 // ── Fetch data ────────────────────────────────────────────────
-// Admin can only see and manage supplier and user accounts
+// Owner sees ALL users across ALL roles
 $users = $pdo->query(
     'SELECT id, username, email, role, is_active,
             first_login, failed_attempts, locked_until
        FROM users
-      WHERE role IN ("supplier","user")
-      ORDER BY role ASC, username ASC'
+      ORDER BY FIELD(role,"owner","admin","supplier","user"), username ASC'
 )->fetchAll();
 
 $requests = $pdo->query(
@@ -113,7 +115,7 @@ $requests = $pdo->query(
       ORDER BY status ASC, requested_at DESC'
 )->fetchAll();
 
-$username = htmlspecialchars($_SESSION['username'] ?? 'Admin', ENT_QUOTES, 'UTF-8');
+$username = htmlspecialchars($_SESSION['username'] ?? 'Owner', ENT_QUOTES, 'UTF-8');
 $initial  = strtoupper(substr($username, 0, 1));
 $lang     = currentLang();
 ?>
@@ -124,7 +126,7 @@ $lang     = currentLang();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
-    <title><?= t('admin_page_title') ?></title>
+    <title><?= t('owner_page_title') ?></title>
     <link rel="stylesheet" href="/apple-login/css/style.css">
 </head>
 <body>
@@ -140,7 +142,7 @@ $lang     = currentLang();
     <div class="top-bar">
         <div class="top-bar-brand">
             <div class="welcome-avatar small"><?= $initial ?></div>
-            <span class="top-bar-title"><?= t('admin_title') ?></span>
+            <span class="top-bar-title"><?= t('owner_title') ?></span>
         </div>
         <form method="POST" action="/apple-login/logout.php" class="top-bar-logout">
             <input type="hidden" name="csrf_token"
@@ -191,13 +193,19 @@ $lang     = currentLang();
                         <?php
                             $isLocked  = !empty($u['locked_until']) && strtotime($u['locked_until']) > time();
                             $isSelf    = (int) $u['id'] === (int) $_SESSION['user_id'];
+                            $roleBadge = match($u['role']) {
+                                'owner'    => 'badge-owner',
+                                'admin'    => 'badge-admin',
+                                'supplier' => 'badge-supplier',
+                                default    => 'badge-user',
+                            };
                         ?>
                         <tr>
                             <td><?= (int) $u['id'] ?></td>
                             <td><?= htmlspecialchars($u['username'], ENT_QUOTES, 'UTF-8') ?></td>
                             <td><?= htmlspecialchars($u['email'], ENT_QUOTES, 'UTF-8') ?></td>
                             <td>
-                                <span class="badge <?= $u['role'] === 'supplier' ? 'badge-supplier' : 'badge-user' ?>">
+                                <span class="badge <?= $roleBadge ?>">
                                     <?= htmlspecialchars(t('role_' . $u['role']), ENT_QUOTES, 'UTF-8') ?>
                                 </span>
                             </td>
@@ -219,7 +227,8 @@ $lang     = currentLang();
                             </td>
                             <td class="actions-cell">
                                 <?php if (!$isSelf): ?>
-                                <form method="POST" action="/apple-login/admin/index.php" style="display:inline">
+                                <!-- Activate / Deactivate -->
+                                <form method="POST" action="/apple-login/owner/index.php" style="display:inline">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
@@ -234,7 +243,8 @@ $lang     = currentLang();
                                 <?php endif; ?>
 
                                 <?php if ($isLocked): ?>
-                                <form method="POST" action="/apple-login/admin/index.php" style="display:inline">
+                                <!-- Unlock -->
+                                <form method="POST" action="/apple-login/owner/index.php" style="display:inline">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
@@ -243,21 +253,24 @@ $lang     = currentLang();
                                 </form>
                                 <?php endif; ?>
 
-                                <?php if ($isSelf): ?><span class="text-muted small">(<?= t('session_active') ?>)</span><?php endif; ?>
-
                                 <?php if (!$isSelf): ?>
-                                <form method="POST" action="/apple-login/admin/index.php" style="display:inline;margin-left:4px;">
+                                <!-- Change role -->
+                                <form method="POST" action="/apple-login/owner/index.php" style="display:inline;margin-left:4px;">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
                                     <input type="hidden" name="action" value="change_role">
                                     <select name="new_role" class="input-sm" style="width:auto;padding:3px 6px;font-size:0.8rem;">
+                                        <option value="owner"    <?= $u['role'] === 'owner'    ? 'selected' : '' ?>><?= t('role_owner') ?></option>
+                                        <option value="admin"    <?= $u['role'] === 'admin'    ? 'selected' : '' ?>><?= t('role_admin') ?></option>
                                         <option value="supplier" <?= $u['role'] === 'supplier' ? 'selected' : '' ?>><?= t('role_supplier') ?></option>
                                         <option value="user"     <?= $u['role'] === 'user'     ? 'selected' : '' ?>><?= t('role_user') ?></option>
                                     </select>
                                     <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_set_role') ?></button>
                                 </form>
                                 <?php endif; ?>
+
+                                <?php if ($isSelf): ?><span class="text-muted small">(<?= t('session_active') ?>)</span><?php endif; ?>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -304,7 +317,7 @@ $lang     = currentLang();
                             </td>
                             <td>
                                 <?php if ($r['status'] === 'pending'): ?>
-                                <form method="POST" action="/apple-login/admin/index.php">
+                                <form method="POST" action="/apple-login/owner/index.php">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="request_id" value="<?= (int) $r['id'] ?>">
@@ -333,7 +346,7 @@ $lang     = currentLang();
     <script>
     (function () {
         const TIMEOUT_MS  = <?= IDLE_TIMEOUT * 1000 ?>;
-        const WARNING_MS  = TIMEOUT_MS - 5 * 60 * 1000; // warn 5 min early
+        const WARNING_MS  = TIMEOUT_MS - 5 * 60 * 1000;
         const LOGIN_URL   = '/apple-login/index.php?reason=timeout';
 
         let lastActivity  = Date.now();
@@ -352,8 +365,7 @@ $lang     = currentLang();
                 warnShown = true;
                 if (window.confirm('Su sesión cerrará pronto por inactividad. ¿Desea continuar?')) {
                     resetTimer();
-                    // Ping the server to reset the PHP idle timer
-                    fetch('/apple-login/admin/index.php', { method: 'HEAD', credentials: 'same-origin' });
+                    fetch('/apple-login/owner/index.php', { method: 'HEAD', credentials: 'same-origin' });
                 }
             }
         }, 10000);
