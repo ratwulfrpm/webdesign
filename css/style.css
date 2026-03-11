@@ -830,12 +830,122 @@ html {
 }
 .card-footer-link:hover { opacity: 0.75; }
 
-/* ── Responsive overrides for new layouts ───────────────────── */
-@media (max-width: 680px) {
-    .top-bar   { flex-wrap: wrap; gap: 8px; }
-    .page-content { padding: 0 8px; }
-    .data-table th, .data-table td { padding: 9px 10px; }
-    .lang-selector { top: 10px; right: 10px; padding: 4px 10px; font-size: 0.75rem; }
+/* ── Inline table select (role-change dropdown, etc.) ────────── */
+.input-sm {
+    height: 34px;
+    padding: 0 28px 0 8px;
+    font-size: 0.8rem;
+    font-family: var(--font-system);
+    color: var(--color-text);
+    background: #f9f9fb url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236e6e73' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 8px center;
+    border: 1.5px solid var(--color-border);
+    border-radius: 8px;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: border-color var(--transition), box-shadow var(--transition);
+    vertical-align: middle;
+}
+.input-sm:focus {
+    background-color: #fff;
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
+}
+
+/* ── Responsive — panel pages ────────────────────────────────── */
+
+/* 1024px — slight tighten on wide tablets */
+@media (max-width: 1024px) {
+    .page-content { padding: 0 20px; }
+}
+
+/* 768px — tablet */
+@media (max-width: 768px) {
+    .page-content   { padding: 0 14px; }
+    .top-bar        { flex-wrap: wrap; gap: 8px; padding: 0 14px; }
+    .tab-item       { padding: 9px 18px; font-size: 0.875rem; }
+    .section-title  { font-size: 1rem; }
+    .data-table th,
+    .data-table td  { padding: 9px 10px; font-size: 0.875rem; }
+    .lang-selector  { top: 10px; right: 10px; padding: 4px 10px; font-size: 0.75rem; }
+}
+
+/* 640px — small tablet / large phone */
+@media (max-width: 640px) {
+    body            { justify-content: flex-start; align-items: flex-start; }
+    .page-content   { padding: 0 10px; }
+    .top-bar        { padding: 0 10px; gap: 6px; }
+    .top-bar-title  { font-size: 1rem; }
+    .tab-nav        { gap: 4px; padding: 6px 10px; }
+    .tab-item       { padding: 8px 13px; font-size: 0.83rem; }
+
+    /* Action cells — stack buttons vertically on small screens */
+    .actions-cell {
+        white-space: normal;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 5px;
+    }
+    .actions-cell form,
+    .actions-cell > span {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-wrap: wrap;
+        width: 100%;
+    }
+    .btn-tbl        { width: 100%; justify-content: center; }
+    .input-sm       { width: 100%; }
+
+    .panel-section  { margin-bottom: 28px; }
+    .welcome-avatar { width: 56px; height: 56px; font-size: 1.3rem; }
+}
+
+/* 480px — phone */
+@media (max-width: 480px) {
+    .top-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 10px 12px;
+    }
+    .top-bar-actions { width: 100%; display: flex; justify-content: flex-end; }
+
+    .tab-nav  { gap: 3px; padding: 4px 8px; }
+    .tab-item {
+        padding: 8px 12px;
+        font-size: 0.8rem;
+        flex: 1 1 auto;
+        text-align: center;
+        min-width: 0;
+    }
+
+    .section-title  { font-size: 0.95rem; }
+    .panel-section  { margin-bottom: 20px; }
+
+    .data-table th,
+    .data-table td  { padding: 8px; font-size: 0.8rem; }
+    .badge          { font-size: 0.7rem; padding: 3px 8px; }
+
+    .welcome-avatar       { width: 48px; height: 48px; font-size: 1.1rem; }
+    .welcome-avatar.small { width: 30px; height: 30px; font-size: 0.85rem; line-height: 30px; }
+    .welcome-title        { font-size: 1.25rem; }
+    .welcome-subtitle     { font-size: 0.88rem; }
+
+    .meta-list      { font-size: 0.875rem; }
+    .global-footer  { font-size: 0.75rem; padding: 14px 0; }
+}
+
+/* 360px — very small phone */
+@media (max-width: 360px) {
+    .tab-item      { padding: 7px 8px; font-size: 0.76rem; }
+    .top-bar-title { font-size: 0.9rem; }
+    .section-title { font-size: 0.9rem; }
+    .data-table th,
+    .data-table td { padding: 6px; font-size: 0.76rem; }
+    .badge         { font-size: 0.66rem; padding: 2px 6px; }
 }
 
 /* ============================================================

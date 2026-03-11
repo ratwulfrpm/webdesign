@@ -90,7 +90,7 @@ $lang = currentLang();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title><?= t('forgot_page_title') ?></title>
-    <link rel="stylesheet" href="/apple-login/css/style.css?v=3">
+    <link rel="stylesheet" href="/apple-login/css/style.css?v=4">
 </head>
 <body>
 

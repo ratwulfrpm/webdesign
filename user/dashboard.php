@@ -48,7 +48,7 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('user_page_title') ?></title>
-    <link rel="stylesheet" href="/apple-login/css/style.css?v=3">
+    <link rel="stylesheet" href="/apple-login/css/style.css?v=4">
 </head>
 <body>
 
