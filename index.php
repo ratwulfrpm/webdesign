@@ -1,6 +1,6 @@
 <?php
 /**
- * /jshop/index.php — Login page
+ * /login/index.php — Login page
  *
  * Features:
  *  - Login form: username/email + password + CSRF
@@ -9,11 +9,11 @@
  *  - Idle-timeout / deactivation messages from query params
  *  - Language selector (ES / EN) via GET ?set_lang=xx
  *  - Role-based post-login redirect:
- *      owner            → /jshop/owner/index.php
- *      admin            → /jshop/admin/index.php
- *      supplier + first → /jshop/supplier/profile.php
- *      supplier         → /jshop/supplier/summary.php
- *      user             → /jshop/user/dashboard.php
+ *      owner            → /login/owner/index.php
+ *      admin            → /login/admin/index.php
+ *      supplier + first → /login/supplier/profile.php
+ *      supplier         → /login/supplier/summary.php
+ *      user             → /login/user/dashboard.php
  */
 
 // ── Security headers ─────────────────────────────────────────
@@ -47,7 +47,7 @@ if (isLoggedIn()) {
 
 // Pending session (credentials OK, awaiting org selection) → send to org-picker
 if (isPendingLogin()) {
-    header('Location: /jshop/org-picker.php');
+    header('Location: /login/org-picker.php');
     exit;
 }
 
@@ -95,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 // Multiple orgs — ask the user which one they want to enter
                 createPendingSession($result, $orgs);
-                header('Location: /jshop/org-picker.php');
+                header('Location: /login/org-picker.php');
                 exit;
             }
 
@@ -121,7 +121,7 @@ $lang = currentLang();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title><?= t('page_title') ?></title>
-    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=5">
 </head>
 <body>
 
@@ -179,7 +179,7 @@ $lang = currentLang();
         </div>
         <?php endif; ?>
 
-        <form method="POST" action="/jshop/index.php" novalidate autocomplete="on">
+        <form method="POST" action="/login/index.php" novalidate autocomplete="on">
             <?= csrfField() ?>
 
             <div class="form-group">
@@ -230,7 +230,7 @@ $lang = currentLang();
         </form>
 
         <div class="card-footer">
-            <a href="/jshop/forgot_password.php"><?= t('forgot_password') ?></a>
+            <a href="/login/forgot_password.php"><?= t('forgot_password') ?></a>
         </div>
     </div>
 

@@ -1,6 +1,6 @@
-﻿<?php
+<?php
 /**
- * includes/auth.php — Authentication & multi-org RBAC helpers.
+ * includes/auth.php � Authentication & multi-org RBAC helpers.
  *
  * Supported features:
  *  - Login with email or username + bcrypt password
@@ -36,15 +36,15 @@ define('ROLE_HIERARCHY', [
 ]);
 
 define('ROLE_HOME', [
-    'owner'    => '/jshop/owner/index.php',
-    'admin'    => '/jshop/admin/index.php',
-    'supplier' => '/jshop/supplier/summary.php',
-    'user'     => '/jshop/user/dashboard.php',
+    'owner'    => '/login/owner/index.php',
+    'admin'    => '/login/admin/index.php',
+    'supplier' => '/login/supplier/summary.php',
+    'user'     => '/login/user/dashboard.php',
 ]);
 
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 // AUTHENTICATION
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 
 function attemptLogin(string $identifier, string $password): array|string
 {
@@ -109,9 +109,9 @@ function attemptLogin(string $identifier, string $password): array|string
     return $user;
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 // ORGANIZATION HELPERS
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 
 /**
  * Returns all active org memberships for a user.
@@ -133,12 +133,12 @@ function getUserOrgs(int $userId): array
     return $stmt->fetchAll();
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 // SESSION MANAGEMENT
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 
 /**
- * Phase 1 — pending session: user authenticated, org not yet chosen.
+ * Phase 1 � pending session: user authenticated, org not yet chosen.
  * Used when user belongs to > 1 organization.
  */
 function createPendingSession(array $user, array $orgs): void
@@ -201,7 +201,7 @@ function selectOrg(int $orgId): bool
 }
 
 /**
- * Phase 2 — full session: user authenticated AND org already chosen.
+ * Phase 2 � full session: user authenticated AND org already chosen.
  * Used when user belongs to exactly 1 organization (skip picker).
  */
 function createSession(array $user, array $org): void
@@ -246,16 +246,16 @@ function requireAuth(): void
 {
     if (!isLoggedIn()) {
         if (isPendingLogin()) {
-            header('Location: /jshop/org-picker.php');
+            header('Location: /login/org-picker.php');
             exit;
         }
-        header('Location: /jshop/index.php');
+        header('Location: /login/index.php');
         exit;
     }
 
     if ((time() - ($_SESSION['last_activity'] ?? 0)) > IDLE_TIMEOUT) {
         destroySession();
-        header('Location: /jshop/index.php?reason=timeout');
+        header('Location: /login/index.php?reason=timeout');
         exit;
     }
     $_SESSION['last_activity'] = time();
@@ -267,7 +267,7 @@ function requireAuth(): void
         $row  = $stmt->fetch();
         if (!$row || !(int) $row['is_active']) {
             destroySession();
-            header('Location: /jshop/index.php?reason=deactivated');
+            header('Location: /login/index.php?reason=deactivated');
             exit;
         }
     } catch (PDOException $e) {
@@ -286,13 +286,13 @@ function requirePendingAuth(): void
     }
 
     if (!isPendingLogin()) {
-        header('Location: /jshop/index.php');
+        header('Location: /login/index.php');
         exit;
     }
 
     if ((time() - ($_SESSION['last_activity'] ?? 0)) > ORG_PICK_TIMEOUT) {
         destroySession();
-        header('Location: /jshop/index.php?reason=timeout');
+        header('Location: /login/index.php?reason=timeout');
         exit;
     }
     $_SESSION['last_activity'] = time();
@@ -310,9 +310,9 @@ function destroySession(): void
     session_destroy();
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 // RBAC
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 
 /**
  * Redirects to the user's home panel for their current org role.
@@ -324,12 +324,12 @@ function redirectToHome(): void
     $firstLogin = (int) ($_SESSION['first_login'] ?? 0);
 
     if ($role === 'supplier' && $firstLogin === 1) {
-        header('Location: /jshop/supplier/profile.php');
+        header('Location: /login/supplier/profile.php');
         exit;
     }
 
     $homes = ROLE_HOME;
-    header('Location: ' . ($homes[$role] ?? '/jshop/index.php'));
+    header('Location: ' . ($homes[$role] ?? '/login/index.php'));
     exit;
 }
 
@@ -342,7 +342,7 @@ function redirectToHome(): void
 function requireRole(array $allowed): void
 {
     if (!isLoggedIn()) {
-        header('Location: /jshop/index.php');
+        header('Location: /login/index.php');
         exit;
     }
     if (!in_array($_SESSION['role'] ?? '', $allowed, true)) {
@@ -353,9 +353,9 @@ function requireRole(array $allowed): void
 /**
  * True if $managerRole can manage $targetRole within the same org.
  *
- * owner  → manages everyone (incl. other owners)
- * admin  → manages supplier and user only
- * others → no management rights
+ * owner  ? manages everyone (incl. other owners)
+ * admin  ? manages supplier and user only
+ * others ? no management rights
  */
 function canManageRole(string $managerRole, string $targetRole): bool
 {

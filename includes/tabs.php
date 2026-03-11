@@ -30,12 +30,12 @@ function getTabsForRole(string $role): array
                 [
                     'id'    => 'profile',
                     'label' => t('tab_profile'),
-                    'url'   => '/jshop/supplier/profile.php',
+                    'url'   => '/login/supplier/profile.php',
                 ],
                 [
                     'id'    => 'summary',
                     'label' => t('tab_summary'),
-                    'url'   => '/jshop/supplier/summary.php',
+                    'url'   => '/login/supplier/summary.php',
                 ],
                 [
                     'id'       => 'documents',
@@ -56,7 +56,7 @@ function getTabsForRole(string $role): array
                 [
                     'id'    => 'users',
                     'label' => t('tab_users'),
-                    'url'   => '/jshop/admin/index.php',
+                    'url'   => '/login/admin/index.php',
                 ],
                 [
                     'id'       => 'reports',
@@ -77,7 +77,7 @@ function getTabsForRole(string $role): array
                 [
                     'id'    => 'users',
                     'label' => t('tab_users'),
-                    'url'   => '/jshop/owner/index.php',
+                    'url'   => '/login/owner/index.php',
                 ],
                 [
                     'id'       => 'reports',
@@ -98,7 +98,7 @@ function getTabsForRole(string $role): array
                 [
                     'id'    => 'dashboard',
                     'label' => t('tab_dashboard'),
-                    'url'   => '/jshop/user/dashboard.php',
+                    'url'   => '/login/user/dashboard.php',
                 ],
                 [
                     'id'       => 'history',

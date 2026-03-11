@@ -2,7 +2,7 @@
 /**
  * setup/generate_hash.php
  *
- * Run once in the browser: http://localhost/jshop/setup/generate_hash.php
+ * Run once in the browser: http://localhost/login/setup/generate_hash.php
  *
  * This script:
  *   1. Generates a fresh bcrypt hash for the demo password
@@ -146,7 +146,7 @@ $stmt->execute([
     <tr><td>Status</td><td class="ok">Ready</td></tr>
   </table>
 
-  <a class="btn" href="/jshop/">Go to login &rarr;</a>
+  <a class="btn" href="/login/">Go to login &rarr;</a>
 
   <div class="warn">
     ⚠️ <strong>Delete or rename this file after setup.</strong><br>

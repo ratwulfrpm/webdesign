@@ -1,6 +1,6 @@
 <?php
 /**
- * /jshop/user/dashboard.php — General user dashboard
+ * /login/user/dashboard.php — General user dashboard
  *
  * Access: role = 'user' only.
  * Features:
@@ -48,7 +48,7 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('user_page_title') ?></title>
-    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=5">
 </head>
 <body>
 
@@ -68,7 +68,7 @@ $lang     = currentLang();
                 <span class="org-badge"><?= htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8') ?></span>
             </span>
         </div>
-        <form method="POST" action="/jshop/logout.php" class="top-bar-logout">
+        <form method="POST" action="/login/logout.php" class="top-bar-logout">
             <input type="hidden" name="csrf_token"
                    value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
             <button type="submit" class="btn-secondary btn-sm">
@@ -109,7 +109,7 @@ $lang     = currentLang();
     (function () {
         const TIMEOUT_MS  = <?= IDLE_TIMEOUT * 1000 ?>;
         const WARNING_MS  = TIMEOUT_MS - 5 * 60 * 1000;
-        const LOGIN_URL   = '/jshop/index.php?reason=timeout';
+        const LOGIN_URL   = '/login/index.php?reason=timeout';
 
         let lastActivity  = Date.now();
         let warnShown     = false;
@@ -127,7 +127,7 @@ $lang     = currentLang();
                 warnShown = true;
                 if (window.confirm('Su sesión cerrará pronto por inactividad. ¿Desea continuar?')) {
                     resetTimer();
-                    fetch('/jshop/user/dashboard.php', { method: 'HEAD', credentials: 'same-origin' });
+                    fetch('/login/user/dashboard.php', { method: 'HEAD', credentials: 'same-origin' });
                 }
             }
         }, 10000);

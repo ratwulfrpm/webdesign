@@ -4,7 +4,7 @@
  * Run once from browser or CLI to apply the multi-org migration.
  * DELETE THIS FILE after running in production.
  *
- * Local URL: http://localhost/jshop/setup/run_migrate_orgs.php
+ * Local URL: http://localhost/login/setup/run_migrate_orgs.php
  */
 
 // Block if accessed from anywhere other than localhost

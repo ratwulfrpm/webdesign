@@ -5,7 +5,7 @@
  * MySQL 5.7 compatible: does NOT use ADD COLUMN IF NOT EXISTS.
  * Checks INFORMATION_SCHEMA before each ALTER.
  *
- * Run ONCE via browser: http://localhost/jshop/setup/run_migration2.php
+ * Run ONCE via browser: http://localhost/login/setup/run_migration2.php
  * Delete this file from the server after running.
  */
 

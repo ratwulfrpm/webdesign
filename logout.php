@@ -1,6 +1,6 @@
 <?php
 /**
- * /jshop/logout.php — Destroys session and redirects to login
+ * /login/logout.php — Destroys session and redirects to login
  */
 
 header('X-Frame-Options: DENY');
@@ -25,7 +25,7 @@ $isCancel = ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['cancel'] ?? '') ===
 if ($isCancel) {
     // Only allow cancellation if there is a pending (not fully logged-in) session
     if (!isPendingLogin()) {
-        header('Location: /jshop/index.php');
+        header('Location: /login/index.php');
         exit;
     }
 } else {
@@ -34,5 +34,5 @@ if ($isCancel) {
 
 destroySession();
 
-header('Location: /jshop/index.php');
+header('Location: /login/index.php');
 exit;

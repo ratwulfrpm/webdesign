@@ -1,6 +1,6 @@
 <?php
 /**
- * /jshop/supplier/profile.php — Perfil del proveedor
+ * /login/supplier/profile.php — Perfil del proveedor
  *
  * Sections: Información General, Información Legal,
  *           Dirección Oficina Principal, Dirección Fábrica, Contactos.
@@ -184,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
 
             $_SESSION['first_login'] = 0;
-            header('Location: /jshop/supplier/summary.php?saved=1');
+            header('Location: /login/supplier/summary.php?saved=1');
             exit;
         }
 
@@ -264,7 +264,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('profile_page_title') ?></title>
-    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=5">
 </head>
 <body>
 
@@ -284,7 +284,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                 <span class="org-badge"><?= htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8') ?></span>
             </span>
         </div>
-        <form method="POST" action="/jshop/logout.php" class="top-bar-logout">
+        <form method="POST" action="/login/logout.php" class="top-bar-logout">
             <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
             <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
         </form>
@@ -324,7 +324,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
             </div>
             <?php endif; ?>
 
-            <form method="POST" action="/jshop/supplier/profile.php" novalidate>
+            <form method="POST" action="/login/supplier/profile.php" novalidate>
                 <?= $csrfField ?>
                 <input type="hidden" name="action" value="save_profile">
 
@@ -608,12 +608,12 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                 <!-- ══ Form actions ═══════════════════════════════ -->
                 <div class="form-actions">
                     <?php if ($isFirstLogin): ?>
-                    <form method="POST" action="/jshop/logout.php" style="margin:0;">
+                    <form method="POST" action="/login/logout.php" style="margin:0;">
                         <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                         <button type="submit" class="btn-secondary"><?= t('btn_back') ?></button>
                     </form>
                     <?php else: ?>
-                    <a href="/jshop/supplier/summary.php" class="btn-secondary">
+                    <a href="/login/supplier/summary.php" class="btn-secondary">
                         <?= t('btn_back') ?>
                     </a>
                     <?php endif; ?>
@@ -664,7 +664,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                                     : '<span class="text-muted">' . t('contact_no') . '</span>' ?>
                             </td>
                             <td class="actions-cell">
-                                <form method="POST" action="/jshop/supplier/profile.php"
+                                <form method="POST" action="/login/supplier/profile.php"
                                       onsubmit="return confirm('<?= t('btn_delete') ?>?');"
                                       style="display:inline;">
                                     <?= $csrfField ?>
@@ -692,7 +692,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                 </div>
                 <?php endif; ?>
 
-                <form method="POST" action="/jshop/supplier/profile.php" novalidate>
+                <form method="POST" action="/login/supplier/profile.php" novalidate>
                     <?= $csrfField ?>
                     <input type="hidden" name="action" value="add_contact">
 
@@ -782,7 +782,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
         setInterval(() => {
             const idle = Date.now() - last;
             if (idle >= TIMEOUT_MS) {
-                window.location.href = '/jshop/index.php?reason=timeout';
+                window.location.href = '/login/index.php?reason=timeout';
             } else if (idle >= WARN_MS && !warned) {
                 warned = true;
                 if (confirm('Su sesión está por expirar. ¿Desea continuar?')) {

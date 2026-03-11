@@ -1,6 +1,6 @@
 <?php
 /**
- * /jshop/owner/index.php — Business-owner administration panel
+ * /login/owner/index.php — Business-owner administration panel
  *
  * Access: role = 'owner' only.
  * Features:
@@ -99,7 +99,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     // PRG — prevent re-submit on refresh
-    header('Location: /jshop/owner/index.php');
+    header('Location: /login/owner/index.php');
     exit;
 }
 
@@ -136,7 +136,7 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('owner_page_title') ?></title>
-    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=5">
 </head>
 <body>
 
@@ -156,7 +156,7 @@ $lang     = currentLang();
                 <span class="org-badge"><?= $orgName ?></span>
             </span>
         </div>
-        <form method="POST" action="/jshop/logout.php" class="top-bar-logout">
+        <form method="POST" action="/login/logout.php" class="top-bar-logout">
             <input type="hidden" name="csrf_token"
                    value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
             <button type="submit" class="btn-secondary btn-sm">
@@ -242,7 +242,7 @@ $lang     = currentLang();
                             <td class="actions-cell">
                                 <?php if (!$isSelf): ?>
                                 <!-- Activate / Deactivate -->
-                                <form method="POST" action="/jshop/owner/index.php" style="display:inline">
+                                <form method="POST" action="/login/owner/index.php" style="display:inline">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
@@ -258,7 +258,7 @@ $lang     = currentLang();
 
                                 <?php if ($isLocked): ?>
                                 <!-- Unlock -->
-                                <form method="POST" action="/jshop/owner/index.php" style="display:inline">
+                                <form method="POST" action="/login/owner/index.php" style="display:inline">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
@@ -269,7 +269,7 @@ $lang     = currentLang();
 
                                 <?php if (!$isSelf): ?>
                                 <!-- Change role -->
-                                <form method="POST" action="/jshop/owner/index.php" style="display:inline;margin-left:4px;">
+                                <form method="POST" action="/login/owner/index.php" style="display:inline;margin-left:4px;">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
@@ -331,7 +331,7 @@ $lang     = currentLang();
                             </td>
                             <td>
                                 <?php if ($r['status'] === 'pending'): ?>
-                                <form method="POST" action="/jshop/owner/index.php">
+                                <form method="POST" action="/login/owner/index.php">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="request_id" value="<?= (int) $r['id'] ?>">
@@ -361,7 +361,7 @@ $lang     = currentLang();
     (function () {
         const TIMEOUT_MS  = <?= IDLE_TIMEOUT * 1000 ?>;
         const WARNING_MS  = TIMEOUT_MS - 5 * 60 * 1000;
-        const LOGIN_URL   = '/jshop/index.php?reason=timeout';
+        const LOGIN_URL   = '/login/index.php?reason=timeout';
 
         let lastActivity  = Date.now();
         let warnShown     = false;
@@ -379,7 +379,7 @@ $lang     = currentLang();
                 warnShown = true;
                 if (window.confirm('Su sesión cerrará pronto por inactividad. ¿Desea continuar?')) {
                     resetTimer();
-                    fetch('/jshop/owner/index.php', { method: 'HEAD', credentials: 'same-origin' });
+                    fetch('/login/owner/index.php', { method: 'HEAD', credentials: 'same-origin' });
                 }
             }
         }, 10000);

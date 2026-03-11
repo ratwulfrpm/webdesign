@@ -1,6 +1,6 @@
 <?php
 /**
- * /jshop/org-picker.php — Organization selection page.
+ * /login/org-picker.php — Organization selection page.
  *
  * Shown when a user belongs to more than one organization.
  * The user clicks the org they want to enter; the system
@@ -61,7 +61,7 @@ $lang = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('org_picker_title') ?></title>
-    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=5">
 </head>
 <body>
 
@@ -113,7 +113,7 @@ $lang = currentLang();
         <!-- Org cards grid -->
         <div class="org-list" role="list">
             <?php foreach ($orgs as $org): ?>
-            <form method="POST" action="/jshop/org-picker.php" role="listitem">
+            <form method="POST" action="/login/org-picker.php" role="listitem">
                 <?= csrfField() ?>
                 <input type="hidden" name="org_id" value="<?= (int) $org['id'] ?>">
                 <button type="submit" class="org-card">
@@ -140,7 +140,7 @@ $lang = currentLang();
 
         <!-- Cancel / sign-out link -->
         <div class="card-footer" style="margin-top:20px;">
-            <a href="/jshop/logout.php?cancel=1"><?= t('org_picker_cancel') ?></a>
+            <a href="/login/logout.php?cancel=1"><?= t('org_picker_cancel') ?></a>
         </div>
     </div>
 
