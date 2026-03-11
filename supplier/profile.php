@@ -36,6 +36,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/tabs.php';
 
 requireAuth();
 initLang();
@@ -285,6 +286,8 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
             <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
         </form>
     </div>
+
+    <?= renderTabs('profile') ?>
 
     <div class="page-content">
 

@@ -32,6 +32,7 @@ require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/tabs.php';
 
 // Auth checks
 requireAuth();
@@ -150,6 +151,8 @@ $lang     = currentLang();
             </button>
         </form>
     </div>
+
+    <?= renderTabs('users') ?>
 
     <div class="page-content">
 

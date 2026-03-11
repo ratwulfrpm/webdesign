@@ -70,6 +70,22 @@ return [
     'user_session_info'   => 'You have signed in successfully.',
     'user_idle_notice'    => 'Your session will close automatically after %d minutes of inactivity.',
 
+    // ── Tab navigation ────────────────────────────────────────
+    'tab_nav_label'  => 'Sections',
+    'tab_coming_soon'=> 'Coming soon',
+    // Supplier tabs
+    'tab_profile'    => 'My Profile',
+    'tab_summary'    => 'Summary',
+    'tab_documents'  => 'Documents',
+    'tab_orders'     => 'Orders',
+    // Admin / Owner tabs
+    'tab_users'      => 'Users',
+    'tab_reports'    => 'Reports',
+    'tab_settings'   => 'Settings',
+    // User tabs
+    'tab_dashboard'  => 'My account',
+    'tab_history'    => 'History',
+
     // ── Admin ─────────────────────────────────────────────────
     'admin_page_title'     => 'Administration — Local App',
     'admin_title'          => 'System Administration',

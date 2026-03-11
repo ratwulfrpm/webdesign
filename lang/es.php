@@ -70,6 +70,22 @@ return [
     'user_session_info'   => 'Has iniciado sesión correctamente.',
     'user_idle_notice'    => 'Tu sesión cerrará automáticamente tras %d minutos de inactividad.',
 
+    // ── Tab navigation ────────────────────────────────────────
+    'tab_nav_label'  => 'Secciones',
+    'tab_coming_soon'=> 'Próximamente',
+    // Supplier tabs
+    'tab_profile'    => 'Mi Perfil',
+    'tab_summary'    => 'Resumen',
+    'tab_documents'  => 'Documentos',
+    'tab_orders'     => 'Pedidos',
+    // Admin / Owner tabs
+    'tab_users'      => 'Usuarios',
+    'tab_reports'    => 'Reportes',
+    'tab_settings'   => 'Configuración',
+    // User tabs
+    'tab_dashboard'  => 'Mi cuenta',
+    'tab_history'    => 'Historial',
+
     // ── Admin ─────────────────────────────────────────────────
     'admin_page_title'     => 'Administración — Local App',
     'admin_title'          => 'Administración del sistema',

@@ -29,6 +29,7 @@ session_start();
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
+require_once __DIR__ . '/../includes/tabs.php';
 
 // Auth + RBAC checks
 requireAuth();
@@ -72,6 +73,8 @@ $lang     = currentLang();
             </button>
         </form>
     </div>
+
+    <?= renderTabs('dashboard') ?>
 
     <div class="page-content">
 
