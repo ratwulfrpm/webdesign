@@ -126,7 +126,7 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('admin_page_title') ?></title>
-    <link rel="stylesheet" href="/apple-login/css/style.css">
+    <link rel="stylesheet" href="/apple-login/css/style.css?v=3">
 </head>
 <body>
 
