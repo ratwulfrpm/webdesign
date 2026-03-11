@@ -1,6 +1,6 @@
 <?php
 /**
- * /apple-login/user/dashboard.php — General user dashboard
+ * /jshop/user/dashboard.php — General user dashboard
  *
  * Access: role = 'user' only.
  * Features:
@@ -48,7 +48,7 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('user_page_title') ?></title>
-    <link rel="stylesheet" href="/apple-login/css/style.css?v=4">
+    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
 </head>
 <body>
 
@@ -63,9 +63,12 @@ $lang     = currentLang();
     <div class="top-bar">
         <div class="top-bar-brand">
             <div class="welcome-avatar small"><?= $initial ?></div>
-            <span class="top-bar-title"><?= t('user_title') ?></span>
+            <span class="top-bar-title">
+                <?= t('user_title') ?>
+                <span class="org-badge"><?= htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8') ?></span>
+            </span>
         </div>
-        <form method="POST" action="/apple-login/logout.php" class="top-bar-logout">
+        <form method="POST" action="/jshop/logout.php" class="top-bar-logout">
             <input type="hidden" name="csrf_token"
                    value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
             <button type="submit" class="btn-secondary btn-sm">
@@ -106,7 +109,7 @@ $lang     = currentLang();
     (function () {
         const TIMEOUT_MS  = <?= IDLE_TIMEOUT * 1000 ?>;
         const WARNING_MS  = TIMEOUT_MS - 5 * 60 * 1000;
-        const LOGIN_URL   = '/apple-login/index.php?reason=timeout';
+        const LOGIN_URL   = '/jshop/index.php?reason=timeout';
 
         let lastActivity  = Date.now();
         let warnShown     = false;
@@ -124,7 +127,7 @@ $lang     = currentLang();
                 warnShown = true;
                 if (window.confirm('Su sesión cerrará pronto por inactividad. ¿Desea continuar?')) {
                     resetTimer();
-                    fetch('/apple-login/user/dashboard.php', { method: 'HEAD', credentials: 'same-origin' });
+                    fetch('/jshop/user/dashboard.php', { method: 'HEAD', credentials: 'same-origin' });
                 }
             }
         }, 10000);

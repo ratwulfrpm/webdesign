@@ -1,6 +1,6 @@
 <?php
 /**
- * /apple-login/index.php — Login page
+ * /jshop/index.php — Login page
  *
  * Features:
  *  - Login form: username/email + password + CSRF
@@ -9,11 +9,11 @@
  *  - Idle-timeout / deactivation messages from query params
  *  - Language selector (ES / EN) via GET ?set_lang=xx
  *  - Role-based post-login redirect:
- *      owner            → /apple-login/owner/index.php
- *      admin            → /apple-login/admin/index.php
- *      supplier + first → /apple-login/supplier/profile.php
- *      supplier         → /apple-login/supplier/summary.php
- *      user             → /apple-login/user/dashboard.php
+ *      owner            → /jshop/owner/index.php
+ *      admin            → /jshop/admin/index.php
+ *      supplier + first → /jshop/supplier/profile.php
+ *      supplier         → /jshop/supplier/summary.php
+ *      user             → /jshop/user/dashboard.php
  */
 
 // ── Security headers ─────────────────────────────────────────
@@ -39,9 +39,15 @@ require_once __DIR__ . '/includes/lang.php';
 // Language selection (PRG — returns if set_lang present)
 initLang();
 
-// Already logged in → send to the correct dashboard
+// Already fully logged in → send to the correct dashboard
 if (isLoggedIn()) {
     redirectToHome();
+    exit;
+}
+
+// Pending session (credentials OK, awaiting org selection) → send to org-picker
+if (isPendingLogin()) {
+    header('Location: /jshop/org-picker.php');
     exit;
 }
 
@@ -75,10 +81,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $result = attemptLogin($identifier, $password);
 
         if (is_array($result)) {
-            // Success — build session and redirect by role
-            createSession($result);
-            redirectToHome();
-            exit;
+            // Success — look up which organizations this user belongs to
+            $orgs = getUserOrgs((int) $result['id']);
+
+            if (empty($orgs)) {
+                // Authenticated but no org membership configured
+                $error = t('error_no_org');
+            } elseif (count($orgs) === 1) {
+                // Exactly one org — auto-select it and go straight to the panel
+                createSession($result, $orgs[0]);
+                redirectToHome();
+                exit;
+            } else {
+                // Multiple orgs — ask the user which one they want to enter
+                createPendingSession($result, $orgs);
+                header('Location: /jshop/org-picker.php');
+                exit;
+            }
 
         } elseif (strpos($result, 'LOCKED:') === 0) {
             $minutes = (int) substr($result, 7);
@@ -102,7 +121,7 @@ $lang = currentLang();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title><?= t('page_title') ?></title>
-    <link rel="stylesheet" href="/apple-login/css/style.css?v=4">
+    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
 </head>
 <body>
 
@@ -160,7 +179,7 @@ $lang = currentLang();
         </div>
         <?php endif; ?>
 
-        <form method="POST" action="/apple-login/index.php" novalidate autocomplete="on">
+        <form method="POST" action="/jshop/index.php" novalidate autocomplete="on">
             <?= csrfField() ?>
 
             <div class="form-group">
@@ -211,7 +230,7 @@ $lang = currentLang();
         </form>
 
         <div class="card-footer">
-            <a href="/apple-login/forgot_password.php"><?= t('forgot_password') ?></a>
+            <a href="/jshop/forgot_password.php"><?= t('forgot_password') ?></a>
         </div>
     </div>
 

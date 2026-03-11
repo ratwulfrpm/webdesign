@@ -1,6 +1,6 @@
 <?php
 /**
- * /apple-login/supplier/summary.php — Supplier main dashboard
+ * /jshop/supplier/summary.php — Supplier main dashboard
  *
  * Access: role = 'supplier' and first_login = 0 only.
  * If first_login is still 1, redirects to profile.php.
@@ -35,7 +35,7 @@ requireRole(['supplier']);
 
 // First-login guard — must complete profile first
 if ((int) ($_SESSION['first_login'] ?? 1) === 1) {
-    header('Location: /apple-login/supplier/profile.php');
+    header('Location: /jshop/supplier/profile.php');
     exit;
 }
 
@@ -62,7 +62,7 @@ $profile = $stmt->fetch();
 
 if (!$profile) {
     destroySession();
-    header('Location: /apple-login/index.php');
+    header('Location: /jshop/index.php');
     exit;
 }
 
@@ -83,7 +83,7 @@ $esc = fn($v) => htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8');
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('summary_page_title') ?></title>
-    <link rel="stylesheet" href="/apple-login/css/style.css?v=4">
+    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
 </head>
 <body>
 
@@ -98,9 +98,12 @@ $esc = fn($v) => htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8');
     <div class="top-bar">
         <div class="top-bar-brand">
             <div class="welcome-avatar small"><?= $initial ?></div>
-            <span class="top-bar-title"><?= $username ?></span>
+            <span class="top-bar-title">
+                <?= $username ?>
+                <span class="org-badge"><?= htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8') ?></span>
+            </span>
         </div>
-        <form method="POST" action="/apple-login/logout.php" class="top-bar-logout">
+        <form method="POST" action="/jshop/logout.php" class="top-bar-logout">
             <input type="hidden" name="csrf_token"
                    value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
             <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
@@ -211,7 +214,7 @@ $esc = fn($v) => htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8');
 
             <!-- Actions row -->
             <div style="display:flex; gap:12px; flex-wrap:wrap; justify-content:center; margin-top:4px;">
-                <a href="/apple-login/supplier/profile.php" class="btn-secondary">
+                <a href="/jshop/supplier/profile.php" class="btn-secondary">
                     <?= t('edit_profile') ?>
                 </a>
             </div>
@@ -233,7 +236,7 @@ $esc = fn($v) => htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8');
         );
         setInterval(() => {
             if (Date.now() - last >= TIMEOUT_MS) {
-                window.location.href = '/apple-login/index.php?reason=timeout';
+                window.location.href = '/jshop/index.php?reason=timeout';
             }
         }, 10000);
     })();

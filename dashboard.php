@@ -1,6 +1,6 @@
 <?php
 /**
- * /apple-login/dashboard.php
+ * /jshop/dashboard.php
  * Legacy entry point — redirects to the correct role-based screen.
  */
 session_set_cookie_params([
@@ -17,10 +17,10 @@ require_once __DIR__ . '/includes/auth.php';
 requireAuth();
 
 if ($_SESSION['role'] === 'admin') {
-    header('Location: /apple-login/admin/index.php');
+    header('Location: /jshop/admin/index.php');
 } elseif ((int) ($_SESSION['first_login'] ?? 1) === 1) {
-    header('Location: /apple-login/supplier/profile.php');
+    header('Location: /jshop/supplier/profile.php');
 } else {
-    header('Location: /apple-login/supplier/summary.php');
+    header('Location: /jshop/supplier/summary.php');
 }
 exit;

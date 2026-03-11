@@ -1,6 +1,6 @@
 <?php
 /**
- * /apple-login/forgot_password.php — Password request form
+ * /jshop/forgot_password.php — Password request form
  *
  * The supplier fills in company name, email, and optional username.
  * The request is stored in the password_requests table and an email
@@ -90,7 +90,7 @@ $lang = currentLang();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title><?= t('forgot_page_title') ?></title>
-    <link rel="stylesheet" href="/apple-login/css/style.css?v=4">
+    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
 </head>
 <body>
 
@@ -130,7 +130,7 @@ $lang = currentLang();
                 <span><?= t('forgot_success') ?></span>
             </div>
 
-            <a href="/apple-login/index.php" class="btn-secondary" style="display:flex;margin-top:8px;">
+            <a href="/jshop/index.php" class="btn-secondary" style="display:flex;margin-top:8px;">
                 &larr; <?= t('btn_back') ?>
             </a>
 
@@ -147,7 +147,7 @@ $lang = currentLang();
             </div>
             <?php endif; ?>
 
-            <form method="POST" action="/apple-login/forgot_password.php" novalidate>
+            <form method="POST" action="/jshop/forgot_password.php" novalidate>
                 <?= csrfField() ?>
 
                 <div class="form-group">
@@ -214,7 +214,7 @@ $lang = currentLang();
                 <button type="submit" class="btn-primary"><?= t('btn_request') ?></button>
 
                 <div style="margin-top:14px; text-align:center;">
-                    <a href="/apple-login/index.php" class="card-footer-link">
+                    <a href="/jshop/index.php" class="card-footer-link">
                         &larr; <?= t('btn_back') ?>
                     </a>
                 </div>

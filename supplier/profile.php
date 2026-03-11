@@ -1,6 +1,6 @@
 <?php
 /**
- * /apple-login/supplier/profile.php — Perfil del proveedor
+ * /jshop/supplier/profile.php — Perfil del proveedor
  *
  * Sections: Información General, Información Legal,
  *           Dirección Oficina Principal, Dirección Fábrica, Contactos.
@@ -184,7 +184,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
 
             $_SESSION['first_login'] = 0;
-            header('Location: /apple-login/supplier/summary.php?saved=1');
+            header('Location: /jshop/supplier/summary.php?saved=1');
             exit;
         }
 
@@ -264,7 +264,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('profile_page_title') ?></title>
-    <link rel="stylesheet" href="/apple-login/css/style.css?v=4">
+    <link rel="stylesheet" href="/jshop/css/style.css?v=5">
 </head>
 <body>
 
@@ -279,9 +279,12 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
     <div class="top-bar">
         <div class="top-bar-brand">
             <div class="welcome-avatar small"><?= $initial ?></div>
-            <span class="top-bar-title"><?= $username ?></span>
+            <span class="top-bar-title">
+                <?= $username ?>
+                <span class="org-badge"><?= htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8') ?></span>
+            </span>
         </div>
-        <form method="POST" action="/apple-login/logout.php" class="top-bar-logout">
+        <form method="POST" action="/jshop/logout.php" class="top-bar-logout">
             <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
             <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
         </form>
@@ -321,7 +324,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
             </div>
             <?php endif; ?>
 
-            <form method="POST" action="/apple-login/supplier/profile.php" novalidate>
+            <form method="POST" action="/jshop/supplier/profile.php" novalidate>
                 <?= $csrfField ?>
                 <input type="hidden" name="action" value="save_profile">
 
@@ -605,12 +608,12 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                 <!-- ══ Form actions ═══════════════════════════════ -->
                 <div class="form-actions">
                     <?php if ($isFirstLogin): ?>
-                    <form method="POST" action="/apple-login/logout.php" style="margin:0;">
+                    <form method="POST" action="/jshop/logout.php" style="margin:0;">
                         <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
                         <button type="submit" class="btn-secondary"><?= t('btn_back') ?></button>
                     </form>
                     <?php else: ?>
-                    <a href="/apple-login/supplier/summary.php" class="btn-secondary">
+                    <a href="/jshop/supplier/summary.php" class="btn-secondary">
                         <?= t('btn_back') ?>
                     </a>
                     <?php endif; ?>
@@ -661,7 +664,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                                     : '<span class="text-muted">' . t('contact_no') . '</span>' ?>
                             </td>
                             <td class="actions-cell">
-                                <form method="POST" action="/apple-login/supplier/profile.php"
+                                <form method="POST" action="/jshop/supplier/profile.php"
                                       onsubmit="return confirm('<?= t('btn_delete') ?>?');"
                                       style="display:inline;">
                                     <?= $csrfField ?>
@@ -689,7 +692,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                 </div>
                 <?php endif; ?>
 
-                <form method="POST" action="/apple-login/supplier/profile.php" novalidate>
+                <form method="POST" action="/jshop/supplier/profile.php" novalidate>
                     <?= $csrfField ?>
                     <input type="hidden" name="action" value="add_contact">
 
@@ -779,7 +782,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
         setInterval(() => {
             const idle = Date.now() - last;
             if (idle >= TIMEOUT_MS) {
-                window.location.href = '/apple-login/index.php?reason=timeout';
+                window.location.href = '/jshop/index.php?reason=timeout';
             } else if (idle >= WARN_MS && !warned) {
                 warned = true;
                 if (confirm('Su sesión está por expirar. ¿Desea continuar?')) {

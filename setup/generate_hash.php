@@ -2,7 +2,7 @@
 /**
  * setup/generate_hash.php
  *
- * Run once in the browser: http://localhost/apple-login/setup/generate_hash.php
+ * Run once in the browser: http://localhost/jshop/setup/generate_hash.php
  *
  * This script:
  *   1. Generates a fresh bcrypt hash for the demo password
@@ -112,7 +112,7 @@ $stmt->execute([
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Setup — apple-login</title>
+<title>Setup — jshop</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
          background:#f5f5f7; display:flex; align-items:center; justify-content:center;
@@ -146,11 +146,11 @@ $stmt->execute([
     <tr><td>Status</td><td class="ok">Ready</td></tr>
   </table>
 
-  <a class="btn" href="/apple-login/">Go to login &rarr;</a>
+  <a class="btn" href="/jshop/">Go to login &rarr;</a>
 
   <div class="warn">
     ⚠️ <strong>Delete or rename this file after setup.</strong><br>
-    <code>C:\MAMP\htdocs\apple-login\setup\generate_hash.php</code><br>
+    <code>C:\MAMP\htdocs\jshop\setup\generate_hash.php</code><br>
     Leaving setup scripts publicly accessible is a security risk.
   </div>
 </div>

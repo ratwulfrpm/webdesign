@@ -1,6 +1,6 @@
 <?php
 /**
- * /apple-login/logout.php — Destroys session and redirects to login
+ * /jshop/logout.php — Destroys session and redirects to login
  */
 
 header('X-Frame-Options: DENY');
@@ -18,12 +18,21 @@ session_start();
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/csrf.php';
 
-// Only accept POST with valid CSRF token to prevent logout CSRF
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+// Normal logout: POST with CSRF token
+// Cancel from org-picker: GET with ?cancel=1 (pending session only — no CSRF needed)
+$isCancel = ($_SERVER['REQUEST_METHOD'] === 'GET' && ($_GET['cancel'] ?? '') === '1');
+
+if ($isCancel) {
+    // Only allow cancellation if there is a pending (not fully logged-in) session
+    if (!isPendingLogin()) {
+        header('Location: /jshop/index.php');
+        exit;
+    }
+} else {
     csrfValidate();
 }
 
 destroySession();
 
-header('Location: /apple-login/index.php');
+header('Location: /jshop/index.php');
 exit;

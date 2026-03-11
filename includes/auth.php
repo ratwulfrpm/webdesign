@@ -1,50 +1,54 @@
-<?php
+﻿<?php
 /**
- * Authentication helpers.
+ * includes/auth.php — Authentication & multi-org RBAC helpers.
  *
- * Features implemented:
+ * Supported features:
  *  - Login with email or username + bcrypt password
  *  - Lockout after 3 failed attempts for 1 hour
  *  - is_active check on login
- *  - Role-aware session (owner / admin / supplier / user)
- *  - first_login flag for supplier routing
+ *  - Multi-organization RBAC: user belongs to one or more orgs,
+ *    each with an independent role (owner / admin / supplier / user)
+ *  - Two-phase session:
+ *      Phase 1 (pending):  credentials valid, awaiting org selection
+ *      Phase 2 (active):   org chosen, full session with role context
+ *  - Org-picker redirect when user has access to more than 1 organization
  *  - Language preference loaded into session
  *  - Idle-timeout enforcement (30 minutes)
  *  - Per-request DB revalidation of is_active
- *  - RBAC helpers: requireRole(), canManageRole(), getRoleRedirect()
  */
 
 require_once __DIR__ . '/../config/db.php';
 
-/** Maximum consecutive failed login attempts before lockout. */
 define('MAX_ATTEMPTS', 3);
-
-/** Lockout duration in seconds (1 hour). */
 define('LOCKOUT_SECS', 3600);
-
-/** Idle timeout in seconds (30 minutes). */
 define('IDLE_TIMEOUT', 1800);
+define('ORG_PICK_TIMEOUT', 300);
 
-// ── Error codes returned by attemptLogin() ────────────────────
 define('AUTH_INVALID',  'INVALID');
 define('AUTH_INACTIVE', 'INACTIVE');
-// Locked returns 'LOCKED:<minutes_remaining>'
+define('AUTH_NO_ORG',   'NO_ORG');
 
-/**
- * Attempts to authenticate a user.
- *
- * @param  string $identifier  Email or username
- * @param  string $password    Plain-text password
- * @return array|string        Full user row on success.
- *                             String error code on failure:
- *                              'INVALID'     — user not found or wrong password
- *                              'INACTIVE'    — account disabled by admin
- *                              'LOCKED:<n>'  — account locked, n minutes remaining
- */
+define('ROLE_HIERARCHY', [
+    'owner'    => 4,
+    'admin'    => 3,
+    'supplier' => 2,
+    'user'     => 1,
+]);
+
+define('ROLE_HOME', [
+    'owner'    => '/jshop/owner/index.php',
+    'admin'    => '/jshop/admin/index.php',
+    'supplier' => '/jshop/supplier/summary.php',
+    'user'     => '/jshop/user/dashboard.php',
+]);
+
+// ═══════════════════════════════════════════════════════════════
+// AUTHENTICATION
+// ═══════════════════════════════════════════════════════════════
+
 function attemptLogin(string $identifier, string $password): array|string
 {
     $identifier = trim($identifier);
-
     if ($identifier === '' || $password === '') {
         return AUTH_INVALID;
     }
@@ -55,193 +59,264 @@ function attemptLogin(string $identifier, string $password): array|string
                 is_active, role, failed_attempts, locked_until,
                 first_login, preferred_language
            FROM users
-          WHERE email = :email OR username = :username
+          WHERE email = :e OR username = :u
           LIMIT 1'
     );
-    $stmt->execute([':email' => $identifier, ':username' => $identifier]);
+    $stmt->execute([':e' => $identifier, ':u' => $identifier]);
     $user = $stmt->fetch();
 
     if (!$user) {
-        // Timing-safe dummy verify — prevents user-enumeration via response time
         password_verify($password, '$2y$12$invaliddummyhashfortimingequalityXXXXXXXXXXXXXXXXXXXXX');
         return AUTH_INVALID;
     }
 
-    // ── 1. Lockout check ─────────────────────────────────────
     if (!empty($user['locked_until'])) {
-        $lockedUntilTs = strtotime($user['locked_until']);
-        if (time() < $lockedUntilTs) {
-            $minutesLeft = (int) ceil(($lockedUntilTs - time()) / 60);
-            return 'LOCKED:' . $minutesLeft;
+        $ts = strtotime($user['locked_until']);
+        if (time() < $ts) {
+            return 'LOCKED:' . (int) ceil(($ts - time()) / 60);
         }
-        // Lockout expired — reset counters automatically
         $pdo->prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')
             ->execute([$user['id']]);
         $user['failed_attempts'] = 0;
         $user['locked_until']    = null;
     }
 
-    // ── 2. Verify password ───────────────────────────────────
     if (!password_verify($password, $user['password_hash'])) {
-        $newAttempts = (int) $user['failed_attempts'] + 1;
-
-        if ($newAttempts >= MAX_ATTEMPTS) {
-            $lockUntil = date('Y-m-d H:i:s', time() + LOCKOUT_SECS);
+        $n = (int) $user['failed_attempts'] + 1;
+        if ($n >= MAX_ATTEMPTS) {
+            $lock = date('Y-m-d H:i:s', time() + LOCKOUT_SECS);
             $pdo->prepare('UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?')
-                ->execute([$newAttempts, $lockUntil, $user['id']]);
+                ->execute([$n, $lock, $user['id']]);
             return 'LOCKED:60';
         }
-
         $pdo->prepare('UPDATE users SET failed_attempts = ? WHERE id = ?')
-            ->execute([$newAttempts, $user['id']]);
+            ->execute([$n, $user['id']]);
         return AUTH_INVALID;
     }
 
-    // ── 3. Active status check ───────────────────────────────
     if (!(int) $user['is_active']) {
         return AUTH_INACTIVE;
     }
 
-    // ── 4. Successful login — reset failure counters ─────────
     $pdo->prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')
         ->execute([$user['id']]);
 
-    // ── 5. Rehash if cost/algo changed ───────────────────────
     if (password_needs_rehash($user['password_hash'], PASSWORD_BCRYPT, ['cost' => 12])) {
-        $newHash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]);
         $pdo->prepare('UPDATE users SET password_hash = ? WHERE id = ?')
-            ->execute([$newHash, $user['id']]);
+            ->execute([password_hash($password, PASSWORD_BCRYPT, ['cost' => 12]), $user['id']]);
     }
 
     return $user;
 }
 
+// ═══════════════════════════════════════════════════════════════
+// ORGANIZATION HELPERS
+// ═══════════════════════════════════════════════════════════════
+
 /**
- * Creates a fully populated authenticated session.
- * Stores role, first_login flag, language preference, and activity timestamp.
+ * Returns all active org memberships for a user.
+ * Each element: ['id', 'slug', 'name', 'description', 'role']
  */
-function createSession(array $user): void
+function getUserOrgs(int $userId): array
 {
-    // Prevent session fixation
+    $pdo  = getDB();
+    $stmt = $pdo->prepare(
+        'SELECT o.id, o.slug, o.name, o.description, om.role
+           FROM org_members om
+           JOIN organizations o ON o.id = om.org_id
+          WHERE om.user_id  = ?
+            AND om.is_active = 1
+            AND o.is_active  = 1
+          ORDER BY o.name ASC'
+    );
+    $stmt->execute([$userId]);
+    return $stmt->fetchAll();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SESSION MANAGEMENT
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Phase 1 — pending session: user authenticated, org not yet chosen.
+ * Used when user belongs to > 1 organization.
+ */
+function createPendingSession(array $user, array $orgs): void
+{
     session_regenerate_id(true);
+    $_SESSION = [];
 
-    $_SESSION['user_id']       = (int) $user['id'];
-    $_SESSION['username']      = $user['username'];
-    $_SESSION['role']          = $user['role'];
-    $_SESSION['first_login']   = (int) $user['first_login'];
-    $_SESSION['logged_in']     = true;
-    $_SESSION['last_activity'] = time();
-
-    // Load user's stored language preference (fallback: es)
-    if (!empty($user['preferred_language'])) {
-        $_SESSION['lang'] = $user['preferred_language'];
-    }
+    $_SESSION['pending_login']       = true;
+    $_SESSION['pending_user_id']     = (int) $user['id'];
+    $_SESSION['pending_username']    = $user['username'];
+    $_SESSION['pending_first_login'] = (int) $user['first_login'];
+    $_SESSION['pending_orgs']        = $orgs;
+    $_SESSION['lang']                = $user['preferred_language'] ?? 'es';
+    $_SESSION['last_activity']       = time();
 }
 
 /**
- * Returns true only when a valid, complete session exists.
+ * Promotes a pending session to a full session by selecting an org.
+ *
+ * @param  int  $orgId  Organization ID the user clicked
+ * @return bool         False if org not in user's pending list
  */
+function selectOrg(int $orgId): bool
+{
+    if (empty($_SESSION['pending_login'])) {
+        return false;
+    }
+
+    $found = null;
+    foreach ($_SESSION['pending_orgs'] as $org) {
+        if ((int) $org['id'] === $orgId) {
+            $found = $org;
+            break;
+        }
+    }
+    if ($found === null) {
+        return false;
+    }
+
+    $userId     = (int) $_SESSION['pending_user_id'];
+    $username   = $_SESSION['pending_username'];
+    $firstLogin = (int) ($_SESSION['pending_first_login'] ?? 1);
+    $lang       = $_SESSION['lang'] ?? 'es';
+
+    session_regenerate_id(true);
+    $_SESSION = [];
+
+    $_SESSION['logged_in']     = true;
+    $_SESSION['user_id']       = $userId;
+    $_SESSION['username']      = $username;
+    $_SESSION['role']          = $found['role'];
+    $_SESSION['org_id']        = (int) $found['id'];
+    $_SESSION['org_slug']      = $found['slug'];
+    $_SESSION['org_name']      = $found['name'];
+    $_SESSION['first_login']   = $firstLogin;
+    $_SESSION['lang']          = $lang;
+    $_SESSION['last_activity'] = time();
+
+    return true;
+}
+
+/**
+ * Phase 2 — full session: user authenticated AND org already chosen.
+ * Used when user belongs to exactly 1 organization (skip picker).
+ */
+function createSession(array $user, array $org): void
+{
+    session_regenerate_id(true);
+    $_SESSION = [];
+
+    $_SESSION['logged_in']     = true;
+    $_SESSION['user_id']       = (int) $user['id'];
+    $_SESSION['username']      = $user['username'];
+    $_SESSION['role']          = $org['role'];
+    $_SESSION['org_id']        = (int) $org['id'];
+    $_SESSION['org_slug']      = $org['slug'];
+    $_SESSION['org_name']      = $org['name'];
+    $_SESSION['first_login']   = (int) $user['first_login'];
+    $_SESSION['lang']          = $user['preferred_language'] ?? 'es';
+    $_SESSION['last_activity'] = time();
+}
+
+/** True only when a full (org-selected) session is active. */
 function isLoggedIn(): bool
 {
     return !empty($_SESSION['logged_in'])
         && !empty($_SESSION['user_id'])
-        && !empty($_SESSION['role']);
+        && !empty($_SESSION['role'])
+        && !empty($_SESSION['org_id']);
+}
+
+/** True when a pending (pre-org-selection) session is active. */
+function isPendingLogin(): bool
+{
+    return !empty($_SESSION['pending_login'])
+        && !empty($_SESSION['pending_user_id'])
+        && !empty($_SESSION['pending_orgs']);
 }
 
 /**
- * Protects any page that requires authentication.
- *
- * Enforces:
- *  1. Session existence
- *  2. 30-minute idle timeout
- *  3. DB revalidation that user is still active
- *
- * Call at the very top of every protected page, after session_start().
+ * Guard for fully-authenticated pages.
+ * Enforces idle timeout and DB revalidation.
  */
 function requireAuth(): void
 {
     if (!isLoggedIn()) {
-        header('Location: /apple-login/index.php');
+        if (isPendingLogin()) {
+            header('Location: /jshop/org-picker.php');
+            exit;
+        }
+        header('Location: /jshop/index.php');
         exit;
     }
 
-    // Idle timeout — close session after 30 minutes of inactivity
-    $lastActivity = $_SESSION['last_activity'] ?? 0;
-    if ((time() - $lastActivity) > IDLE_TIMEOUT) {
+    if ((time() - ($_SESSION['last_activity'] ?? 0)) > IDLE_TIMEOUT) {
         destroySession();
-        header('Location: /apple-login/index.php?reason=timeout');
+        header('Location: /jshop/index.php?reason=timeout');
         exit;
     }
-
-    // Refresh activity timestamp on every authenticated request
     $_SESSION['last_activity'] = time();
 
-    // DB revalidation: ensure the user has not been deactivated since login
     try {
         $pdo  = getDB();
         $stmt = $pdo->prepare('SELECT is_active FROM users WHERE id = ? LIMIT 1');
         $stmt->execute([(int) $_SESSION['user_id']]);
-        $row = $stmt->fetch();
-
+        $row  = $stmt->fetch();
         if (!$row || !(int) $row['is_active']) {
             destroySession();
-            header('Location: /apple-login/index.php?reason=deactivated');
+            header('Location: /jshop/index.php?reason=deactivated');
             exit;
         }
     } catch (PDOException $e) {
         error_log('requireAuth DB check failed: ' . $e->getMessage());
-        // On DB failure we do NOT kick the user out — fail open to avoid
-        // locking everyone out during a DB hiccup. Log and continue.
     }
 }
 
 /**
- * Destroys the current session and clears its cookie.
+ * Guard for the org-picker page.
+ * Redirects away if already fully logged in or not authenticated at all.
  */
+function requirePendingAuth(): void
+{
+    if (isLoggedIn()) {
+        redirectToHome();
+    }
+
+    if (!isPendingLogin()) {
+        header('Location: /jshop/index.php');
+        exit;
+    }
+
+    if ((time() - ($_SESSION['last_activity'] ?? 0)) > ORG_PICK_TIMEOUT) {
+        destroySession();
+        header('Location: /jshop/index.php?reason=timeout');
+        exit;
+    }
+    $_SESSION['last_activity'] = time();
+}
+
+/** Destroys the current session and clears its cookie. */
 function destroySession(): void
 {
     $_SESSION = [];
     if (ini_get('session.use_cookies')) {
-        $params = session_get_cookie_params();
-        setcookie(
-            session_name(),
-            '',
-            time() - 42000,
-            $params['path'],
-            $params['domain'],
-            $params['secure'],
-            $params['httponly']
-        );
+        $p = session_get_cookie_params();
+        setcookie(session_name(), '', time() - 42000,
+            $p['path'], $p['domain'], $p['secure'], $p['httponly']);
     }
     session_destroy();
 }
 
-// ── RBAC ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// RBAC
+// ═══════════════════════════════════════════════════════════════
 
 /**
- * Role hierarchy weights. Higher = more privileges.
- * Useful for comparisons:  ROLE_HIERARCHY['owner'] > ROLE_HIERARCHY['admin']
- */
-define('ROLE_HIERARCHY', [
-    'owner'    => 4,
-    'admin'    => 3,
-    'supplier' => 2,
-    'user'     => 1,
-]);
-
-/**
- * Allowed role → home URL map used for post-login redirect and guard redirects.
- */
-define('ROLE_HOME', [
-    'owner'    => '/apple-login/owner/index.php',
-    'admin'    => '/apple-login/admin/index.php',
-    'supplier' => '/apple-login/supplier/summary.php',
-    'user'     => '/apple-login/user/dashboard.php',
-]);
-
-/**
- * Redirects to the user's home panel and exits.
- * Respects the supplier first_login flag.
+ * Redirects to the user's home panel for their current org role.
+ * Respects supplier first_login flag.
  */
 function redirectToHome(): void
 {
@@ -249,58 +324,47 @@ function redirectToHome(): void
     $firstLogin = (int) ($_SESSION['first_login'] ?? 0);
 
     if ($role === 'supplier' && $firstLogin === 1) {
-        header('Location: /apple-login/supplier/profile.php');
+        header('Location: /jshop/supplier/profile.php');
         exit;
     }
 
     $homes = ROLE_HOME;
-    $url   = $homes[$role] ?? '/apple-login/index.php';
-    header('Location: ' . $url);
+    header('Location: ' . ($homes[$role] ?? '/jshop/index.php'));
     exit;
 }
 
 /**
- * Ensures the current session holds one of the $allowed roles.
- * Requires requireAuth() to have been called first.
- * On failure, redirects to the user's own panel (or login if unauthenticated).
+ * Ensures the current session has one of the $allowed roles.
+ * requireAuth() must have been called first.
  *
- * @param string[] $allowed  Role names that are permitted, e.g. ['owner','admin']
+ * @param string[] $allowed  e.g. ['owner', 'admin']
  */
 function requireRole(array $allowed): void
 {
     if (!isLoggedIn()) {
-        header('Location: /apple-login/index.php');
+        header('Location: /jshop/index.php');
         exit;
     }
-
-    $role = $_SESSION['role'] ?? '';
-    if (!in_array($role, $allowed, true)) {
-        // Send them to their own home, not back to login
+    if (!in_array($_SESSION['role'] ?? '', $allowed, true)) {
         redirectToHome();
     }
 }
 
 /**
- * Returns true if $managerRole is allowed to manage $targetRole.
+ * True if $managerRole can manage $targetRole within the same org.
  *
- * Hierarchy:
- *  owner   → can manage owner, admin, supplier, user (everyone)
- *  admin   → can manage supplier, user only
- *  others  → no management rights
+ * owner  → manages everyone (incl. other owners)
+ * admin  → manages supplier and user only
+ * others → no management rights
  */
 function canManageRole(string $managerRole, string $targetRole): bool
 {
-    $hierarchy = ROLE_HIERARCHY;
-
-    // owner can manage everyone (including other owners)
     if ($managerRole === 'owner') {
         return true;
     }
-
-    // admin can manage roles BELOW admin (supplier=2, user=1)
     if ($managerRole === 'admin') {
-        return isset($hierarchy[$targetRole]) && $hierarchy[$targetRole] < $hierarchy['admin'];
+        $h = ROLE_HIERARCHY;
+        return isset($h[$targetRole]) && $h[$targetRole] < $h['admin'];
     }
-
     return false;
 }

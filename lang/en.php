@@ -217,4 +217,11 @@ return [
     'field_phone'          => 'Phone',
     'field_email'          => 'Email',
     'not_provided'         => 'Not provided',
-];
+    // ── Multi-org / Org picker ─────────────────────────────────────
+    'error_no_org'         => 'Your account has no access to any organization. Contact the administrator.',
+    'error_org_invalid'    => 'Invalid organization selection. Please try again.',
+    'org_picker_title'     => 'Select organization — Local App',
+    'org_picker_heading'   => 'Which organization do you want to enter?',
+    'org_picker_subtitle'  => 'Your account “%s” has access to more than one organization.',
+    'org_picker_cancel'    => 'Cancel and sign in again',
+    'org_label'            => 'Organization',];

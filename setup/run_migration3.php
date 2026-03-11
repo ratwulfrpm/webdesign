@@ -7,7 +7,7 @@
  *  2. INSERT/UPDATE seed users: owner/owner, admin/admin, proveedor/proveedor, usuario/usuario
  *
  * MySQL 5.7 compatible.
- * Run ONCE via browser: http://localhost/apple-login/setup/run_migration3.php
+ * Run ONCE via browser: http://localhost/jshop/setup/run_migration3.php
  * Delete this file after running.
  */
 

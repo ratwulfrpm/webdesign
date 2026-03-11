@@ -30,12 +30,12 @@ function getTabsForRole(string $role): array
                 [
                     'id'    => 'profile',
                     'label' => t('tab_profile'),
-                    'url'   => '/apple-login/supplier/profile.php',
+                    'url'   => '/jshop/supplier/profile.php',
                 ],
                 [
                     'id'    => 'summary',
                     'label' => t('tab_summary'),
-                    'url'   => '/apple-login/supplier/summary.php',
+                    'url'   => '/jshop/supplier/summary.php',
                 ],
                 [
                     'id'       => 'documents',
@@ -56,7 +56,7 @@ function getTabsForRole(string $role): array
                 [
                     'id'    => 'users',
                     'label' => t('tab_users'),
-                    'url'   => '/apple-login/admin/index.php',
+                    'url'   => '/jshop/admin/index.php',
                 ],
                 [
                     'id'       => 'reports',
@@ -77,7 +77,7 @@ function getTabsForRole(string $role): array
                 [
                     'id'    => 'users',
                     'label' => t('tab_users'),
-                    'url'   => '/apple-login/owner/index.php',
+                    'url'   => '/jshop/owner/index.php',
                 ],
                 [
                     'id'       => 'reports',
@@ -98,7 +98,7 @@ function getTabsForRole(string $role): array
                 [
                     'id'    => 'dashboard',
                     'label' => t('tab_dashboard'),
-                    'url'   => '/apple-login/user/dashboard.php',
+                    'url'   => '/jshop/user/dashboard.php',
                 ],
                 [
                     'id'       => 'history',

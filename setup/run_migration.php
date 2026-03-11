@@ -1,7 +1,7 @@
 <?php
 /**
  * setup/run_migration.php
- * Open in browser: http://localhost/apple-login/setup/run_migration.php
+ * Open in browser: http://localhost/jshop/setup/run_migration.php
  * Applies schema changes (MySQL 5.7 compatible) and creates admin user.
  * DELETE this file after running.
  */
@@ -149,10 +149,10 @@ $log[] = ['ok', 'Columnas finales: ' . implode(', ', $finalCols)];
     <strong>Credenciales de administrador</strong><br>
     Usuario: <code>admin</code>&nbsp;&nbsp;|&nbsp;&nbsp;Clave: <code>admin</code>
   </div>
-  <a class="btn" href="/apple-login/index.php">Ir al login &rarr;</a>
+  <a class="btn" href="/jshop/index.php">Ir al login &rarr;</a>
   <div class="warnbox">
     Elimine este archivo despues de usarlo:<br>
-    <code>apple-login/setup/run_migration.php</code>
+    <code>jshop/setup/run_migration.php</code>
   </div>
 </div>
 </body>
