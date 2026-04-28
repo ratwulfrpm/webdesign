@@ -37,6 +37,7 @@ require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
+require_once __DIR__ . '/../includes/mailer.php';
 
 requireAuth();
 initLang();
@@ -71,10 +72,35 @@ function loadContacts(PDO $pdo, int $uid): array
 }
 $contacts = loadContacts($pdo, (int) $_SESSION['user_id']);
 
+// ── Email verification state (computed from DB, refreshed after POST) ────────
+function emailVerifyState(array $profile): array {
+    $pending = $profile['email_pending'] ?? null;
+    $expires = $profile['email_verify_expires'] ?? null;
+    if (!$pending) return ['pending' => false, 'expired' => false, 'time_left' => ''];
+    $expiresTs = $expires ? strtotime($expires) : 0;
+    $now       = time();
+    if ($expiresTs > $now) {
+        $secsLeft = $expiresTs - $now;
+        $h  = (int) floor($secsLeft / 3600);
+        $m  = (int) floor(($secsLeft % 3600) / 60);
+        $tl = ($h > 0 ? $h . 'h ' : '') . $m . 'min';
+        return ['pending' => true, 'expired' => false, 'time_left' => $tl];
+    }
+    return ['pending' => false, 'expired' => true, 'time_left' => ''];
+}
+
 // ── State variables ───────────────────────────────────────────
 $errors    = [];
 $flash     = '';
 $flashType = 'success';
+
+// GET-based flash messages (from PRG redirects)
+if (isset($_GET['ev'])) {
+    if ($_GET['ev'] === 'sent')    { $flash = t('email_verify_sent');    $flashType = 'info'; }
+    if ($_GET['ev'] === 'resent')  { $flash = t('email_verify_resent');  $flashType = 'info'; }
+    if ($_GET['ev'] === 'pending') { $flash = t('email_verify_already_pending'); $flashType = 'info'; }
+    if ($_GET['ev'] === 'done')    { $flash = t('email_verified_success'); $flashType = 'success'; }
+}
 
 // ── POST dispatcher ───────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -109,6 +135,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             'factory_country_id'      => (int) ($_POST['factory_country_id'] ?? 0),
         ];
 
+        // Contact email (triggers verification if different from current login email)
+        $contactEmail = mb_strtolower(mb_substr(trim($_POST['contact_email'] ?? ''), 0, 254));
+
         // Required fields
         $required = [
             'full_name'            => t('full_name_label'),
@@ -128,6 +157,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         if ($f['addr_country_id'] === 0) {
             $errors['addr_country_id'] = t('addr_country_label');
+        }
+        // Contact email — must be valid format if provided
+        if ($contactEmail !== '' && !filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+            $errors['contact_email'] = t('email_invalid');
         }
 
         if (empty($errors)) {
@@ -184,6 +217,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
 
             $_SESSION['first_login'] = 0;
+
+            // ── Email-change verification ────────────────────────────
+            if ($contactEmail !== '') {
+                $currentEmail  = strtolower(trim($profile['email'] ?? ''));
+                $pendingEmail  = strtolower(trim($profile['email_pending'] ?? ''));
+                $pendingExpiry = $profile['email_verify_expires'] ?? null;
+                $pendingActive = $pendingEmail !== ''
+                                 && $pendingExpiry !== null
+                                 && strtotime($pendingExpiry) > time();
+
+                if ($contactEmail !== $currentEmail) {
+                    if ($pendingActive && $contactEmail === $pendingEmail) {
+                        // Same email still within the 2h window — don't re-send, just remind
+                        header('Location: /login/supplier/profile.php?ev=pending');
+                    } else {
+                        // New email or re-attempt after expiry — start fresh verification
+                        $code    = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+                        $expires = date('Y-m-d H:i:s', time() + 7200); // 2 hours
+                        $pdo->prepare(
+                            'UPDATE users
+                                SET email_pending        = ?,
+                                    email_verify_code    = ?,
+                                    email_verify_expires = ?
+                              WHERE id = ?'
+                        )->execute([$contactEmail, $code, $expires, (int) $_SESSION['user_id']]);
+                        sendVerificationEmail($contactEmail, $code, $lang);
+                        header('Location: /login/supplier/profile.php?ev=sent');
+                    }
+                    exit;
+                }
+            }
+
             header('Location: /login/supplier/summary.php?saved=1');
             exit;
         }
@@ -238,6 +303,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $contacts  = loadContacts($pdo, (int) $_SESSION['user_id']);
             $flash     = t('contact_deleted');
         }
+
+    // ─── Action: verify_email ────────────────────────────────
+    } elseif ($action === 'verify_email') {
+
+        $uid        = (int) $_SESSION['user_id'];
+        $submitCode = mb_substr(trim($_POST['verify_code'] ?? ''), 0, 6);
+
+        // Re-fetch pending state fresh from DB (not from stale $profile)
+        $vStmt = $pdo->prepare(
+            'SELECT email_pending, email_verify_code, email_verify_expires FROM users WHERE id = ? LIMIT 1'
+        );
+        $vStmt->execute([$uid]);
+        $vr = $vStmt->fetch();
+
+        if (!$vr || empty($vr['email_pending'])) {
+            $errors['verify_code'] = t('email_verify_no_pending');
+        } elseif (empty($vr['email_verify_code'])) {
+            $errors['verify_code'] = t('email_verify_no_code');
+        } elseif (!$vr['email_verify_expires'] || strtotime($vr['email_verify_expires']) <= time()) {
+            $errors['verify_code'] = t('email_verify_expired');
+        } elseif (!hash_equals($vr['email_verify_code'], $submitCode)) {
+            $errors['verify_code'] = t('email_verify_wrong_code');
+        } else {
+            // Correct code — apply the new email and clear pending state
+            $pdo->prepare(
+                'UPDATE users
+                    SET email                = ?,
+                        email_pending        = NULL,
+                        email_verify_code    = NULL,
+                        email_verify_expires = NULL
+                  WHERE id = ?'
+            )->execute([$vr['email_pending'], $uid]);
+
+            // Refresh profile
+            $profileStmt->execute([$uid]);
+            $profile = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: $profile;
+
+            header('Location: /login/supplier/profile.php?ev=done');
+            exit;
+        }
+
+        // Refresh profile so the panel shows updated state
+        $profileStmt->execute([$uid]);
+        $profile = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: $profile;
+
+    // ─── Action: resend_verify ───────────────────────────────
+    } elseif ($action === 'resend_verify') {
+
+        $uid  = (int) $_SESSION['user_id'];
+        $vStmt2 = $pdo->prepare('SELECT email_pending FROM users WHERE id = ? LIMIT 1');
+        $vStmt2->execute([$uid]);
+        $vr2 = $vStmt2->fetch();
+
+        if (!empty($vr2['email_pending'])) {
+            $code    = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+            $expires = date('Y-m-d H:i:s', time() + 7200);
+            $pdo->prepare(
+                'UPDATE users SET email_verify_code = ?, email_verify_expires = ? WHERE id = ?'
+            )->execute([$code, $expires, $uid]);
+            sendVerificationEmail($vr2['email_pending'], $code, $lang);
+        }
+
+        header('Location: /login/supplier/profile.php?ev=resent');
+        exit;
     }
 }
 
@@ -255,6 +384,18 @@ $username  = htmlspecialchars($_SESSION['username'] ?? '', ENT_QUOTES, 'UTF-8');
 $initial   = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
 $csrfField = csrfField();
 $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
+
+// ── Email verification display helpers ────────────────────────
+$evState         = emailVerifyState($profile);
+$evPending       = $evState['pending'];     // code active, awaiting input
+$evExpired       = $evState['expired'];     // code expired
+$evTimeLeft      = $evState['time_left'];
+$evPendingEmail  = $esc($profile['email_pending'] ?? '');
+// Default value for contact_email field: pending email if set, else active email
+$contactEmailVal = $esc($profile['email_pending'] ?: $profile['email'] ?? '');
+// Dev mode: show the code in the UI when running on localhost (mail() unlikely to work)
+$isLocalDev      = in_array($_SERVER['SERVER_NAME'] ?? 'localhost', ['localhost', '127.0.0.1', '::1'], true);
+$devCode         = ($isLocalDev && $evPending) ? $esc($profile['email_verify_code'] ?? '') : '';
 ?>
 <!DOCTYPE html>
 <html lang="<?= $lang ?>">
@@ -303,6 +444,101 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                           stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <span><?= $esc($flash) ?></span>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($evPending): ?>
+        <!-- ═══════════════ EMAIL VERIFICATION BANNER ═══════════════ -->
+        <div class="email-verify-banner" style="max-width:760px;margin:0 auto 24px;">
+            <div class="evb-header">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <rect x="2" y="4" width="20" height="16" rx="3"
+                          stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M2 8l10 7 10-7" stroke="currentColor" stroke-width="1.5"
+                          stroke-linecap="round"/>
+                </svg>
+                <strong><?= t('email_verify_banner_title') ?></strong>
+            </div>
+            <p class="evb-desc">
+                <?= sprintf(t('email_verify_banner_desc'), '<strong>' . $evPendingEmail . '</strong>') ?>
+            </p>
+            <p class="evb-expires">
+                ⏱ <?= sprintf(t('email_verify_expires_in'), $evTimeLeft) ?>
+            </p>
+
+            <?php if ($devCode !== ''): ?>
+            <div class="evb-dev-notice">
+                <strong>🛠 Dev mode</strong> — código enviado a log (mail() no disponible en local):<br>
+                <span class="evb-dev-code" id="devCodeSpan"><?= $devCode ?></span>
+                <button type="button" onclick="navigator.clipboard.writeText('<?= $devCode ?>')
+                    .then(()=>this.textContent='✓')
+                    .catch(()=>{}); return false;"
+                    class="btn-copy-code" title="<?= t('btn_copy_code') ?>">
+                    <?= t('btn_copy_code') ?>
+                </button>
+            </div>
+            <?php endif; ?>
+
+            <form method="POST" action="/login/supplier/profile.php" novalidate
+                  class="evb-form" id="evbForm">
+                <?= $csrfField ?>
+                <input type="hidden" name="action" value="verify_email">
+                <div class="evb-code-row">
+                    <div class="evb-code-wrap">
+                        <label for="verify_code" class="sr-only"><?= t('email_verify_code_label') ?></label>
+                        <input type="text"
+                               id="verify_code"
+                               name="verify_code"
+                               inputmode="numeric"
+                               pattern="\d{6}"
+                               maxlength="6"
+                               placeholder="000000"
+                               autocomplete="one-time-code"
+                               spellcheck="false"
+                               class="evb-code-input<?= isset($errors['verify_code']) ? ' is-invalid' : '' ?>"
+                               autofocus>
+                    </div>
+                    <button type="submit" class="btn-primary evb-btn-verify">
+                        <?= t('email_verify_btn') ?>
+                    </button>
+                </div>
+                <?php if (isset($errors['verify_code'])): ?>
+                <span class="field-error" style="display:block;margin-top:6px;">
+                    <?= $esc($errors['verify_code']) ?>
+                </span>
+                <?php endif; ?>
+            </form>
+
+            <form method="POST" action="/login/supplier/profile.php" style="margin-top:10px;">
+                <?= $csrfField ?>
+                <input type="hidden" name="action" value="resend_verify">
+                <button type="submit" class="evb-resend-link">
+                    <?= t('email_verify_resend') ?>
+                </button>
+            </form>
+        </div>
+        <?php elseif ($evExpired): ?>
+        <!-- ═══════════════ EXPIRED VERIFICATION WARNING ═════════════ -->
+        <div class="email-verify-expired-banner" style="max-width:760px;margin:0 auto 24px;">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="7.25" stroke="#ff9500" stroke-width="1.5"/>
+                <line x1="8" y1="4.75" x2="8" y2="8.75"
+                      stroke="#ff9500" stroke-width="1.5" stroke-linecap="round"/>
+                <circle cx="8" cy="11" r=".75" fill="#ff9500"/>
+            </svg>
+            <div>
+                <strong><?= t('email_verify_expired_title') ?></strong>
+                <p style="margin:4px 0 10px;font-size:.85rem;color:#6e6e73;">
+                    <?= sprintf(t('email_verify_expired_desc'), '<strong>' . $evPendingEmail . '</strong>') ?>
+                </p>
+                <form method="POST" action="/login/supplier/profile.php" style="display:inline;">
+                    <?= $csrfField ?>
+                    <input type="hidden" name="action" value="resend_verify">
+                    <button type="submit" class="btn-secondary btn-sm">
+                        <?= t('email_verify_resend') ?>
+                    </button>
+                </form>
+            </div>
         </div>
         <?php endif; ?>
 
@@ -359,6 +595,36 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                                    maxlength="200" required>
                             <span class="input-help"><?= t('company_name_help') ?></span>
                             <?= $errMsg('company_name') ?>
+                        </div>
+                    </div>
+
+                    <!-- Contact email field -->
+                    <div class="form-row" style="margin-top:14px;">
+                        <div class="input-wrap">
+                            <label for="contact_email">
+                                <?= t('contact_email_field_label') ?> *
+                                <?php if ($evPending): ?>
+                                <span class="badge badge-warning" style="font-size:.72rem;vertical-align:middle;">
+                                    <?= t('email_badge_pending') ?>
+                                </span>
+                                <?php elseif ($evExpired): ?>
+                                <span class="badge badge-expired" style="font-size:.72rem;vertical-align:middle;">
+                                    <?= t('email_badge_expired') ?>
+                                </span>
+                                <?php endif; ?>
+                            </label>
+                            <input type="email"
+                                   id="contact_email"
+                                   name="contact_email"
+                                   value="<?= $contactEmailVal ?>"
+                                   placeholder="<?= t('contact_email_field_ph') ?>"
+                                   class="<?= $clsInput('contact_email') ?>"
+                                   maxlength="254"
+                                   autocomplete="email">
+                            <span class="input-help"><?= t('contact_email_field_help') ?></span>
+                            <?php if (isset($errors['contact_email'])): ?>
+                            <span class="field-error"><?= $esc($errors['contact_email']) ?></span>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -790,6 +1056,32 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                 }
             }
         }, 10000);
+    })();
+    </script>
+
+    <!-- Verification code input: digits only, auto-trim, submit on 6 digits -->
+    <script>
+    (function () {
+        const inp = document.getElementById('verify_code');
+        if (!inp) return;
+
+        inp.addEventListener('input', function () {
+            // Strip anything that is not a digit
+            this.value = this.value.replace(/\D/g, '').slice(0, 6);
+            // Auto-submit when exactly 6 digits entered
+            if (this.value.length === 6) {
+                const form = this.closest('form');
+                if (form) form.submit();
+            }
+        });
+
+        // Allow paste: strip non-digits, keep first 6
+        inp.addEventListener('paste', function (e) {
+            e.preventDefault();
+            const pasted = (e.clipboardData || window.clipboardData).getData('text');
+            this.value = pasted.replace(/\D/g, '').slice(0, 6);
+            this.dispatchEvent(new Event('input'));
+        });
     })();
     </script>
 

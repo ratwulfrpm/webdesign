@@ -323,4 +323,47 @@ return [
     'org_picker_heading'   => 'Which organization do you want to enter?',
     'org_picker_subtitle'  => 'Your account “%s” has access to more than one organization.',
     'org_picker_cancel'    => 'Cancel and sign in again',
-    'org_label'            => 'Organization',];
+    'org_label'            => 'Organization',
+
+    // ── Contact email / Email verification ────────────────────────────────
+    'contact_email_field_label'   => 'Contact email address',
+    'contact_email_field_ph'      => 'email@company.com',
+    'contact_email_field_help'    => 'This email will replace your login email after verification. You will receive a 6-digit code.',
+    'email_invalid'               => 'Please enter a valid email address.',
+
+    // Verification banner in profile.php
+    'email_verify_banner_title'   => 'Email verification pending',
+    'email_verify_banner_desc'    => 'A 6-digit code was sent to %s. Enter it below to confirm the change.',
+    'email_verify_expires_in'     => 'Expires in: %s',
+    'email_verify_code_label'     => 'Verification code (6 digits)',
+    'email_verify_btn'            => 'Verify email',
+    'email_verify_resend'         => 'Resend code',
+
+    // Flash / POST→GET messages
+    'email_verify_sent'           => 'Verification code sent. Check your inbox and enter it below.',
+    'email_verify_resent'         => 'Verification code resent.',
+    'email_verify_already_pending'=> 'A verification code is already active for that email. Check your inbox.',
+    'email_verified_success'      => 'Email updated successfully! Your new login email has been verified.',
+
+    // Code errors
+    'email_verify_no_pending'     => 'No email is pending verification.',
+    'email_verify_no_code'        => 'No active verification code found.',
+    'email_verify_expired'        => 'Code expired. Resend the code and try again.',
+    'email_verify_wrong_code'     => 'Incorrect code. Please check and try again.',
+
+    // Expired banner
+    'email_verify_expired_title'  => 'Verification code expired',
+    'email_verify_expired_desc'   => 'The code sent to %s expired without being verified. Your profile is saved but the email was not updated.',
+
+    // Badges
+    'email_badge_pending'         => 'Pending verification',
+    'email_badge_expired'         => 'Unverified',
+    'btn_copy_code'               => 'Copy',
+
+    // Draft section in summary.php
+    'draft_section_title'         => 'Draft',
+    'draft_section_subtitle'      => 'Saved items that require action to be completed.',
+    'draft_email_change_title'    => 'Incomplete email change',
+    'draft_email_change_desc'     => 'An attempt was made to change the email to %s but the verification code expired.',
+    'draft_email_change_hint'     => 'Click "Resend code" to receive a new code and complete the change.',
+];

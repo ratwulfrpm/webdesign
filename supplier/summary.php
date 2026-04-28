@@ -49,6 +49,7 @@ $stmt = $pdo->prepare(
             u.addr_street, u.addr_city, u.addr_state, u.addr_zip,
             u.factory_street, u.factory_city, u.factory_state, u.factory_zip,
             u.preferred_language,
+            u.email_pending, u.email_verify_expires,
             co_addr.name_es    AS addr_country_name,
             co_fact.name_es    AS factory_country_name
        FROM users u
@@ -74,6 +75,17 @@ $initial  = strtoupper(substr($username, 0, 1));
 $lang     = currentLang();
 
 $esc = fn($v) => htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8');
+
+// ── Email verification state for summary ─────────────────────
+$evPending = !empty($profile['email_pending'])
+             && !empty($profile['email_verify_expires'])
+             && strtotime($profile['email_verify_expires']) > time();
+$evExpired = !empty($profile['email_pending'])
+             && (!empty($profile['email_verify_expires'])
+                 ? strtotime($profile['email_verify_expires']) <= time()
+                 : true);
+// Display email: always show the active (verified) email in the main profile block
+$displayEmail = $esc($profile['email'] ?? '');
 ?>
 <!DOCTYPE html>
 <html lang="<?= $lang ?>">
@@ -198,7 +210,12 @@ $esc = fn($v) => htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8');
                 <?php endif; ?>
                 <div>
                     <strong><?= t('field_email') ?></strong>
-                    &nbsp;&nbsp;<?= $esc($profile['email']) ?>
+                    &nbsp;&nbsp;<?= $displayEmail ?>
+                    <?php if ($evPending): ?>
+                    <span class="badge badge-warning" style="font-size:.72rem;vertical-align:middle;margin-left:6px;">
+                        <?= t('email_badge_pending') ?>
+                    </span>
+                    <?php endif; ?>
                 </div>
                 <div>
                     <strong><?= t('role_label') ?></strong>
@@ -217,10 +234,61 @@ $esc = fn($v) => htmlspecialchars($v ?? '', ENT_QUOTES, 'UTF-8');
                 <a href="/login/supplier/profile.php" class="btn-secondary">
                     <?= t('edit_profile') ?>
                 </a>
+                <?php if ($evPending): ?>
+                <a href="/login/supplier/profile.php#verify_code" class="btn-primary btn-sm">
+                    <?= t('email_verify_btn') ?>
+                </a>
+                <?php endif; ?>
             </div>
 
+        </div><!-- /dashboard-card -->
+
+        <?php if ($evExpired && !$evPending): ?>
+        <!-- ════════════════ SECCIÓN BORRADOR ════════════════ -->
+        <div class="draft-section card" role="region" aria-label="<?= t('draft_section_title') ?>">
+            <div class="draft-section-header">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"
+                          stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                          stroke="currentColor" stroke-width="1.5" stroke-linecap="round"
+                          stroke-linejoin="round"/>
+                </svg>
+                <h2 class="draft-section-title"><?= t('draft_section_title') ?></h2>
+            </div>
+            <p class="draft-section-subtitle"><?= t('draft_section_subtitle') ?></p>
+
+            <div class="draft-item">
+                <div class="draft-item-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <rect x="2" y="4" width="20" height="16" rx="3"
+                              stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M2 8l10 7 10-7"
+                              stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <div class="draft-item-body">
+                    <strong><?= t('draft_email_change_title') ?></strong>
+                    <p class="draft-item-desc">
+                        <?= sprintf(t('draft_email_change_desc'), '<strong>' . $esc($profile['email_pending']) . '</strong>') ?>
+                    </p>
+                    <p class="draft-item-meta"><?= t('draft_email_change_hint') ?></p>
+                </div>
+                <div class="draft-item-actions">
+                    <form method="POST" action="/login/supplier/profile.php">
+                        <input type="hidden" name="csrf_token"
+                               value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+                        <input type="hidden" name="action" value="resend_verify">
+                        <button type="submit" class="btn-primary btn-sm">
+                            <?= t('email_verify_resend') ?>
+                        </button>
+                    </form>
+                </div>
+            </div>
         </div>
-    </div>
+        <?php endif; ?>
+
+    </div><!-- /page-content -->
 
     <footer class="global-footer">
         &copy; <?= date('Y') ?> Local App &mdash; Development environment only

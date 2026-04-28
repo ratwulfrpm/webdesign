@@ -323,4 +323,47 @@ return [
     'org_picker_heading'   => '¿A cuál organización desea ingresar?',
     'org_picker_subtitle'  => 'Su cuenta “%s” tiene acceso a más de una organización.',
     'org_picker_cancel'    => 'Cancelar e ingresar de nuevo',
-    'org_label'            => 'Organización',];
+    'org_label'            => 'Organización',
+
+    // ── Correo de contacto / Verificación de correo ───────────────────────
+    'contact_email_field_label'   => 'Correo electrónico de contacto',
+    'contact_email_field_ph'      => 'correo@empresa.com',
+    'contact_email_field_help'    => 'Este correo reemplazará al correo de acceso tras verificación. Recibirá un código de 6 dígitos.',
+    'email_invalid'               => 'Ingrese un correo electrónico válido.',
+
+    // Banner de verificación en profile.php
+    'email_verify_banner_title'   => 'Verificación de correo pendiente',
+    'email_verify_banner_desc'    => 'Se envió un código de 6 dígitos a %s. Ingréselo a continuación para confirmar el cambio.',
+    'email_verify_expires_in'     => 'Expira en: %s',
+    'email_verify_code_label'     => 'Código de verificación (6 dígitos)',
+    'email_verify_btn'            => 'Verificar correo',
+    'email_verify_resend'         => 'Reenviar código',
+
+    // Flash / mensajes POST→GET
+    'email_verify_sent'           => 'Código de verificación enviado. Revise su correo e ingréselo abajo.',
+    'email_verify_resent'         => 'Se reenvió el código de verificación.',
+    'email_verify_already_pending'=> 'Ya hay un código de verificación activo para ese correo. Revise su bandeja de entrada.',
+    'email_verified_success'      => '¡Correo actualizado correctamente! Su nuevo correo de acceso ha sido verificado.',
+
+    // Errores del código
+    'email_verify_no_pending'     => 'No hay un correo pendiente de verificación.',
+    'email_verify_no_code'        => 'No se encontró un código de verificación activo.',
+    'email_verify_expired'        => 'El código expiró. Reenvíe el código e intente de nuevo.',
+    'email_verify_wrong_code'     => 'Código incorrecto. Verifique e intente de nuevo.',
+
+    // Banner de expirado
+    'email_verify_expired_title'  => 'Código de verificación expirado',
+    'email_verify_expired_desc'   => 'El código enviado a %s expiró sin ser verificado. El perfil está guardado pero el correo no fue actualizado.',
+
+    // Badges
+    'email_badge_pending'         => 'Pendiente verificación',
+    'email_badge_expired'         => 'Sin verificar',
+    'btn_copy_code'               => 'Copiar',
+
+    // Sección Borrador en summary.php
+    'draft_section_title'         => 'Borrador',
+    'draft_section_subtitle'      => 'Elementos guardados que requieren acción para completarse.',
+    'draft_email_change_title'    => 'Cambio de correo sin completar',
+    'draft_email_change_desc'     => 'Se intentó cambiar el correo a %s pero el código de verificación expiró.',
+    'draft_email_change_hint'     => 'Haga clic en "Reenviar código" para recibir un nuevo código y completar el cambio.',
+];
