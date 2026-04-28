@@ -216,7 +216,106 @@ return [
     'field_company'        => 'Compañía',
     'field_phone'          => 'Teléfono',
     'field_email'          => 'Correo',
-    'not_provided'         => 'No indicado',
+    'not_provided'         => 'No indicado',    // ── Tab: Agregar producto ────────────────────────────────────────────
+    'tab_add_product'           => 'Agregar producto',
+
+    // ── Carga de productos ───────────────────────────────────────────────
+    'add_product_page_title'    => 'Agregar producto — Local App',
+    'add_product_title'         => 'Carga de productos',
+    'add_product_subtitle'      => 'Complete el formulario para registrar un nuevo producto.',
+
+    // Sección campos
+    'section_product_info'      => 'Información del producto',
+    'section_product_pricing'   => 'Precios (opcionales)',
+
+    // Campos
+    'field_supplier_code'       => 'Código producto proveedor',
+    'field_supplier_code_ph'    => 'Ej. PROD-001',
+    'field_supplier_code_help'  => 'Debe ser único dentro de su catálogo de productos.',
+    'field_admin_code'          => 'Código producto administrador',
+    'field_admin_code_ph'       => 'Ej. SKU-0001',
+    'field_admin_code_help'     => 'Código global único asignado por el administrador.',
+    'field_product_name'        => 'Nombre del producto',
+    'field_product_name_ph'     => 'Nombre descriptivo del producto',
+    'field_tech_desc'           => 'Descripción / Ficha Técnica',
+    'field_tech_desc_ph'        => 'Ingrese descripción, características y detalles técnicos del producto...',
+    'field_tech_desc_help'      => 'Puede incluir texto plano, bullets y títulos de sección. No se permiten links externos.',
+    'field_price_fob'           => 'Precio Unitario FOB',
+    'field_price_fob_ph'        => '0.00',
+    'field_price_cif'           => 'Precio Unitario CIF',
+    'field_price_cif_ph'        => '0.00',
+
+    // Botones
+    'btn_save_product'          => 'Guardar producto',
+    'btn_cancel_product'        => 'Cancelar',
+
+    // Mensajes de validación
+    'err_supplier_code_required'  => 'El código del producto es obligatorio.',
+    'err_product_name_required'   => 'El nombre del producto es obligatorio.',
+    'err_supplier_code_duplicate' => 'Ya existe un producto con este código para este proveedor.',
+    'err_admin_code_duplicate'    => 'Ya existe un producto con este código de administrador.',
+    'err_price_fob_numeric'       => 'El precio FOB debe ser un número válido.',
+    'err_price_cif_numeric'       => 'El precio CIF debe ser un número válido.',
+    'err_desc_no_links'           => 'La descripción no puede contener links externos.',
+
+    // Mensaje de éxito
+    'product_saved'               => 'El producto fue guardado correctamente.',
+
+    // Imágenes del producto
+    'section_product_images'      => 'Imágenes del producto',
+    'img_aerial_label'            => 'Vista aérea',
+    'img_lateral_front_label'     => 'Vista frontal',
+    'img_lateral_back_label'      => 'Vista trasera',
+    'img_lateral_left_label'      => 'Vista lateral izquierda',
+    'img_lateral_right_label'     => 'Vista lateral derecha',
+    'img_click_to_upload'         => 'Haga clic para seleccionar imagen',
+    'img_allowed_types'           => 'JPG, PNG, WEBP, GIF, BMP, AVIF · máx. 5 MB',
+    'img_remove'                  => 'Eliminar',
+    'err_img_required'            => 'Debe subir al menos la imagen de vista aérea.',
+    'err_img_type'                => 'Solo se permiten imágenes JPG, PNG o WEBP.',
+    'err_img_size'                => 'El archivo no debe superar 5 MB.',
+    'err_img_upload_failed'       => 'Error al subir la imagen. Intente de nuevo.',
+    'err_product_save_failed'     => 'Error al guardar el producto. Intente de nuevo.',
+
+    // Mis productos (listado)
+    'tab_my_products'             => 'Mis productos',
+    'my_products_page_title'      => 'Mis productos — Local App',
+    'my_products_title'           => 'Mis productos',
+    'my_products_subtitle'        => 'Catálogo de productos registrados.',
+    'no_products'                 => 'Aún no ha registrado ningún producto.',
+    'btn_view_product'            => 'Ver detalle',
+    'btn_add_new_product'         => 'Agregar nuevo producto',
+    'col_product_code'            => 'Código',
+    'col_product_name'            => 'Nombre del producto',
+    'col_product_price_fob'       => 'Precio FOB',
+    'col_product_price_cif'       => 'Precio CIF',
+    'col_product_date'            => 'Fecha',
+    'col_product_images'          => 'Imágenes',
+    'col_actions'                 => 'Acciones',
+
+    // Detalle de producto
+    'product_view_page_title'     => 'Detalle del producto — Local App',
+    'product_view_title'          => 'Detalle del producto',
+    'product_not_found'           => 'Producto no encontrado.',
+    'section_product_gallery'     => 'Galería de imágenes',
+    'no_images'                   => 'Sin imágenes registradas.',
+    'img_slot_aerial'             => 'Vista aérea',
+    'img_slot_lateral_front'      => 'Vista frontal',
+    'img_slot_lateral_back'       => 'Vista trasera',
+    'img_slot_lateral_left'       => 'Vista lateral izquierda',
+    'img_slot_lateral_right'      => 'Vista lateral derecha',
+    'btn_back_to_products'        => 'Volver a mis productos',
+    'product_view_required'       => '* Requerida',
+    'product_view_optional'       => 'Opcional',
+    // Tabs de detalle de producto
+    'tab_product_detail'          => 'Detalle',
+    'tab_product_edit'            => 'Editar',
+    // Editar producto
+    'product_updated'             => 'Producto actualizado correctamente.',
+    'err_product_update_failed'   => 'Error al actualizar el producto. Intente de nuevo.',
+    'edit_img_delete'             => 'Eliminar imagen actual',
+    'edit_img_or_replace'         => 'O subir una de reemplazo:',
+    'edit_img_click_zoom'         => 'Clic para ampliar',
     // ── Multi-org / Org picker ─────────────────────────────────────
     'error_no_org'         => 'Su cuenta no tiene acceso a ninguna organización. Contacte al administrador.',
     'error_org_invalid'    => 'Selección de organización no válida. Intente de nuevo.',

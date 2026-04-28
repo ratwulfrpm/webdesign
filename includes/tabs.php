@@ -38,6 +38,16 @@ function getTabsForRole(string $role): array
                     'url'   => '/login/supplier/summary.php',
                 ],
                 [
+                    'id'    => 'add_product',
+                    'label' => t('tab_add_product'),
+                    'url'   => '/login/supplier/add_product.php',
+                ],
+                [
+                    'id'    => 'my_products',
+                    'label' => t('tab_my_products'),
+                    'url'   => '/login/supplier/products.php',
+                ],
+                [
                     'id'       => 'documents',
                     'label'    => t('tab_documents'),
                     'url'      => '#',

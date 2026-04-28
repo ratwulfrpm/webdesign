@@ -1,0 +1,5 @@
+# Prevent directory listing and PHP execution in uploads
+Options -Indexes
+<FilesMatch "\.php$">
+    Require all denied
+</FilesMatch>

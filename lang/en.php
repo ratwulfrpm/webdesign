@@ -216,7 +216,106 @@ return [
     'field_company'        => 'Company',
     'field_phone'          => 'Phone',
     'field_email'          => 'Email',
-    'not_provided'         => 'Not provided',
+    'not_provided'         => 'Not provided',    // ── Tab: Add product ─────────────────────────────────────────────────
+    'tab_add_product'           => 'Add product',
+
+    // ── Product upload ───────────────────────────────────────────────────
+    'add_product_page_title'    => 'Add product — Local App',
+    'add_product_title'         => 'Product upload',
+    'add_product_subtitle'      => 'Complete the form to register a new product.',
+
+    // Section labels
+    'section_product_info'      => 'Product information',
+    'section_product_pricing'   => 'Pricing (optional)',
+
+    // Fields
+    'field_supplier_code'       => 'Supplier product code',
+    'field_supplier_code_ph'    => 'e.g. PROD-001',
+    'field_supplier_code_help'  => 'Must be unique within your product catalog.',
+    'field_admin_code'          => 'Admin product code',
+    'field_admin_code_ph'       => 'e.g. SKU-0001',
+    'field_admin_code_help'     => 'Globally unique code assigned by the administrator.',
+    'field_product_name'        => 'Product name',
+    'field_product_name_ph'     => 'Descriptive product name',
+    'field_tech_desc'           => 'Description / Technical Sheet',
+    'field_tech_desc_ph'        => 'Enter description, features and technical details...',
+    'field_tech_desc_help'      => 'Plain text, bullets and section titles allowed. External links are not permitted.',
+    'field_price_fob'           => 'Unit Price FOB',
+    'field_price_fob_ph'        => '0.00',
+    'field_price_cif'           => 'Unit Price CIF',
+    'field_price_cif_ph'        => '0.00',
+
+    // Buttons
+    'btn_save_product'          => 'Save product',
+    'btn_cancel_product'        => 'Cancel',
+
+    // Validation messages
+    'err_supplier_code_required'  => 'Product code is required.',
+    'err_product_name_required'   => 'Product name is required.',
+    'err_supplier_code_duplicate' => 'A product with this code already exists for this supplier.',
+    'err_admin_code_duplicate'    => 'A product with this admin code already exists.',
+    'err_price_fob_numeric'       => 'FOB price must be a valid number.',
+    'err_price_cif_numeric'       => 'CIF price must be a valid number.',
+    'err_desc_no_links'           => 'Description cannot contain external links.',
+
+    // Success message
+    'product_saved'               => 'Product saved successfully.',
+
+    // Product images
+    'section_product_images'      => 'Product images',
+    'img_aerial_label'            => 'Aerial view',
+    'img_lateral_front_label'     => 'Front view',
+    'img_lateral_back_label'      => 'Rear view',
+    'img_lateral_left_label'      => 'Left side view',
+    'img_lateral_right_label'     => 'Right side view',
+    'img_click_to_upload'         => 'Click to select image',
+    'img_allowed_types'           => 'JPG, PNG, WEBP, GIF, BMP, AVIF · max 5 MB',
+    'img_remove'                  => 'Remove',
+    'err_img_required'            => 'You must upload at least the aerial view image.',
+    'err_img_type'                => 'Only JPG, PNG or WEBP images are allowed.',
+    'err_img_size'                => 'File size must not exceed 5 MB.',
+    'err_img_upload_failed'       => 'Error uploading image. Please try again.',
+    'err_product_save_failed'     => 'Error saving product. Please try again.',
+
+    // My products (list)
+    'tab_my_products'             => 'My products',
+    'my_products_page_title'      => 'My products — Local App',
+    'my_products_title'           => 'My products',
+    'my_products_subtitle'        => 'Registered product catalog.',
+    'no_products'                 => 'No products registered yet.',
+    'btn_view_product'            => 'View details',
+    'btn_add_new_product'         => 'Add new product',
+    'col_product_code'            => 'Code',
+    'col_product_name'            => 'Product name',
+    'col_product_price_fob'       => 'FOB Price',
+    'col_product_price_cif'       => 'CIF Price',
+    'col_product_date'            => 'Date',
+    'col_product_images'          => 'Images',
+    'col_actions'                 => 'Actions',
+
+    // Product detail
+    'product_view_page_title'     => 'Product detail — Local App',
+    'product_view_title'          => 'Product detail',
+    'product_not_found'           => 'Product not found.',
+    'section_product_gallery'     => 'Image gallery',
+    'no_images'                   => 'No images registered.',
+    'img_slot_aerial'             => 'Aerial view',
+    'img_slot_lateral_front'      => 'Front view',
+    'img_slot_lateral_back'       => 'Rear view',
+    'img_slot_lateral_left'       => 'Left side view',
+    'img_slot_lateral_right'      => 'Right side view',
+    'btn_back_to_products'        => 'Back to my products',
+    'product_view_required'       => '* Required',
+    'product_view_optional'       => 'Optional',
+    // Product view tabs
+    'tab_product_detail'          => 'Detail',
+    'tab_product_edit'            => 'Edit',
+    // Edit product
+    'product_updated'             => 'Product updated successfully.',
+    'err_product_update_failed'   => 'Error updating product. Please try again.',
+    'edit_img_delete'             => 'Remove current image',
+    'edit_img_or_replace'         => 'Or upload a replacement:',
+    'edit_img_click_zoom'         => 'Click to enlarge',
     // ── Multi-org / Org picker ─────────────────────────────────────
     'error_no_org'         => 'Your account has no access to any organization. Contact the administrator.',
     'error_org_invalid'    => 'Invalid organization selection. Please try again.',
