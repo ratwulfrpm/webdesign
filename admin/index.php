@@ -135,9 +135,9 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('admin_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=7">
 </head>
-<body>
+<body class="wide-layout">
 
     <!-- Language selector -->
     <div class="lang-selector">
@@ -232,46 +232,48 @@ $lang     = currentLang();
                                     ? htmlspecialchars($u['locked_until'], ENT_QUOTES, 'UTF-8')
                                     : '—' ?>
                             </td>
-                            <td class="actions-cell">
-                                <?php if (!$isSelf): ?>
-                                <form method="POST" action="/login/admin/index.php" style="display:inline">
-                                    <input type="hidden" name="csrf_token"
-                                           value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
-                                    <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
-                                    <?php if ((int) $u['is_active']): ?>
-                                    <input type="hidden" name="action" value="deactivate">
-                                    <button type="submit" class="btn-tbl btn-danger"><?= t('btn_deactivate') ?></button>
-                                    <?php else: ?>
-                                    <input type="hidden" name="action" value="activate">
-                                    <button type="submit" class="btn-tbl btn-success"><?= t('btn_activate') ?></button>
-                                    <?php endif; ?>
-                                </form>
-                                <?php endif; ?>
-
-                                <?php if ($isLocked): ?>
-                                <form method="POST" action="/login/admin/index.php" style="display:inline">
-                                    <input type="hidden" name="csrf_token"
-                                           value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
-                                    <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
-                                    <input type="hidden" name="action" value="unlock">
-                                    <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_unlock') ?></button>
-                                </form>
-                                <?php endif; ?>
-
-                                <?php if ($isSelf): ?><span class="text-muted small">(<?= t('session_active') ?>)</span><?php endif; ?>
-
-                                <?php if (!$isSelf): ?>
-                                <form method="POST" action="/login/admin/index.php" style="display:inline;margin-left:4px;">
-                                    <input type="hidden" name="csrf_token"
-                                           value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
-                                    <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
-                                    <input type="hidden" name="action" value="change_role">
-                                    <select name="new_role" class="input-sm" style="width:auto;padding:3px 6px;font-size:0.8rem;">
-                                        <option value="supplier" <?= $u['role'] === 'supplier' ? 'selected' : '' ?>><?= t('role_supplier') ?></option>
-                                        <option value="user"     <?= $u['role'] === 'user'     ? 'selected' : '' ?>><?= t('role_user') ?></option>
-                                    </select>
-                                    <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_set_role') ?></button>
-                                </form>
+                            <td>
+                                <?php if ($isSelf): ?>
+                                    <span class="text-muted small">(<?= t('session_active') ?>)</span>
+                                <?php else: ?>
+                                <div class="user-actions">
+                                    <!-- Row 1: activate/deactivate + unlock -->
+                                    <div class="user-actions-row">
+                                        <form method="POST" action="/login/admin/index.php">
+                                            <input type="hidden" name="csrf_token"
+                                                   value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+                                            <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
+                                            <?php if ((int) $u['is_active']): ?>
+                                            <input type="hidden" name="action" value="deactivate">
+                                            <button type="submit" class="btn-tbl btn-danger"><?= t('btn_deactivate') ?></button>
+                                            <?php else: ?>
+                                            <input type="hidden" name="action" value="activate">
+                                            <button type="submit" class="btn-tbl btn-success"><?= t('btn_activate') ?></button>
+                                            <?php endif; ?>
+                                        </form>
+                                        <?php if ($isLocked): ?>
+                                        <form method="POST" action="/login/admin/index.php">
+                                            <input type="hidden" name="csrf_token"
+                                                   value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+                                            <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
+                                            <input type="hidden" name="action" value="unlock">
+                                            <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_unlock') ?></button>
+                                        </form>
+                                        <?php endif; ?>
+                                    </div>
+                                    <!-- Row 2: role change -->
+                                    <form method="POST" action="/login/admin/index.php" class="user-actions-row">
+                                        <input type="hidden" name="csrf_token"
+                                               value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+                                        <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
+                                        <input type="hidden" name="action" value="change_role">
+                                        <select name="new_role" class="role-select">
+                                            <option value="supplier" <?= $u['role'] === 'supplier' ? 'selected' : '' ?>><?= t('role_supplier') ?></option>
+                                            <option value="user"     <?= $u['role'] === 'user'     ? 'selected' : '' ?>><?= t('role_user') ?></option>
+                                        </select>
+                                        <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_set_role') ?></button>
+                                    </form>
+                                </div>
                                 <?php endif; ?>
                             </td>
                         </tr>

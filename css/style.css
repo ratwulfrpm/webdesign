@@ -2350,6 +2350,66 @@ html {
 }
 
 /* ============================================================
+   WIDE LAYOUT — admin/owner panel pages
+   Full-bleed: top-bar, tab-nav, page-content all expand to full width
+   ============================================================ */
+
+body.wide-layout {
+    align-items: stretch;   /* override flex center so children stretch */
+    padding-top: 20px;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+body.wide-layout .top-bar,
+body.wide-layout .tab-nav,
+body.wide-layout .page-content {
+    max-width: none;
+    padding-left: 28px;
+    padding-right: 28px;
+}
+
+/* Actions column: stack Activate/Deactivate above role row */
+.user-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-start;
+    white-space: nowrap;
+}
+
+.user-actions-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+
+/* Role select in actions column — properly sized with room for chevron */
+.role-select {
+    height: 32px;
+    padding: 0 30px 0 10px;
+    font-family: var(--font-system);
+    font-size: 0.8rem;
+    color: var(--color-text);
+    background: #f9f9fb url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='7' viewBox='0 0 10 7'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%236e6e73' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 8px center;
+    border: 1.5px solid var(--color-border);
+    border-radius: 8px;
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: border-color var(--transition), box-shadow var(--transition);
+    min-width: 100px;
+}
+
+.role-select:focus {
+    background-color: #fff;
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
+}
+
+/* ============================================================
    ENROLLMENT PAGE — enroll.php
    ============================================================ */
 
