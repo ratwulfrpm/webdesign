@@ -53,11 +53,18 @@ if (isPendingLogin()) {
 
 // ── Informational messages from redirects ─────────────────────
 $info  = '';
+$successFlash = '';
 $reason = $_GET['reason'] ?? '';
 if ($reason === 'timeout') {
     $info = t('error_timeout');
 } elseif ($reason === 'deactivated') {
     $info = t('error_deactivated');
+}
+
+// Enrollment success flash (set by enroll.php on successful registration)
+if (!empty($_SESSION['enroll_success'])) {
+    $successFlash = $_SESSION['enroll_success'];
+    unset($_SESSION['enroll_success']);
 }
 
 // ── Handle POST (login attempt) ───────────────────────────────
@@ -165,6 +172,17 @@ $lang = currentLang();
                 <circle cx="8" cy="5" r=".75" fill="#0071e3"/>
             </svg>
             <span><?= htmlspecialchars($info, ENT_QUOTES, 'UTF-8') ?></span>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($successFlash !== ''): ?>
+        <div class="alert alert-success" role="status">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="8" cy="8" r="7.25" stroke="#34c759" stroke-width="1.5"/>
+                <polyline points="4.5,8 7,10.5 11.5,5.5" stroke="#34c759" stroke-width="1.5"
+                          stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span><?= htmlspecialchars($successFlash, ENT_QUOTES, 'UTF-8') ?></span>
         </div>
         <?php endif; ?>
 

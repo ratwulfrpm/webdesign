@@ -2177,3 +2177,196 @@ html {
     .evb-btn-verify { width: 100%; }
 }
 
+/* ============================================================
+   SUPPLIER INVITATIONS — invitations.php
+   ============================================================ */
+
+/* ── Alert warning variant ──────────────────────────────────── */
+.alert-warning {
+    background: #fffbe6;
+    border: 1px solid #f5c518;
+    color: #7a5c00;
+}
+
+/* ── Select inside invitation form ──────────────────────────── */
+.input-select {
+    width: 100%;
+    height: 48px;
+    padding: 0 40px 0 14px;
+    font-family: var(--font-system);
+    font-size: 0.9375rem;
+    color: var(--color-text);
+    background: #f9f9fb url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236e6e73' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 14px center;
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-input);
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: border-color var(--transition), background var(--transition),
+                box-shadow var(--transition);
+}
+
+.input-select:hover  { border-color: #b0b0b8; }
+.input-select:focus  {
+    background-color: #fff;
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.15);
+}
+
+/* ── Generated invitation link banner ─────────────────────── */
+.inv-link-banner {
+    background: #f0fff4;
+    border: 1.5px solid #34c759;
+    border-radius: 16px;
+    padding: 22px 24px 20px;
+    margin-bottom: 28px;
+    animation: fadeUp 0.3s ease both;
+}
+
+.inv-link-banner-header {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 6px;
+    color: #1a7a3a;
+}
+
+.inv-link-banner-header strong {
+    font-size: 0.95rem;
+    font-weight: 700;
+}
+
+.inv-link-banner-desc {
+    font-size: 0.85rem;
+    color: #3a3a3a;
+    margin: 0 0 14px;
+    line-height: 1.5;
+}
+
+/* Row: link input + copy button */
+.inv-link-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.inv-link-input {
+    flex: 1;
+    min-width: 0;
+    height: 44px;
+    padding: 0 12px;
+    font-family: 'SF Mono', 'Fira Mono', 'Consolas', monospace;
+    font-size: 0.8rem;
+    color: var(--color-text);
+    background: #fff;
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-input);
+    outline: none;
+    cursor: text;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.inv-link-input:focus {
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.12);
+}
+
+.inv-copy-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* Email status line below the link row */
+.inv-email-status {
+    font-size: 0.83rem;
+    margin: 0 0 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.inv-email-ok   { color: #1a7a3a; }
+.inv-email-fail { color: #9a1a1a; }
+
+/* Send by email form inside banner */
+.inv-send-email-form {
+    margin-top: 8px;
+}
+
+/* ── Generate form layout ────────────────────────────────────── */
+.inv-gen-form {
+    background: var(--color-card);
+    border: 1.5px solid var(--color-border);
+    border-radius: 16px;
+    padding: 24px;
+    max-width: 760px;
+}
+
+.inv-gen-form .form-row {
+    align-items: flex-start;
+    margin-bottom: 14px;
+}
+
+/* Checkbox wrap for "send by email" */
+.inv-send-check-wrap {
+    padding-top: 28px; /* align with inputs */
+}
+
+.checkbox-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.875rem;
+    color: var(--color-text);
+    cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    accent-color: var(--color-accent);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+    .inv-gen-form {
+        padding: 18px 16px;
+    }
+    .inv-link-input {
+        font-size: 0.75rem;
+    }
+    .inv-gen-form .form-row {
+        grid-template-columns: 1fr;
+    }
+    .inv-send-check-wrap {
+        padding-top: 0;
+    }
+}
+
+/* ============================================================
+   ENROLLMENT PAGE — enroll.php
+   ============================================================ */
+
+/* Enrollment notice (expiry info) */
+.enroll-notice {
+    font-size: 0.82rem;
+    color: #1a7a3a;
+    background: #f0fff4;
+    border: 1px solid #a8e6bc;
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-bottom: 20px;
+    line-height: 1.5;
+}
+
+/* Enroll card — slightly wider than login card */
+.card[style*="max-width:480px"] {
+    max-width: 480px;
+}
+

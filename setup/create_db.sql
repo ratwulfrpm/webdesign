@@ -104,6 +104,65 @@ CREATE TABLE IF NOT EXISTS `supplier_contacts` (
         FOREIGN KEY (`supplier_id`) REFERENCES `users`(`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- 6. Organizations (multi-org / multi-tenant)
+CREATE TABLE IF NOT EXISTS `organizations` (
+    `id`          SMALLINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `slug`        VARCHAR(60)       NOT NULL COMMENT 'URL-safe identifier',
+    `name`        VARCHAR(200)      NOT NULL COMMENT 'Display name',
+    `description` VARCHAR(500)      NULL     DEFAULT NULL,
+    `is_active`   TINYINT(1)        NOT NULL DEFAULT 1,
+    `created_at`  DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_slug` (`slug`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 7. User ↔ Organization memberships
+CREATE TABLE IF NOT EXISTS `org_members` (
+    `id`         INT UNSIGNED      NOT NULL AUTO_INCREMENT,
+    `user_id`    INT UNSIGNED      NOT NULL,
+    `org_id`     SMALLINT UNSIGNED NOT NULL,
+    `role`       ENUM('owner','admin','supplier','user') NOT NULL DEFAULT 'user',
+    `is_active`  TINYINT(1)        NOT NULL DEFAULT 1,
+    `joined_at`  DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_user_org` (`user_id`, `org_id`),
+    CONSTRAINT `fk_om_user` FOREIGN KEY (`user_id`)
+        REFERENCES `users`(`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_om_org`  FOREIGN KEY (`org_id`)
+        REFERENCES `organizations`(`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 8. Supplier enrollment invitations
+--    Only the SHA-256 hash of the plain bearer token is stored.
+CREATE TABLE IF NOT EXISTS `supplier_invitations` (
+    `id`                  INT UNSIGNED      NOT NULL AUTO_INCREMENT,
+    `token_hash`          CHAR(64)          NOT NULL COMMENT 'SHA-256 of the plain bearer token',
+    `org_id`              SMALLINT UNSIGNED NOT NULL,
+    `role`                ENUM('owner','admin','supplier','user') NOT NULL DEFAULT 'supplier',
+    `invited_email`       VARCHAR(254)      NULL DEFAULT NULL,
+    `status`              ENUM('pending','used','expired','revoked') NOT NULL DEFAULT 'pending',
+    `expires_at`          DATETIME          NOT NULL,
+    `created_by_user_id`  INT UNSIGNED      NOT NULL,
+    `used_by_user_id`     INT UNSIGNED      NULL DEFAULT NULL,
+    `used_at`             DATETIME          NULL DEFAULT NULL,
+    `revoked_at`          DATETIME          NULL DEFAULT NULL,
+    `created_at`          DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at`          DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                            ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_token_hash`   (`token_hash`),
+    KEY `idx_status`             (`status`),
+    KEY `idx_org`                (`org_id`),
+    KEY `idx_created_by`         (`created_by_user_id`),
+    KEY `idx_used_by`            (`used_by_user_id`),
+    CONSTRAINT `fk_inv_org`
+        FOREIGN KEY (`org_id`) REFERENCES `organizations`(`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_inv_created_by`
+        FOREIGN KEY (`created_by_user_id`) REFERENCES `users`(`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_inv_used_by`
+        FOREIGN KEY (`used_by_user_id`) REFERENCES `users`(`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 6. Demo admin user  (password: Demo123!)
 INSERT INTO `users` (`username`, `email`, `password_hash`, `is_active`, `role`, `first_login`)
 VALUES (
