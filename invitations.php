@@ -75,7 +75,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $targetOrgId = (int) ($_POST['org_id'] ?? $orgId);
         $invRole     = $_POST['inv_role'] ?? 'supplier';
         $invEmail    = trim($_POST['invited_email'] ?? '');
-        $sendEmail   = isset($_POST['send_by_email']) && $invEmail !== '';
+        $sendEmail   = $invEmail !== ''; // always send if email provided
 
         // Validate target org is an active org
         $orgRow = $pdo->prepare('SELECT id, name FROM organizations WHERE id = ? AND is_active = 1');
@@ -159,33 +159,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         $_SESSION['inv_feedback']      = t('inv_revoked_success');
         $_SESSION['inv_feedback_type'] = 'success';
-        header('Location: /login/invitations.php');
-        exit;
-    }
-
-    // ── Send invitation email (for newly generated invitation shown in banner) ──
-    if ($action === 'send_invitation_email') {
-        // This action is only available immediately after generation via session link
-        $invEmail   = trim($_POST['inv_email'] ?? '');
-        $enrollLink = $_SESSION['inv_new_link'] ?? '';
-
-        if ($invEmail !== '' && $enrollLink !== '' && filter_var($invEmail, FILTER_VALIDATE_EMAIL)) {
-            $emailResult = sendInvitationEmail($invEmail, $enrollLink, $lang);
-
-            // TODO: if audit_log table exists, log email send here.
-
-            if ($emailResult['sent']) {
-                $_SESSION['inv_feedback']      = t('inv_email_sent_success');
-                $_SESSION['inv_feedback_type'] = 'success';
-            } else {
-                $_SESSION['inv_feedback']      = t('inv_email_send_failed');
-                $_SESSION['inv_feedback_type'] = 'warning';
-            }
-            // Preserve the link for the redirect display
-            $_SESSION['inv_new_link']      = $enrollLink;
-            $_SESSION['inv_new_inv_email'] = $invEmail;
-            $_SESSION['inv_email_result']  = $emailResult;
-        }
         header('Location: /login/invitations.php');
         exit;
     }
@@ -310,28 +283,18 @@ $initial  = strtoupper(substr($username, 0, 1));
                 </button>
             </div>
 
-            <?php if ($emailResult !== null): ?>
+            <?php if ($emailResult !== null && $newInvEmail !== null): ?>
                 <?php if ($emailResult['sent']): ?>
                 <p class="inv-email-status inv-email-ok">
                     ✓ <?= t('inv_email_sent_success') ?>
+                    (<?= htmlspecialchars($newInvEmail, ENT_QUOTES, 'UTF-8') ?>)
                 </p>
                 <?php else: ?>
                 <p class="inv-email-status inv-email-fail">
-                    <?= t('inv_email_send_failed') ?>
+                    ✗ <?= t('inv_email_send_failed') ?>
+                    — <?= htmlspecialchars($newInvEmail, ENT_QUOTES, 'UTF-8') ?>
                 </p>
                 <?php endif; ?>
-            <?php elseif ($newInvEmail !== null): ?>
-                <!-- Email was provided but not sent yet — offer send button -->
-                <form method="POST" action="/login/invitations.php" class="inv-send-email-form">
-                    <?= csrfField() ?>
-                    <input type="hidden" name="action"    value="send_invitation_email">
-                    <input type="hidden" name="inv_email"
-                           value="<?= htmlspecialchars($newInvEmail, ENT_QUOTES, 'UTF-8') ?>">
-                    <button type="submit" class="btn-secondary btn-sm">
-                        <?= t('btn_send_by_email') ?>
-                        (<?= htmlspecialchars($newInvEmail, ENT_QUOTES, 'UTF-8') ?>)
-                    </button>
-                </form>
             <?php endif; ?>
         </div>
         <?php endif; ?>
@@ -384,14 +347,7 @@ $initial  = strtoupper(substr($username, 0, 1));
                         <span class="input-help"><?= t('inv_email_help') ?></span>
                     </div>
 
-                    <!-- Send by email checkbox (shown when email field has value via JS) -->
-                    <div class="input-wrap inv-send-check-wrap" id="inv-send-check-wrap"
-                         style="align-self:flex-end;display:none">
-                        <label class="checkbox-label">
-                            <input type="checkbox" name="send_by_email" value="1" id="inv-send-cb">
-                            <?= t('btn_send_by_email') ?>
-                        </label>
-                    </div>
+
                 </div>
 
                 <button type="submit" class="btn-primary" style="width:auto;padding:0 28px;">
@@ -504,19 +460,6 @@ $initial  = strtoupper(substr($username, 0, 1));
     </div><!-- /.page-content -->
 
 <script>
-// Show/hide the "Send by email" checkbox when email field gets a value
-(function () {
-    var emailInput = document.getElementById('inv-email');
-    var checkWrap  = document.getElementById('inv-send-check-wrap');
-    if (!emailInput || !checkWrap) return;
-
-    function toggle() {
-        checkWrap.style.display = emailInput.value.trim() !== '' ? '' : 'none';
-    }
-    emailInput.addEventListener('input', toggle);
-    toggle();
-}());
-
 // Copy invitation link to clipboard
 function copyInvLink() {
     var input = document.getElementById('inv-link-input');
