@@ -207,7 +207,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $pdo->commit();
 
                 // ── Redirect to login with success flash ──────
-                $_SESSION['enroll_success'] = t('enroll_success');
+                // Destroy any existing session (e.g. admin testing while logged in)
+                // so the success flash lands on a clean anonymous session.
+                $flashMsg = t('enroll_success');
+                $_SESSION = [];
+                if (ini_get('session.use_cookies')) {
+                    $p = session_get_cookie_params();
+                    setcookie(session_name(), '', time() - 42000,
+                        $p['path'], $p['domain'], $p['secure'], $p['httponly']);
+                }
+                session_destroy();
+                session_start();
+                $_SESSION['enroll_success'] = $flashMsg;
                 header('Location: /login/index.php');
                 exit;
 
