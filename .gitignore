@@ -1,0 +1,18 @@
+# Credentials — never commit real passwords
+config/mail.php
+
+# Uploaded files
+uploads/products/*.jpg
+uploads/products/*.jpeg
+uploads/products/*.png
+uploads/products/*.gif
+uploads/products/*.webp
+
+# Dev logs
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
