@@ -58,10 +58,11 @@ function _listProducts(array $auth, PDO $pdo): void
     $perPage = 25;
     $offset  = ($page - 1) * $perPage;
 
-    $where  = ['p.active = 1'];
-    $params = [];
+    // TENANT ISOLATION: always scope to session org_id
+    $where  = ['p.active = 1', 'p.org_id = ?'];
+    $params = [$auth['org_id']];
 
-    // Suppliers only see their own products
+    // Suppliers only see their own products within the org
     if ($auth['role'] === 'supplier') {
         $where[]  = 'p.supplier_id = ?';
         $params[] = $auth['user_id'];
@@ -127,21 +128,21 @@ function _getProduct(int $id, array $auth, PDO $pdo): void
     $st = $pdo->prepare(
         "SELECT p.id, p.product_name, p.internal_product_code,
                 p.technical_description, p.price_fob, p.price_cif,
-                p.active, p.supplier_id, p.created_at, p.updated_at,
+                p.active, p.supplier_id, p.org_id, p.created_at, p.updated_at,
                 u.username     AS supplier_username,
                 u.company_name AS supplier_company
            FROM supplier_products p
            JOIN users u ON u.id = p.supplier_id
-          WHERE p.id = ?"
+          WHERE p.id = ? AND p.org_id = ?"
     );
-    $st->execute([$id]);
+    $st->execute([$id, $auth['org_id']]);
     $p = $st->fetch();
 
     if (!$p) {
         jsonError('Product not found', 404);
     }
 
-    // IDOR: supplier can only view own products
+    // IDOR: supplier can only view own products within the org
     if ($auth['role'] === 'supplier' && (int) $p['supplier_id'] !== $auth['user_id']) {
         jsonError('Forbidden', 403);
     }
@@ -205,7 +206,8 @@ function _createProduct(array $auth, PDO $pdo): void
         jsonError('supplier_product_code is required');
     }
 
-    // Determine supplier
+    // Determine supplier — org_id ALWAYS comes from session, never from request body
+    $orgId      = $auth['org_id'];
     $supplierId = $auth['role'] === 'supplier'
         ? $auth['user_id']
         : (int) ($body['supplier_id'] ?? 0);
@@ -214,24 +216,29 @@ function _createProduct(array $auth, PDO $pdo): void
         jsonError('supplier_id is required for admin/owner role');
     }
 
-    // Verify supplier exists and is active
+    // Verify supplier exists, is active, AND belongs to the current org
     $st = $pdo->prepare(
-        'SELECT id FROM users WHERE id = ? AND role = "supplier" AND is_active = 1'
+        'SELECT u.id FROM users u
+          JOIN org_members om ON om.user_id = u.id
+         WHERE u.id = ? AND u.is_active = 1
+           AND om.org_id = ? AND om.is_active = 1
+           AND om.role = "supplier"
+         LIMIT 1'
     );
-    $st->execute([$supplierId]);
+    $st->execute([$supplierId, $orgId]);
     if (!$st->fetch()) {
-        jsonError('Supplier not found or inactive', 422);
+        jsonError('Supplier not found, inactive, or not a member of this business unit', 422);
     }
 
     try {
         $ins = $pdo->prepare(
             'INSERT INTO supplier_products
-             (supplier_id, supplier_product_code, product_name,
+             (supplier_id, org_id, supplier_product_code, product_name,
               technical_description, price_fob, price_cif, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $ins->execute([
-            $supplierId, $supplierCode, $productName,
+            $supplierId, $orgId, $supplierCode, $productName,
             $description !== '' ? $description : null,
             $priceFob, $priceCif, $auth['user_id'],
         ]);
@@ -251,11 +258,11 @@ function _createProduct(array $auth, PDO $pdo): void
 
 function _updateProduct(int $id, array $auth, PDO $pdo): void
 {
-    // Load for IDOR check
+    // Load for IDOR + tenant isolation check
     $st = $pdo->prepare(
-        'SELECT id, supplier_id FROM supplier_products WHERE id = ?'
+        'SELECT id, supplier_id, org_id FROM supplier_products WHERE id = ? AND org_id = ?'
     );
-    $st->execute([$id]);
+    $st->execute([$id, $auth['org_id']]);
     $existing = $st->fetch();
     if (!$existing) {
         jsonError('Product not found', 404);
@@ -320,10 +327,11 @@ function _deleteProduct(int $id, array $auth, PDO $pdo): void
         jsonError('Forbidden — only admin/owner can deactivate products', 403);
     }
 
+    // TENANT ISOLATION: verify product belongs to session org before delete
     $st = $pdo->prepare(
-        'UPDATE supplier_products SET active = 0 WHERE id = ? AND active = 1'
+        'UPDATE supplier_products SET active = 0 WHERE id = ? AND org_id = ? AND active = 1'
     );
-    $st->execute([$id]);
+    $st->execute([$id, $auth['org_id']]);
 
     if ($st->rowCount() === 0) {
         jsonError('Product not found or already inactive', 404);
@@ -336,11 +344,11 @@ function _deleteProduct(int $id, array $auth, PDO $pdo): void
 
 function _productImages(string $method, int $productId, string $slot, array $auth, PDO $pdo): void
 {
-    // Verify product + IDOR
+    // Verify product + IDOR + tenant isolation
     $st = $pdo->prepare(
-        'SELECT supplier_id FROM supplier_products WHERE id = ? AND active = 1'
+        'SELECT supplier_id FROM supplier_products WHERE id = ? AND org_id = ? AND active = 1'
     );
-    $st->execute([$productId]);
+    $st->execute([$productId, $auth['org_id']]);
     $p = $st->fetch();
     if (!$p) {
         jsonError('Product not found', 404);
@@ -388,11 +396,11 @@ function _productImages(string $method, int $productId, string $slot, array $aut
 
 function _productKeywords(string $method, int $productId, string $kw, array $auth, PDO $pdo): void
 {
-    // Verify product + IDOR
+    // Verify product + IDOR + tenant isolation
     $st = $pdo->prepare(
-        'SELECT supplier_id FROM supplier_products WHERE id = ? AND active = 1'
+        'SELECT supplier_id FROM supplier_products WHERE id = ? AND org_id = ? AND active = 1'
     );
-    $st->execute([$productId]);
+    $st->execute([$productId, $auth['org_id']]);
     $p = $st->fetch();
     if (!$p) {
         jsonError('Product not found', 404);

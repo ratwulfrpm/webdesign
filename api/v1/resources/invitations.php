@@ -23,9 +23,9 @@ function handleInvitations(string $method, ?int $id, string $action): void
     $pdo  = getDB();
 
     match (true) {
-        $method === 'GET'  && $id === null                             => _listInvitations($pdo),
+        $method === 'GET'  && $id === null                             => _listInvitations($auth, $pdo),
         $method === 'POST' && $id === null                             => _createInvitation($auth, $pdo),
-        $method === 'GET'  && $id !== null && $action === ''           => _getInvitation($id, $pdo),
+        $method === 'GET'  && $id !== null && $action === ''           => _getInvitation($id, $auth, $pdo),
         $method === 'POST' && $id !== null && $action === 'revoke'     => _revokeInvitation($id, $auth, $pdo),
         default => jsonError('Method Not Allowed', 405),
     };
@@ -33,22 +33,23 @@ function handleInvitations(string $method, ?int $id, string $action): void
 
 // ── LIST ─────────────────────────────────────────────────────
 
-function _listInvitations(PDO $pdo): void
+function _listInvitations(array $auth, PDO $pdo): void
 {
     $page    = max(1, (int) ($_GET['page'] ?? 1));
     $perPage = 25;
     $offset  = ($page - 1) * $perPage;
     $status  = strField($_GET['status'] ?? '', 20);
 
-    $where  = [];
-    $params = [];
+    // TENANT ISOLATION: always scope to session org
+    $where  = ['si.org_id = ?'];
+    $params = [$auth['org_id']];
 
     if (in_array($status, ['pending', 'used', 'expired', 'revoked'], true)) {
         $where[]  = 'si.status = ?';
         $params[] = $status;
     }
 
-    $wSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+    $wSql = 'WHERE ' . implode(' AND ', $where);
 
     $cntSt = $pdo->prepare("SELECT COUNT(*) FROM supplier_invitations si {$wSql}");
     $cntSt->execute($params);
@@ -97,7 +98,7 @@ function _listInvitations(PDO $pdo): void
 
 // ── DETAIL ───────────────────────────────────────────────────
 
-function _getInvitation(int $id, PDO $pdo): void
+function _getInvitation(int $id, array $auth, PDO $pdo): void
 {
     $st = $pdo->prepare(
         "SELECT si.id, si.org_id, si.role, si.invited_email, si.status,
@@ -109,9 +110,9 @@ function _getInvitation(int $id, PDO $pdo): void
            LEFT JOIN organizations o ON o.id  = si.org_id
            LEFT JOIN users uc        ON uc.id = si.created_by_user_id
            LEFT JOIN users uu        ON uu.id = si.used_by_user_id
-          WHERE si.id = ?"
+          WHERE si.id = ? AND si.org_id = ?"
     );
-    $st->execute([$id]);
+    $st->execute([$id, $auth['org_id']]);
     $row = $st->fetch();
 
     if (!$row) {
@@ -142,23 +143,22 @@ function _getInvitation(int $id, PDO $pdo): void
 function _createInvitation(array $auth, PDO $pdo): void
 {
     $body  = parseBody();
-    $orgId = (int) ($body['org_id'] ?? 0);
+    // SECURITY: org_id is ALWAYS taken from session — never trusted from request body
+    $orgId = $auth['org_id'];
     $role  = strField($body['role'] ?? 'supplier', 20);
     $email = strField($body['invited_email'] ?? '', 254);
     $days  = max(1, min(30, (int) ($body['valid_days'] ?? 7)));
 
-    if ($orgId <= 0) {
-        jsonError('org_id is required');
-    }
-    if (!in_array($role, ['owner', 'admin', 'supplier', 'user'], true)) {
-        jsonError('Invalid role');
+    if (!in_array($role, ['admin', 'supplier', 'user'], true)) {
+        // Owner role is not grantable via invitation for security reasons
+        jsonError('Invalid role. Allowed: admin, supplier, user');
     }
 
-    // Verify org exists
+    // Verify org is active (should always be since session is set, but double-check)
     $st = $pdo->prepare('SELECT id FROM organizations WHERE id = ? AND is_active = 1');
     $st->execute([$orgId]);
     if (!$st->fetch()) {
-        jsonError('Organization not found or inactive', 422);
+        jsonError('Current business unit is inactive', 422);
     }
 
     // Generate cryptographic token
@@ -206,12 +206,13 @@ function _createInvitation(array $auth, PDO $pdo): void
 
 function _revokeInvitation(int $id, array $auth, PDO $pdo): void
 {
+    // TENANT ISOLATION: only revoke invitations belonging to session org
     $st = $pdo->prepare(
         "UPDATE supplier_invitations
             SET status = 'revoked', revoked_at = NOW()
-          WHERE id = ? AND status = 'pending'"
+          WHERE id = ? AND org_id = ? AND status = 'pending'"
     );
-    $st->execute([$id]);
+    $st->execute([$id, $auth['org_id']]);
 
     if ($st->rowCount() === 0) {
         jsonError('Invitation not found or not in pending status', 404);

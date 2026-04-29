@@ -28,31 +28,32 @@ function handleContracts(string $method, ?int $id): void
     $pdo  = getDB();
 
     match (true) {
-        $method === 'GET'  && $id === null => _listContracts($pdo),
+        $method === 'GET'  && $id === null => _listContracts($auth, $pdo),
         $method === 'POST' && $id === null => _createContract($auth, $pdo),
-        $method === 'GET'  && $id !== null => _getContract($id, $pdo),
+        $method === 'GET'  && $id !== null => _getContract($id, $auth, $pdo),
         default => jsonError('Method Not Allowed', 405),
     };
 }
 
 // ── LIST ─────────────────────────────────────────────────────
 
-function _listContracts(PDO $pdo): void
+function _listContracts(array $auth, PDO $pdo): void
 {
     $page       = max(1, (int) ($_GET['page'] ?? 1));
     $perPage    = 25;
     $offset     = ($page - 1) * $perPage;
     $supplierId = isset($_GET['supplier_id']) ? (int) $_GET['supplier_id'] : null;
 
-    $where  = [];
-    $params = [];
+    // TENANT ISOLATION: always scope to session org
+    $where  = ['sc.org_id = ?'];
+    $params = [$auth['org_id']];
 
     if ($supplierId !== null && $supplierId > 0) {
         $where[]  = 'sc.supplier_id = ?';
         $params[] = $supplierId;
     }
 
-    $wSql = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
+    $wSql = 'WHERE ' . implode(' AND ', $where);
 
     $cntSt = $pdo->prepare("SELECT COUNT(*) FROM supplier_contracts sc {$wSql}");
     $cntSt->execute($params);
@@ -101,8 +102,9 @@ function _listContracts(PDO $pdo): void
 
 // ── DETAIL ───────────────────────────────────────────────────
 
-function _getContract(int $id, PDO $pdo): void
+function _getContract(int $id, array $auth, PDO $pdo): void
 {
+    // TENANT ISOLATION: filter by org_id
     $st = $pdo->prepare(
         "SELECT sc.id, sc.supplier_id,
                 u.username     AS supplier_username,
@@ -112,9 +114,9 @@ function _getContract(int $id, PDO $pdo): void
                 sc.is_primary, sc.notes, sc.uploaded_by_user_id, sc.created_at
            FROM supplier_contracts sc
            JOIN users u ON u.id = sc.supplier_id
-          WHERE sc.id = ?"
+          WHERE sc.id = ? AND sc.org_id = ?"
     );
-    $st->execute([$id]);
+    $st->execute([$id, $auth['org_id']]);
     $row = $st->fetch();
 
     if (!$row) {
@@ -152,13 +154,18 @@ function _createContract(array $auth, PDO $pdo): void
         jsonError('supplier_id is required');
     }
 
-    // Verify supplier exists
+    // TENANT ISOLATION: verify supplier belongs to current org
     $st = $pdo->prepare(
-        'SELECT id FROM users WHERE id = ? AND role = "supplier" AND is_active = 1'
+        'SELECT u.id FROM users u
+          JOIN org_members om ON om.user_id = u.id
+         WHERE u.id = ? AND u.is_active = 1
+           AND om.org_id = ? AND om.is_active = 1
+           AND om.role = "supplier"
+         LIMIT 1'
     );
-    $st->execute([$supplierId]);
+    $st->execute([$supplierId, $auth['org_id']]);
     if (!$st->fetch()) {
-        jsonError('Supplier not found or inactive', 422);
+        jsonError('Supplier not found or not a member of this business unit', 422);
     }
 
     // File upload validation
@@ -201,22 +208,23 @@ function _createContract(array $auth, PDO $pdo): void
     $fileHash  = hash_file('sha256', $fullPath);
     $isPrimary = isset($_POST['is_primary']) && $_POST['is_primary'] === '1' ? 1 : 0;
 
-    // If marking as primary, clear existing primary first
+    // If marking as primary, clear existing primary first (scoped to org)
     if ($isPrimary) {
         $pdo->prepare(
-            'UPDATE supplier_contracts SET is_primary = 0 WHERE supplier_id = ?'
-        )->execute([$supplierId]);
+            'UPDATE supplier_contracts SET is_primary = 0 WHERE supplier_id = ? AND org_id = ?'
+        )->execute([$supplierId, $auth['org_id']]);
     }
 
     $ins = $pdo->prepare(
         'INSERT INTO supplier_contracts
-         (supplier_id, storage_path, original_filename, mime_type, file_size, file_hash,
+         (supplier_id, org_id, storage_path, original_filename, mime_type, file_size, file_hash,
           signed_date, effective_start_date, effective_end_date, notes,
           is_primary, uploaded_by_user_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     $ins->execute([
         $supplierId,
+        $auth['org_id'],
         $storagePath,
         basename($file['name']),
         $mimeType,

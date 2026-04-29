@@ -110,6 +110,11 @@ switch ($resource) {
         handleAssignments($method, $id, $sub);
         break;
 
+    case 'business-units':
+        require_once __DIR__ . '/resources/business_units.php';
+        handleBusinessUnits($method, $id, $sub, $subId);
+        break;
+
     case 'public':
         // /public/quote?t=TOKEN  — no auth required
         require_once __DIR__ . '/resources/public_quote.php';

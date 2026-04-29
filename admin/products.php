@@ -41,6 +41,7 @@ requireRole(['admin', 'owner']);   // both roles may access
 $pdo     = getDB();
 $lang    = currentLang();
 $role    = $_SESSION['role'] ?? '';
+$orgId   = (int) ($_SESSION['org_id'] ?? 0);
 $orgName = htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8');
 
 // ── Filters from GET ─────────────────────────────────────────
@@ -53,14 +54,39 @@ $fFront     = $_GET['front']   ?? '';          // '' | 'yes' | 'no'
 if (!in_array($fStatus, ['', 'active', 'inactive'], true)) $fStatus = '';
 if (!in_array($fFront,  ['', 'yes', 'no'],           true)) $fFront  = '';
 
-// ── Load organizations for filter dropdown ────────────────────
-$orgs = $pdo->query(
-    'SELECT id, name FROM organizations WHERE is_active = 1 ORDER BY name ASC'
-)->fetchAll();
+// ── Load accessible organizations ────────────────────────────
+// Admin: all orgs they are a member of (so they see all their assigned BUs).
+// Owner: all active orgs in the system.
+if ($role === 'admin') {
+    $oStmt = $pdo->prepare(
+        'SELECT o.id, o.name FROM org_members om
+           JOIN organizations o ON o.id = om.org_id
+          WHERE om.user_id = ? AND om.is_active = 1 AND o.is_active = 1
+          ORDER BY o.name ASC'
+    );
+    $oStmt->execute([(int) $_SESSION['user_id']]);
+    $orgs = $oStmt->fetchAll();
+} else {
+    $orgs = $pdo->query(
+        'SELECT id, name FROM organizations WHERE is_active = 1 ORDER BY name ASC'
+    )->fetchAll();
+}
+
+// IDs the admin is allowed to see (used to enforce tenant isolation)
+$allowedOrgIds = ($role === 'admin')
+    ? array_map('intval', array_column($orgs, 'id'))
+    : [];   // empty = no restriction for owner
 
 // ── Build query ───────────────────────────────────────────────
 $conditions = ['1=1'];
 $params     = [];
+
+// Admin: restrict to their assigned orgs (all of them, not just session org)
+if ($role === 'admin' && !empty($allowedOrgIds)) {
+    $placeholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
+    $conditions[] = "p.org_id IN ($placeholders)";
+    $params       = array_merge($params, $allowedOrgIds);
+}
 
 if ($fSearch !== '') {
     $like = '%' . $fSearch . '%';
@@ -73,9 +99,15 @@ if ($fSearch !== '') {
     $params = array_merge($params, [$like, $like, $like, $like, $like, $like, $like]);
 }
 
+// Org filter: allowed for all roles, but admin can only filter within their allowed orgs
 if ($fOrg > 0) {
-    $conditions[] = 'om.org_id = ?';
-    $params[] = $fOrg;
+    if ($role === 'admin' && !in_array($fOrg, $allowedOrgIds, true)) {
+        $fOrg = 0;   // silently ignore out-of-scope org filter
+    }
+    if ($fOrg > 0) {
+        $conditions[] = 'p.org_id = ?';
+        $params[]     = $fOrg;
+    }
 }
 
 if ($fStatus === 'active') {
@@ -115,8 +147,7 @@ $sql = "
            FROM product_keywords pk WHERE pk.product_id = p.id) AS keywords
     FROM supplier_products p
     JOIN users u        ON u.id = p.supplier_id
-    JOIN org_members om ON om.user_id = u.id AND om.is_active = 1
-    JOIN organizations o ON o.id = om.org_id
+    JOIN organizations o ON o.id = p.org_id
     WHERE $whereClause
     GROUP BY p.id, p.supplier_product_code, p.admin_product_code, p.internal_product_code, p.product_name,
              p.active, p.created_at,
@@ -188,7 +219,14 @@ $filterUrl = function(array $overrides = []): string {
 
         <section class="panel-section">
             <h1 class="section-title"><?= t('all_products_title') ?></h1>
-            <p class="text-muted" style="margin-bottom:20px;"><?= t('all_products_subtitle') ?></p>
+            <p class="text-muted" style="margin-bottom:20px;">
+                <?php if ($role === 'admin'): ?>
+                    <?= t('all_products_subtitle_admin') ?>
+                    <?= implode(', ', array_map(fn($o) => '<strong>' . htmlspecialchars($o['name'], ENT_QUOTES, 'UTF-8') . '</strong>', $orgs)) ?>
+                <?php else: ?>
+                    <?= t('all_products_subtitle') ?>
+                <?php endif; ?>
+            </p>
 
             <!-- ── Filter form ────────────────────────────── -->
             <form method="GET" action="/login/admin/products.php"

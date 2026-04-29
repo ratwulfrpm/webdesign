@@ -1,0 +1,86 @@
+<?php
+/**
+ * /login/switch_org.php — Switch the active organization mid-session.
+ *
+ * POST only. Requires:
+ *   - Active authenticated session (logged_in = true)
+ *   - Valid CSRF token
+ *   - org_id that the user actually belongs to (verified server-side)
+ *
+ * On success: regenerates session, updates org context, redirects back.
+ */
+
+header('X-Frame-Options: DENY');
+header('X-Content-Type-Options: nosniff');
+header('Cache-Control: no-store, no-cache, must-revalidate');
+
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'secure'   => false,
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
+session_start();
+
+require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/csrf.php';
+require_once __DIR__ . '/config/db.php';
+
+requireAuth();
+csrfValidate();
+
+$targetOrgId = (int) ($_POST['org_id'] ?? 0);
+$returnTo    = $_POST['return_to'] ?? '/login/admin/products.php';
+
+// Whitelist return_to to relative paths only (prevent open redirect)
+if (!preg_match('#^/login/#', $returnTo)) {
+    $returnTo = '/login/admin/products.php';
+}
+
+if ($targetOrgId <= 0) {
+    header('Location: ' . $returnTo);
+    exit;
+}
+
+$pdo    = getDB();
+$userId = (int) $_SESSION['user_id'];
+
+// Verify user belongs to this org and is active
+$stmt = $pdo->prepare(
+    'SELECT o.id, o.slug, o.name, om.role
+       FROM org_members om
+       JOIN organizations o ON o.id = om.org_id
+      WHERE om.user_id = ? AND om.org_id = ? AND om.is_active = 1 AND o.is_active = 1
+      LIMIT 1'
+);
+$stmt->execute([$userId, $targetOrgId]);
+$org = $stmt->fetch();
+
+if (!$org) {
+    // Not a member — silently redirect back
+    header('Location: ' . $returnTo);
+    exit;
+}
+
+// Preserve non-org session data
+$username   = $_SESSION['username'];
+$firstLogin = $_SESSION['first_login'] ?? 0;
+$lang       = $_SESSION['lang']        ?? 'es';
+
+session_regenerate_id(true);
+$_SESSION = [];
+
+$_SESSION['logged_in']     = true;
+$_SESSION['user_id']       = $userId;
+$_SESSION['username']      = $username;
+$_SESSION['role']          = $org['role'];
+$_SESSION['org_id']        = (int) $org['id'];
+$_SESSION['org_slug']      = $org['slug'];
+$_SESSION['org_name']      = $org['name'];
+$_SESSION['first_login']   = $firstLogin;
+$_SESSION['lang']          = $lang;
+$_SESSION['last_activity'] = time();
+
+header('Location: ' . $returnTo);
+exit;

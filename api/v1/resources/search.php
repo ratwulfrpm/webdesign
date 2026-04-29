@@ -31,10 +31,10 @@ function handleSearch(string $method, string $sub): void
         jsonError('Method Not Allowed', 405);
     }
 
-    requireAuth(['admin', 'owner']);
+    $auth = requireAuth(['admin', 'owner']);
 
     match ($sub) {
-        'products' => _searchProducts(getDB()),
+        'products' => _searchProducts($auth, getDB()),
         ''         => jsonError('Specify search type: /search/products', 400),
         default    => jsonError('Unknown search type', 404),
     };
@@ -42,7 +42,7 @@ function handleSearch(string $method, string $sub): void
 
 // ── SEARCH PRODUCTS ───────────────────────────────────────────
 
-function _searchProducts(PDO $pdo): void
+function _searchProducts(array $auth, PDO $pdo): void
 {
     // Input sanitization — all values capped and stripped
     $trim100    = fn(string $v): string => mb_substr(trim($v), 0, 100);
@@ -53,8 +53,9 @@ function _searchProducts(PDO $pdo): void
     $page       = max(1, (int) ($_GET['page']   ?? 1));
     $offset     = ($page - 1) * SEARCH_PER_PAGE;
 
-    $where      = ['p.active = 1'];
-    $bindParams = [];
+    // TENANT ISOLATION: always scope to session org
+    $where      = ['p.active = 1', 'p.org_id = ?'];
+    $bindParams = [$auth['org_id']];
 
     // ── General keyword: FULLTEXT + keywords table + LIKE fallback ────
     if ($q !== '') {
@@ -127,15 +128,12 @@ function _searchProducts(PDO $pdo): void
              p.price_cif,
              u.username     AS supplier_username,
              u.company_name AS supplier_company,
-             MAX(o.name)    AS org_name,
              spi.file_path  AS front_img_path,
              (SELECT GROUP_CONCAT(DISTINCT pk.keyword ORDER BY pk.keyword SEPARATOR ', ')
                 FROM product_keywords pk
                WHERE pk.product_id = p.id)  AS keywords_csv
          FROM supplier_products p
          JOIN users u     ON u.id = p.supplier_id
-         LEFT JOIN org_members om  ON om.user_id = u.id AND om.is_active = 1
-         LEFT JOIN organizations o ON o.id = om.org_id
          LEFT JOIN supplier_product_images spi
                 ON spi.product_id = p.id AND spi.image_slot = 'front'
          WHERE {$wSql}
@@ -157,7 +155,6 @@ function _searchProducts(PDO $pdo): void
         'price_cif'             => $r['price_cif'] !== null ? (float) $r['price_cif'] : null,
         'supplier_username'     => (string) $r['supplier_username'],
         'supplier_company'      => (string) ($r['supplier_company'] ?? ''),
-        'org_name'              => $r['org_name'] ? (string) $r['org_name'] : null,
         'front_img_path'        => $r['front_img_path'] ? (string) $r['front_img_path'] : null,
         'keywords_csv'          => $r['keywords_csv'] ? (string) $r['keywords_csv'] : null,
     ], $rows);

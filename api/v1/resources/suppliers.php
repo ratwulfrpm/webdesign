@@ -15,19 +15,19 @@
 
 function handleSuppliers(string $method, ?int $id): void
 {
-    requireAuth(['admin', 'owner']);
-    $pdo = getDB();
+    $auth = requireAuth(['admin', 'owner']);
+    $pdo  = getDB();
 
     match (true) {
-        $method === 'GET' && $id === null => _listSuppliers($pdo),
-        $method === 'GET' && $id !== null => _getSupplier($id, $pdo),
+        $method === 'GET' && $id === null => _listSuppliers($auth, $pdo),
+        $method === 'GET' && $id !== null => _getSupplier($id, $auth, $pdo),
         default => jsonError('Method Not Allowed', 405),
     };
 }
 
 // ── LIST ─────────────────────────────────────────────────────
 
-function _listSuppliers(PDO $pdo): void
+function _listSuppliers(array $auth, PDO $pdo): void
 {
     $page    = max(1, (int) ($_GET['page'] ?? 1));
     $perPage = 50;
@@ -35,8 +35,10 @@ function _listSuppliers(PDO $pdo): void
 
     // Optional search
     $search = strField($_GET['q'] ?? '', 100);
-    $where  = ["u.role = 'supplier'", 'u.is_active = 1'];
-    $params = [];
+
+    // TENANT ISOLATION: only suppliers in the current org
+    $where  = ["om.org_id = ?", "om.role = 'supplier'", "om.is_active = 1", 'u.is_active = 1'];
+    $params = [$auth['org_id']];
 
     if ($search !== '') {
         $where[]  = '(u.username LIKE ? OR u.company_name LIKE ? OR u.full_name LIKE ?)';
@@ -49,26 +51,31 @@ function _listSuppliers(PDO $pdo): void
     $wSql = implode(' AND ', $where);
 
     $cntSt = $pdo->prepare(
-        "SELECT COUNT(*) FROM users u WHERE {$wSql}"
+        "SELECT COUNT(DISTINCT u.id) FROM users u
+          JOIN org_members om ON om.user_id = u.id
+         WHERE {$wSql}"
     );
     $cntSt->execute($params);
     $total = (int) $cntSt->fetchColumn();
 
     $st = $pdo->prepare(
-        "SELECT u.id, u.username, u.full_name, u.company_name, u.email,
+        "SELECT DISTINCT u.id, u.username, u.full_name, u.company_name, u.email,
                 u.addr_city, u.addr_country_id, u.created_at,
                 (SELECT COUNT(*) FROM supplier_products sp
-                  WHERE sp.supplier_id = u.id AND sp.active = 1)          AS product_count,
+                  WHERE sp.supplier_id = u.id AND sp.active = 1 AND sp.org_id = ?)  AS product_count,
                 (SELECT COUNT(*) FROM supplier_contracts sc
-                  WHERE sc.supplier_id = u.id)                            AS contract_count,
+                  WHERE sc.supplier_id = u.id AND sc.org_id = ?)                    AS contract_count,
                 (SELECT MAX(sc2.signed_date) FROM supplier_contracts sc2
-                  WHERE sc2.supplier_id = u.id AND sc2.is_primary = 1)    AS latest_contract_date
+                  WHERE sc2.supplier_id = u.id AND sc2.is_primary = 1
+                    AND sc2.org_id = ?)                                              AS latest_contract_date
            FROM users u
+           JOIN org_members om ON om.user_id = u.id
           WHERE {$wSql}
           ORDER BY u.company_name ASC, u.username ASC
           LIMIT {$perPage} OFFSET {$offset}"
     );
-    $st->execute($params);
+    // Prepend org_id three times for the subqueries, then the WHERE params
+    $st->execute(array_merge([$auth['org_id'], $auth['org_id'], $auth['org_id']], $params));
     $rows = $st->fetchAll();
 
     $items = array_map(fn($r) => [
@@ -95,8 +102,9 @@ function _listSuppliers(PDO $pdo): void
 
 // ── DETAIL ───────────────────────────────────────────────────
 
-function _getSupplier(int $id, PDO $pdo): void
+function _getSupplier(int $id, array $auth, PDO $pdo): void
 {
+    // TENANT ISOLATION: verify supplier belongs to current org
     $st = $pdo->prepare(
         "SELECT u.id, u.username, u.full_name, u.company_name, u.email,
                 u.tax_id, u.legal_rep_name,
@@ -105,9 +113,13 @@ function _getSupplier(int $id, PDO $pdo): void
                 u.factory_street, u.factory_city, u.factory_state, u.factory_zip,
                 u.factory_country_id, u.is_active, u.created_at
            FROM users u
-          WHERE u.id = ? AND u.role = 'supplier'"
+           JOIN org_members om ON om.user_id = u.id
+          WHERE u.id = ?
+            AND om.org_id = ?
+            AND om.role = 'supplier'
+            AND om.is_active = 1"
     );
-    $st->execute([$id]);
+    $st->execute([$id, $auth['org_id']]);
     $supplier = $st->fetch();
 
     if (!$supplier) {
@@ -124,23 +136,23 @@ function _getSupplier(int $id, PDO $pdo): void
     $cSt->execute([$id]);
     $contacts = $cSt->fetchAll();
 
-    // Product count
+    // Product count — scoped to org
     $pSt = $pdo->prepare(
-        'SELECT COUNT(*) FROM supplier_products WHERE supplier_id = ? AND active = 1'
+        'SELECT COUNT(*) FROM supplier_products WHERE supplier_id = ? AND org_id = ? AND active = 1'
     );
-    $pSt->execute([$id]);
+    $pSt->execute([$id, $auth['org_id']]);
     $productCount = (int) $pSt->fetchColumn();
 
-    // Primary contract
+    // Primary contracts — scoped to org
     $contractSt = $pdo->prepare(
         "SELECT id, signed_date, effective_start_date, effective_end_date,
                 original_filename, is_primary, created_at
            FROM supplier_contracts
-          WHERE supplier_id = ?
+          WHERE supplier_id = ? AND org_id = ?
           ORDER BY is_primary DESC, created_at DESC
           LIMIT 5"
     );
-    $contractSt->execute([$id]);
+    $contractSt->execute([$id, $auth['org_id']]);
     $contracts = $contractSt->fetchAll();
 
     jsonOk([
