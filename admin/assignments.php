@@ -1106,6 +1106,9 @@ $statusClass = [
     var selectedProfit = null;
     // selectedProducts: { id: {id,name,price_fob,price_cif,internal_code} }
     var selectedProducts = {};
+    // productRegistry: all products seen in search/detail, keyed by id
+    // Avoids embedding JSON.stringify() inside onclick attributes (breaks HTML parsing)
+    var productRegistry = {};
     // Last search results (preserved when viewing detail)
     var lastSearchData  = null;
     var lastSearchPage  = 1;
@@ -1201,6 +1204,7 @@ $statusClass = [
 
         var html = '';
         data.items.forEach(function(item) {
+            productRegistry[item.id] = item;  // store for onclick lookup
             var isSel = selectedProducts.hasOwnProperty(item.id);
             html += '<div class="result-card' + (isSel ? ' is-selected' : '') + '" id="rc-' + item.id + '">';
 
@@ -1239,8 +1243,7 @@ $statusClass = [
 
             html += '<div class="result-actions">';
             html += '<button type="button" class="btn-sm ' + (isSel ? 'btn-primary' : 'btn-secondary')
-                + '" id="selbtn-' + item.id + '" onclick="toggleProduct('
-                + JSON.stringify(item) + ')">'
+                + '" id="selbtn-' + item.id + '" onclick="toggleProduct(' + item.id + ')">'  
                 + (isSel ? esc(i18n.btn_selected) : esc(i18n.btn_select)) + '</button>';
             html += '<button type="button" class="btn-secondary btn-sm" onclick="viewDetail('
                 + item.id + ')">' + esc(i18n.btn_details) + '</button>';
@@ -1333,17 +1336,17 @@ $statusClass = [
             html += '</div>';
         }
 
-        // Select button
+        // Select button — store minimal record in registry so onclick only needs the ID
+        productRegistry[p.id] = {
+            id:                    p.id,
+            product_name:          p.product_name,
+            internal_product_code: p.internal_product_code,
+            price_fob:             p.price_fob,
+            price_cif:             p.price_cif,
+        };
         html += '<div style="margin-top:14px;">';
         html += '<button type="button" class="' + (isSel ? 'btn-primary' : 'btn-secondary') + '" '
-            + 'id="detail-selbtn" onclick="toggleProduct('
-            + JSON.stringify({
-                id:                    p.id,
-                product_name:          p.product_name,
-                internal_product_code: p.internal_product_code,
-                price_fob:             p.price_fob,
-                price_cif:             p.price_cif,
-            }) + ')">'
+            + 'id="detail-selbtn" onclick="toggleProduct(' + p.id + ')">' 
             + (isSel ? esc(i18n.btn_selected) : esc(i18n.btn_select))
             + '</button>';
         html += '</div>';
@@ -1374,26 +1377,29 @@ $statusClass = [
     // ═══════════════════════════════════════════════════════════
     //  PRODUCT SELECTION
     // ═══════════════════════════════════════════════════════════
-    function toggleProduct(item) {
-        if (selectedProducts.hasOwnProperty(item.id)) {
-            delete selectedProducts[item.id];
+    function toggleProduct(productId) {
+        // productId is always a numeric ID; data comes from productRegistry
+        var item = productRegistry[productId];
+        if (!item) { return; }
+        if (selectedProducts.hasOwnProperty(productId)) {
+            delete selectedProducts[productId];
         } else {
-            selectedProducts[item.id] = item;
+            selectedProducts[productId] = item;
         }
         updateSelectedPanel();
         // Update select button in result card if visible
-        var rb = document.getElementById('selbtn-' + item.id);
+        var rb = document.getElementById('selbtn-' + productId);
         if (rb) {
-            var sel = selectedProducts.hasOwnProperty(item.id);
+            var sel = selectedProducts.hasOwnProperty(productId);
             rb.textContent = sel ? i18n.btn_selected : i18n.btn_select;
             rb.className   = 'btn-sm ' + (sel ? 'btn-primary' : 'btn-secondary');
-            var card = document.getElementById('rc-' + item.id);
+            var card = document.getElementById('rc-' + productId);
             if (card) card.classList.toggle('is-selected', sel);
         }
         // Update detail select button if visible
         var db = document.getElementById('detail-selbtn');
         if (db) {
-            var selD = selectedProducts.hasOwnProperty(item.id);
+            var selD = selectedProducts.hasOwnProperty(productId);
             db.textContent = selD ? i18n.btn_selected : i18n.btn_select;
             db.className   = selD ? 'btn-primary' : 'btn-secondary';
         }
