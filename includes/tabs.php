@@ -78,6 +78,11 @@ function getTabsForRole(string $role): array
                     'url'   => '/login/invitations.php',
                 ],
                 [
+                    'id'    => 'assignments',
+                    'label' => t('tab_assignments'),
+                    'url'   => '/login/admin/assignments.php',
+                ],
+                [
                     'id'       => 'reports',
                     'label'    => t('tab_reports'),
                     'url'      => '#',
@@ -107,6 +112,11 @@ function getTabsForRole(string $role): array
                     'id'    => 'invitations',
                     'label' => t('tab_invitations'),
                     'url'   => '/login/invitations.php',
+                ],
+                [
+                    'id'    => 'assignments',
+                    'label' => t('tab_assignments'),
+                    'url'   => '/login/admin/assignments.php',
                 ],
                 [
                     'id'       => 'reports',

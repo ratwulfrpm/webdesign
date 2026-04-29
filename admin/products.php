@@ -66,10 +66,11 @@ if ($fSearch !== '') {
     $like = '%' . $fSearch . '%';
     $conditions[] = '(p.product_name LIKE ? OR p.supplier_product_code LIKE ?
                        OR p.admin_product_code LIKE ?
+                       OR p.internal_product_code LIKE ?
                        OR u.username LIKE ? OR u.company_name LIKE ?
                        OR EXISTS (SELECT 1 FROM product_keywords pk2
                                    WHERE pk2.product_id = p.id AND pk2.keyword LIKE ?))';
-    $params = array_merge($params, [$like, $like, $like, $like, $like, $like]);
+    $params = array_merge($params, [$like, $like, $like, $like, $like, $like, $like]);
 }
 
 if ($fOrg > 0) {
@@ -98,6 +99,7 @@ $sql = "
         p.id,
         p.supplier_product_code,
         p.admin_product_code,
+        p.internal_product_code,
         p.product_name,
         p.active,
         p.created_at,
@@ -116,7 +118,7 @@ $sql = "
     JOIN org_members om ON om.user_id = u.id AND om.is_active = 1
     JOIN organizations o ON o.id = om.org_id
     WHERE $whereClause
-    GROUP BY p.id, p.supplier_product_code, p.admin_product_code, p.product_name,
+    GROUP BY p.id, p.supplier_product_code, p.admin_product_code, p.internal_product_code, p.product_name,
              p.active, p.created_at,
              u.id, u.username, u.company_name,
              o.id, o.name
@@ -271,6 +273,7 @@ $filterUrl = function(array $overrides = []): string {
                             <th><?= $esc(t('col_product_name')) ?></th>
                             <th><?= $esc(t('col_product_code')) ?></th>
                             <th><?= $esc(t('field_admin_code')) ?></th>
+                            <th><?= $esc(t('col_internal_code')) ?></th>
                             <th><?= $esc(t('col_supplier')) ?></th>
                             <th><?= $esc(t('col_org')) ?></th>
                             <th><?= $esc(t('col_active')) ?></th>
@@ -313,6 +316,15 @@ $filterUrl = function(array $overrides = []): string {
                             <td>
                                 <?php if ($p['admin_product_code']): ?>
                                 <code class="code-cell"><?= $esc($p['admin_product_code']) ?></code>
+                                <?php else: ?>
+                                <span class="text-muted">—</span>
+                                <?php endif; ?>
+                            </td>
+                            <td>
+                                <?php if ($p['internal_product_code']): ?>
+                                <code class="code-cell" style="background:#eaf4ff;color:#0071e3;">
+                                    <?= $esc($p['internal_product_code']) ?>
+                                </code>
                                 <?php else: ?>
                                 <span class="text-muted">—</span>
                                 <?php endif; ?>

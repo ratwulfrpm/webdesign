@@ -52,6 +52,7 @@ $justSaved = isset($_GET['saved']);
 $stmt = $pdo->prepare(
     'SELECT p.id,
             p.supplier_product_code,
+            p.internal_product_code,
             p.product_name,
             p.price_fob,
             p.price_cif,
@@ -194,6 +195,12 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                         <td>
                             <code style="font-size:0.8rem;background:#f5f5f7;padding:2px 6px;
                                          border-radius:6px;"><?= $esc($p['supplier_product_code']) ?></code>
+                            <?php if (!empty($p['internal_product_code'])): ?>
+                            <br><code style="font-size:0.75rem;background:#eaf4ff;color:#0071e3;
+                                            padding:1px 5px;border-radius:4px;margin-top:3px;display:inline-block;">
+                                <?= $esc($p['internal_product_code']) ?>
+                            </code>
+                            <?php endif; ?>
                             <?php if ((int)$p['img_count'] > 0): ?>
                             <br><span class="badge badge-done" style="margin-top:4px;">
                                 <?= (int)$p['img_count'] ?> img

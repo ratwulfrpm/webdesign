@@ -1,0 +1,670 @@
+<?php
+/**
+ * /login/quote.php — Public product quotation view (no authentication required)
+ *
+ * URL : /login/quote.php?t={plain_64hex_token}
+ *
+ * Supports two formats:
+ *  1. NEW    — token matches quote_assignments (multi-product master-detail)
+ *  2. LEGACY — token matches product_assignments (single-product, backward compat)
+ *
+ * Security design:
+ *  - No user session or authentication required.
+ *  - Receives a plain token via GET ?t=
+ *  - Hashes the token server-side (SHA-256) and looks up the DB.
+ *  - NEVER accepts product_id or assignment_id from the URL (anti-IDOR).
+ *  - On any invalid/expired/revoked/missing token: shows a generic error message.
+ *    No information is revealed about whether the token or product exists.
+ *  - FOB/CIF raw prices and all internal admin data are never shown.
+ *  - supplier_product_code never exposed.
+ *  - All output is escaped (XSS prevention).
+ *  - No SQL concatenation — all queries use prepared statements.
+ *
+ * Token flow:
+ *  plain_token (URL)  →  hash('sha256', plain_token)  →  lookup in DB
+ */
+
+// ── Security headers ─────────────────────────────────────────
+header('X-Frame-Options: DENY');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: no-referrer');
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Content-Type: text/html; charset=utf-8');
+
+// ── Bootstrap ────────────────────────────────────────────────
+require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/includes/lang.php';
+require_once __DIR__ . '/includes/audit.php';
+
+$lang = 'en';
+if (session_status() === PHP_SESSION_NONE) {
+    session_set_cookie_params([
+        'lifetime' => 0, 'path' => '/', 'secure' => false,
+        'httponly' => true, 'samesite' => 'Lax',
+    ]);
+    session_start();
+}
+initLang();
+$lang = currentLang();
+
+// ── Generic error page ────────────────────────────────────────
+function showExpiredPage(string $lang): void
+{
+    $msgs = [
+        'en' => ['title'   => 'Link unavailable',
+                 'heading' => 'This link is not available or has expired.',
+                 'detail'  => 'The quotation you requested is no longer accessible. Please contact the person who sent you this link.'],
+        'es' => ['title'   => 'Enlace no disponible',
+                 'heading' => 'Este enlace no está disponible o ha expirado.',
+                 'detail'  => 'La cotización que solicitó ya no es accesible. Contacte a la persona que le envió este enlace.'],
+        'zh' => ['title'   => '链接不可用',
+                 'heading' => '此链接不可用或已过期。',
+                 'detail'  => '您请求的报价已无法访问。请联系向您发送此链接的人。'],
+    ];
+    $m   = $msgs[$lang] ?? $msgs['en'];
+    $esc = fn($v) => htmlspecialchars((string) $v, ENT_QUOTES, 'UTF-8');
+    echo '<!DOCTYPE html><html lang="' . $esc($lang) . '"><head>'
+        . '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+        . '<title>' . $esc($m['title']) . '</title>'
+        . '<link rel="stylesheet" href="/login/css/style.css?v=12">'
+        . '</head><body>'
+        . '<div class="page-content" style="max-width:520px;margin:80px auto;text-align:center;">'
+        . '<div class="card" style="padding:40px 32px;">'
+        . '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" style="margin-bottom:16px;" aria-hidden="true">'
+        . '<circle cx="12" cy="12" r="10" stroke="#d1d1d6" stroke-width="1.5"/>'
+        . '<path d="M12 8v5M12 16h.01" stroke="#8e8e93" stroke-width="1.5" stroke-linecap="round"/>'
+        . '</svg>'
+        . '<h1 style="font-size:1.2rem;margin-bottom:12px;">' . $esc($m['heading']) . '</h1>'
+        . '<p style="color:#666;font-size:0.9rem;">' . $esc($m['detail']) . '</p>'
+        . '</div></div></body></html>';
+    exit;
+}
+
+// ── Token extraction + rate limit ─────────────────────────────
+$rawToken = trim($_GET['t'] ?? '');
+$_auditIp = _auditClientIp();
+
+if (auditIsRateLimited('quote_invalid_token', $_auditIp, 20, 600)) {
+    auditLog('quote_rate_limited', 'warning', null, null, ['ip' => $_auditIp]);
+    http_response_code(429);
+    showExpiredPage($lang);
+}
+
+if (!preg_match('/^[0-9a-f]{64}$/', $rawToken)) {
+    auditLog('quote_invalid_token', 'warning', null, null, ['reason' => 'bad_format']);
+    showExpiredPage($lang);
+}
+
+$tokenHash = hash('sha256', $rawToken);
+$pdo       = getDB();
+
+// ═════════════════════════════════════════════════════════════
+//  STEP 1 — Try NEW format (quote_assignments + items)
+// ═════════════════════════════════════════════════════════════
+$isNewFormat = false;
+$quoteData   = null;
+$quoteItems  = [];
+
+$stmtNew = $pdo->prepare(
+    'SELECT id, assigned_customer_name, company_name, special_conditions,
+            discount_percentage, status, valid_from, expires_at, view_count
+       FROM quote_assignments
+      WHERE token_hash = ?
+      LIMIT 1'
+);
+$stmtNew->execute([$tokenHash]);
+$quoteData = $stmtNew->fetch();
+
+if ($quoteData) {
+    $isNewFormat = true;
+
+    if ($quoteData['status'] !== 'active') {
+        auditLog('quote_not_active', 'warning', (int)$quoteData['id'], null,
+            ['status' => $quoteData['status'], 'format' => 'new']);
+        showExpiredPage($lang);
+    }
+
+    if (strtotime($quoteData['expires_at']) < time()) {
+        try {
+            $pdo->prepare(
+                "UPDATE quote_assignments SET status='expired', updated_at=NOW()
+                  WHERE id = ? AND status = 'active'"
+            )->execute([$quoteData['id']]);
+        } catch (\PDOException $e) {
+            error_log('quote.php new expire update failed: ' . $e->getMessage());
+        }
+        auditLog('quote_expired', 'info', (int)$quoteData['id']);
+        showExpiredPage($lang);
+    }
+
+    // Load items (never expose supplier_product_code)
+    $itemStmt = $pdo->prepare(
+        'SELECT qi.final_unit_price,
+                p.product_name,
+                p.internal_product_code,
+                p.technical_description,
+                p.active AS product_active,
+                p.id     AS product_id
+           FROM quote_assignment_items qi
+           JOIN supplier_products p ON p.id = qi.product_id
+          WHERE qi.quote_assignment_id = ?
+          ORDER BY qi.id ASC'
+    );
+    $itemStmt->execute([$quoteData['id']]);
+    $quoteItems = $itemStmt->fetchAll();
+
+    if (empty($quoteItems)) {
+        auditLog('quote_invalid_token', 'warning', (int)$quoteData['id'], null,
+            ['reason' => 'no_items']);
+        showExpiredPage($lang);
+    }
+
+    foreach ($quoteItems as $item) {
+        if (!(int)$item['product_active']) {
+            auditLog('quote_product_inactive', 'warning', (int)$quoteData['id']);
+            showExpiredPage($lang);
+        }
+    }
+
+    // Load images and keywords per product
+    $productIds   = array_column($quoteItems, 'product_id');
+    $placeholders = implode(',', array_fill(0, count($productIds), '?'));
+
+    $allImagesStmt = $pdo->prepare(
+        "SELECT product_id, image_slot, file_path
+           FROM supplier_product_images
+          WHERE product_id IN ({$placeholders})
+          ORDER BY FIELD(image_slot,'front','back','left','right','aerial','bottom')"
+    );
+    $allImagesStmt->execute($productIds);
+    $allImages = [];
+    foreach ($allImagesStmt->fetchAll() as $img) {
+        $allImages[(int)$img['product_id']][$img['image_slot']] = $img['file_path'];
+    }
+
+    $allKwStmt = $pdo->prepare(
+        "SELECT product_id, keyword
+           FROM product_keywords
+          WHERE product_id IN ({$placeholders})
+          ORDER BY keyword ASC"
+    );
+    $allKwStmt->execute($productIds);
+    $allKeywords = [];
+    foreach ($allKwStmt->fetchAll() as $kw) {
+        $allKeywords[(int)$kw['product_id']][] = $kw['keyword'];
+    }
+
+    // Record access
+    try {
+        $now = date('Y-m-d H:i:s');
+        $pdo->prepare(
+            'UPDATE quote_assignments
+                SET view_count = view_count + 1,
+                    last_viewed_at = ?,
+                    viewed_at = COALESCE(viewed_at, ?),
+                    updated_at = ?
+              WHERE id = ?'
+        )->execute([$now, $now, $now, $quoteData['id']]);
+        auditLog('quote_accessed', 'info', (int)$quoteData['id'], null,
+            ['view_count' => (int)$quoteData['view_count'] + 1, 'format' => 'new']);
+    } catch (\PDOException $e) {
+        error_log('quote.php new view_count update failed: ' . $e->getMessage());
+    }
+}
+
+// ═════════════════════════════════════════════════════════════
+//  STEP 2 — Try LEGACY format (product_assignments)
+// ═════════════════════════════════════════════════════════════
+$legacyAssignment = null;
+$legacyImages     = [];
+$legacyKeywords   = [];
+
+if (!$isNewFormat) {
+    $stmtLeg = $pdo->prepare(
+        'SELECT a.id,
+                a.product_id,
+                a.assigned_customer_name,
+                a.status,
+                a.final_price,
+                a.valid_from,
+                a.expires_at,
+                a.view_count,
+                p.product_name,
+                p.technical_description,
+                p.internal_product_code,
+                p.active AS product_active
+           FROM product_assignments a
+           JOIN supplier_products p ON p.id = a.product_id
+          WHERE a.token_hash = ?
+          LIMIT 1'
+    );
+    $stmtLeg->execute([$tokenHash]);
+    $legacyAssignment = $stmtLeg->fetch();
+
+    if (!$legacyAssignment) {
+        auditLog('quote_invalid_token', 'warning', null, null, ['reason' => 'not_found']);
+        showExpiredPage($lang);
+    }
+
+    if ($legacyAssignment['status'] !== 'active') {
+        auditLog('quote_not_active', 'warning', (int)$legacyAssignment['id'], null,
+            ['status' => $legacyAssignment['status']]);
+        showExpiredPage($lang);
+    }
+
+    if (strtotime($legacyAssignment['expires_at']) < time()) {
+        try {
+            $pdo->prepare(
+                "UPDATE product_assignments SET status='expired', updated_at=NOW()
+                  WHERE id = ? AND status = 'active'"
+            )->execute([$legacyAssignment['id']]);
+        } catch (\PDOException $e) {
+            error_log('quote.php legacy expire update failed: ' . $e->getMessage());
+        }
+        auditLog('quote_expired', 'info', (int)$legacyAssignment['id']);
+        showExpiredPage($lang);
+    }
+
+    if (!(int)$legacyAssignment['product_active']) {
+        auditLog('quote_product_inactive', 'warning', (int)$legacyAssignment['id']);
+        showExpiredPage($lang);
+    }
+
+    try {
+        $now = date('Y-m-d H:i:s');
+        $pdo->prepare(
+            'UPDATE product_assignments
+                SET view_count = view_count + 1,
+                    last_viewed_at = ?,
+                    viewed_at = COALESCE(viewed_at, ?),
+                    updated_at = ?
+              WHERE id = ?'
+        )->execute([$now, $now, $now, $legacyAssignment['id']]);
+        auditLog('quote_accessed', 'info', (int)$legacyAssignment['id'], null,
+            ['view_count' => (int)$legacyAssignment['view_count'] + 1]);
+    } catch (\PDOException $e) {
+        error_log('quote.php legacy view_count update failed: ' . $e->getMessage());
+    }
+
+    $imgStmt = $pdo->prepare(
+        'SELECT image_slot, file_path FROM supplier_product_images WHERE product_id = ?'
+    );
+    $imgStmt->execute([$legacyAssignment['product_id']]);
+    foreach ($imgStmt->fetchAll() as $img) {
+        $legacyImages[$img['image_slot']] = $img['file_path'];
+    }
+
+    $kwStmt = $pdo->prepare(
+        'SELECT keyword FROM product_keywords WHERE product_id = ? ORDER BY keyword ASC'
+    );
+    $kwStmt->execute([$legacyAssignment['product_id']]);
+    $legacyKeywords = $kwStmt->fetchAll(PDO::FETCH_COLUMN);
+}
+
+// ── Slot labels ────────────────────────────────────────────────
+$slotLabels = [
+    'front'  => t('img_slot_front'),
+    'back'   => t('img_slot_back'),
+    'left'   => t('img_slot_left'),
+    'right'  => t('img_slot_right'),
+    'aerial' => t('img_slot_aerial'),
+    'bottom' => t('img_slot_bottom'),
+];
+
+// ── View helpers ──────────────────────────────────────────────
+$esc      = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
+$fmtDate  = fn($v) => date('d/m/Y', strtotime((string)$v));
+$fmtPrice = fn($v) => '$ ' . number_format((float) $v, 2);
+
+// ── Compute totals (new format) ───────────────────────────────
+$subtotal    = 0.0;
+$discountPct = 0.0;
+$discountAmt = 0.0;
+$total       = 0.0;
+if ($isNewFormat) {
+    foreach ($quoteItems as $item) { $subtotal += (float)$item['final_unit_price']; }
+    $discountPct = $quoteData['discount_percentage'] !== null ? (float)$quoteData['discount_percentage'] : 0.0;
+    $discountAmt = round($subtotal * $discountPct / 100, 2);
+    $total       = round($subtotal - $discountAmt, 2);
+}
+
+$expiresAt    = $isNewFormat ? $quoteData['expires_at'] : $legacyAssignment['expires_at'];
+$customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAssignment['assigned_customer_name'];
+
+?>
+<!DOCTYPE html>
+<html lang="<?= $lang ?>">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="Cache-Control" content="no-store">
+    <title><?= $esc(t('quote_page_title')) ?></title>
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
+    <style>
+        body { background: #f5f5f7; }
+        .quote-header {
+            background:#fff; border-bottom:1px solid #e5e5ea;
+            padding:18px 32px; display:flex; align-items:center;
+            justify-content:space-between;
+        }
+        .quote-brand { font-size:1.05rem; font-weight:600; color:#1d1d1f; }
+        .quote-validity { font-size:0.83rem; color:#555; }
+        .quote-wrap { max-width:840px; margin:28px auto; padding:0 16px 48px; }
+        .quote-card {
+            background:#fff; border-radius:14px;
+            box-shadow:0 2px 12px rgba(0,0,0,0.07); overflow:hidden;
+            margin-bottom:20px;
+        }
+        .quote-card-header { padding:24px 28px 18px; border-bottom:1px solid #f0f0f3; }
+        .quote-product-name { font-size:1.35rem; font-weight:700; color:#1d1d1f; margin:0 0 5px; }
+        .quote-product-code { font-size:0.82rem; color:#888; font-family:monospace; }
+        .quote-price-box {
+            display:flex; align-items:baseline; gap:8px;
+            margin:18px 28px; padding:18px 22px;
+            background:#f0f7ff; border:1.5px solid #b8d6f5; border-radius:12px;
+        }
+        .quote-price-label { font-size:0.88rem; color:#555; font-weight:500; }
+        .quote-price-value { font-size:1.9rem; font-weight:800; color:#0071e3; }
+        .quote-section { padding:18px 28px; border-top:1px solid #f0f0f3; }
+        .quote-section-title {
+            font-size:0.82rem; font-weight:600; color:#6e6e73;
+            text-transform:uppercase; letter-spacing:0.04em; margin:0 0 10px;
+        }
+        .quote-desc { font-size:0.93rem; color:#333; line-height:1.65; white-space:pre-line; }
+        .quote-gallery {
+            display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:10px;
+        }
+        .quote-gallery-slot {
+            border-radius:8px; overflow:hidden; border:1px solid #e5e5ea; cursor:zoom-in;
+        }
+        .quote-gallery-slot img { width:100%; height:140px; object-fit:cover; display:block; }
+        .quote-gallery-caption { padding:5px 7px; font-size:0.75rem; color:#666; text-align:center; background:#fafafa; }
+        .quote-front-img {
+            width:100%; max-height:320px; object-fit:contain;
+            border-radius:8px; border:1px solid #e5e5ea; cursor:zoom-in; display:block; margin-bottom:14px;
+        }
+        .quote-keyword-tags { display:flex; flex-wrap:wrap; gap:5px; }
+        .quote-keyword-chip { padding:3px 11px; border-radius:18px; background:#f0f0f5; font-size:0.8rem; color:#3a3a4a; }
+        .quote-meta-box {
+            margin:0 28px 22px; padding:12px 18px;
+            background:#fafafa; border:1px solid #e5e5ea; border-radius:10px;
+            display:flex; flex-wrap:wrap; gap:18px; font-size:0.86rem; color:#444;
+        }
+        .quote-meta-box .meta-item strong { display:block; color:#1d1d1f; font-size:0.78rem; margin-bottom:2px; }
+        .quote-footer-note { text-align:center; padding:18px; font-size:0.78rem; color:#aaa; border-top:1px solid #f0f0f3; }
+        /* Totals */
+        .quote-totals-box {
+            background:#fff; border-radius:14px;
+            box-shadow:0 2px 12px rgba(0,0,0,0.07); padding:20px 28px;
+        }
+        .quote-total-row {
+            display:flex; justify-content:space-between;
+            padding:7px 0; font-size:0.95rem; border-bottom:1px solid #f0f0f3;
+        }
+        .quote-total-row:last-child { border-bottom:none; }
+        .quote-total-row.grand-total {
+            font-size:1.15rem; font-weight:800; color:#0071e3;
+            border-top:2px solid #b8d6f5; margin-top:6px; padding-top:10px;
+        }
+        .discount-val { color:#e74c3c; }
+        .item-number-badge {
+            display:inline-flex; align-items:center; justify-content:center;
+            width:24px; height:24px; border-radius:50%; background:#0071e3;
+            color:#fff; font-size:0.75rem; font-weight:700; flex-shrink:0; margin-right:8px;
+        }
+        /* Lightbox */
+        .quote-lightbox {
+            display:none; position:fixed; inset:0;
+            background:rgba(0,0,0,0.88); z-index:9999;
+            align-items:center; justify-content:center;
+        }
+        .quote-lightbox.active { display:flex; }
+        .quote-lightbox img { max-width:90vw; max-height:88vh; border-radius:6px; }
+        .quote-lightbox-close {
+            position:absolute; top:18px; right:22px;
+            background:none; border:none; color:#fff; font-size:1.8rem; cursor:pointer;
+        }
+        @media (max-width:600px) {
+            .quote-header { padding:13px 16px; }
+            .quote-price-box { margin:14px; }
+            .quote-section  { padding:14px; }
+            .quote-meta-box { margin:0 14px 16px; }
+            .quote-product-name { font-size:1.15rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="quote-header">
+        <div class="quote-brand"><?= $esc(t('quote_page_title')) ?></div>
+        <div class="quote-validity">
+            <?= $esc(t('quote_valid_until')) ?>:
+            <strong><?= $esc($fmtDate($expiresAt)) ?></strong>
+        </div>
+    </header>
+
+    <main class="quote-wrap">
+
+        <!-- ── Client / Company / Conditions card ─────────── -->
+        <div class="quote-card" style="margin-bottom:20px;">
+            <div class="quote-meta-box" style="margin:0;border:none;background:transparent;padding:18px 28px;">
+                <div class="meta-item">
+                    <strong><?= $esc(t('quote_client_label')) ?></strong>
+                    <?= $esc($customerName) ?>
+                </div>
+                <?php if ($isNewFormat && !empty($quoteData['company_name'])): ?>
+                <div class="meta-item">
+                    <strong><?= $esc(t('quote_company_label')) ?></strong>
+                    <?= $esc($quoteData['company_name']) ?>
+                </div>
+                <?php endif; ?>
+                <div class="meta-item">
+                    <strong><?= $esc(t('quote_expires_label')) ?></strong>
+                    <?= $esc($fmtDate($expiresAt)) ?>
+                </div>
+            </div>
+            <?php if ($isNewFormat && !empty($quoteData['special_conditions'])): ?>
+            <div style="padding:0 28px 18px;">
+                <div style="font-size:0.78rem;font-weight:600;color:#6e6e73;text-transform:uppercase;margin-bottom:6px;">
+                    <?= $esc(t('quote_conditions_label')) ?>
+                </div>
+                <div style="font-size:0.9rem;color:#333;line-height:1.6;white-space:pre-line;">
+                    <?= nl2br($esc($quoteData['special_conditions'])) ?>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+
+        <?php if ($isNewFormat): ?>
+        <!-- ══════════════════════════════════════════════════
+             NEW FORMAT — Multi-product
+        ══════════════════════════════════════════════════ -->
+        <?php foreach ($quoteItems as $idx => $item): ?>
+        <?php
+            $productId = (int)$item['product_id'];
+            $images    = $allImages[$productId] ?? [];
+            $keywords  = $allKeywords[$productId] ?? [];
+        ?>
+        <div class="quote-card">
+            <div class="quote-card-header">
+                <h2 class="quote-product-name">
+                    <span class="item-number-badge"><?= $idx + 1 ?></span>
+                    <?= $esc($item['product_name']) ?>
+                </h2>
+                <?php if (!empty($item['internal_product_code'])): ?>
+                <div class="quote-product-code">
+                    <?= $esc(t('quote_item_code_label')) ?>: <?= $esc($item['internal_product_code']) ?>
+                </div>
+                <?php endif; ?>
+            </div>
+            <div class="quote-price-box">
+                <span class="quote-price-label"><?= $esc(t('quote_item_price_label')) ?></span>
+                <span class="quote-price-value"><?= $esc($fmtPrice($item['final_unit_price'])) ?></span>
+            </div>
+            <?php if (!empty($item['technical_description'])): ?>
+            <div class="quote-section">
+                <div class="quote-section-title"><?= $esc(t('quote_description_label')) ?></div>
+                <div class="quote-desc"><?= nl2br($esc($item['technical_description'])) ?></div>
+            </div>
+            <?php endif; ?>
+            <?php if (!empty($images)): ?>
+            <div class="quote-section">
+                <div class="quote-section-title"><?= $esc(t('quote_gallery_label')) ?></div>
+                <?php if (isset($images['front'])): ?>
+                <img src="/login/<?= $esc($images['front']) ?>"
+                     alt="<?= $esc($slotLabels['front']) ?>"
+                     class="quote-front-img"
+                     onclick="openLightbox(this.src,this.alt)">
+                <?php endif; ?>
+                <?php
+                $optSlots = ['back','left','right','aerial','bottom']; $hasOpt = false;
+                foreach ($optSlots as $s) { if (isset($images[$s])) { $hasOpt = true; break; } }
+                ?>
+                <?php if ($hasOpt): ?>
+                <div class="quote-gallery">
+                    <?php foreach ($optSlots as $slot): ?>
+                        <?php if (isset($images[$slot])): ?>
+                        <div class="quote-gallery-slot"
+                             onclick="openLightbox('/login/<?= $esc($images[$slot]) ?>','<?= $esc($slotLabels[$slot] ?? $slot) ?>')">
+                            <img src="/login/<?= $esc($images[$slot]) ?>"
+                                 alt="<?= $esc($slotLabels[$slot] ?? $slot) ?>" loading="lazy">
+                            <div class="quote-gallery-caption"><?= $esc($slotLabels[$slot] ?? $slot) ?></div>
+                        </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+            <?php if (!empty($keywords)): ?>
+            <div class="quote-section">
+                <div class="quote-section-title"><?= $esc(t('quote_keywords_label')) ?></div>
+                <div class="quote-keyword-tags">
+                    <?php foreach ($keywords as $kw): ?>
+                    <span class="quote-keyword-chip"><?= $esc($kw) ?></span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+        <?php endforeach; ?>
+
+        <!-- ── Totals ── -->
+        <div class="quote-totals-box">
+            <?php if ($discountPct > 0): ?>
+            <div class="quote-total-row">
+                <span><?= $esc(t('quote_subtotal_label')) ?></span>
+                <span><?= $esc($fmtPrice($subtotal)) ?></span>
+            </div>
+            <div class="quote-total-row">
+                <span><?= $esc(t('quote_discount_label')) ?> (<?= number_format($discountPct, 1) ?>%)</span>
+                <span class="discount-val">&#8722;<?= $esc($fmtPrice($discountAmt)) ?></span>
+            </div>
+            <?php endif; ?>
+            <div class="quote-total-row grand-total">
+                <span><?= $esc(t('quote_total_label')) ?></span>
+                <span><?= $esc($fmtPrice($total)) ?></span>
+            </div>
+        </div>
+
+        <div style="text-align:center;padding:16px;font-size:0.78rem;color:#aaa;">
+            <?= $esc(sprintf(t('quote_footer_note'), $fmtDate($expiresAt))) ?>
+        </div>
+
+        <?php else: ?>
+        <!-- ══════════════════════════════════════════════════
+             LEGACY FORMAT — Single product
+        ══════════════════════════════════════════════════ -->
+        <div class="quote-card">
+            <div class="quote-card-header">
+                <h1 class="quote-product-name"><?= $esc($legacyAssignment['product_name']) ?></h1>
+                <?php if (!empty($legacyAssignment['internal_product_code'])): ?>
+                <div class="quote-product-code">
+                    <?= $esc(t('quote_product_code_label')) ?>:
+                    <?= $esc($legacyAssignment['internal_product_code']) ?>
+                </div>
+                <?php endif; ?>
+            </div>
+            <div class="quote-price-box">
+                <span class="quote-price-label"><?= $esc(t('quote_price_label')) ?></span>
+                <span class="quote-price-value"><?= $esc($fmtPrice($legacyAssignment['final_price'])) ?></span>
+            </div>
+            <?php if (!empty($legacyAssignment['technical_description'])): ?>
+            <div class="quote-section">
+                <div class="quote-section-title"><?= $esc(t('quote_description_label')) ?></div>
+                <div class="quote-desc"><?= nl2br($esc($legacyAssignment['technical_description'])) ?></div>
+            </div>
+            <?php endif; ?>
+            <?php if (!empty($legacyImages)): ?>
+            <div class="quote-section">
+                <div class="quote-section-title"><?= $esc(t('quote_gallery_label')) ?></div>
+                <?php if (isset($legacyImages['front'])): ?>
+                <img src="/login/<?= $esc($legacyImages['front']) ?>"
+                     alt="<?= $esc($slotLabels['front']) ?>"
+                     class="quote-front-img"
+                     onclick="openLightbox(this.src,this.alt)">
+                <?php endif; ?>
+                <?php
+                $optSlots = ['back','left','right','aerial','bottom']; $hasOpt = false;
+                foreach ($optSlots as $s) { if (isset($legacyImages[$s])) { $hasOpt = true; break; } }
+                ?>
+                <?php if ($hasOpt): ?>
+                <div class="quote-gallery">
+                    <?php foreach ($optSlots as $slot): ?>
+                        <?php if (isset($legacyImages[$slot])): ?>
+                        <div class="quote-gallery-slot"
+                             onclick="openLightbox('/login/<?= $esc($legacyImages[$slot]) ?>','<?= $esc($slotLabels[$slot] ?? $slot) ?>')">
+                            <img src="/login/<?= $esc($legacyImages[$slot]) ?>"
+                                 alt="<?= $esc($slotLabels[$slot] ?? $slot) ?>" loading="lazy">
+                            <div class="quote-gallery-caption"><?= $esc($slotLabels[$slot] ?? $slot) ?></div>
+                        </div>
+                        <?php endif; ?>
+                    <?php endforeach; ?>
+                </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+            <?php if (!empty($legacyKeywords)): ?>
+            <div class="quote-section">
+                <div class="quote-section-title"><?= $esc(t('quote_keywords_label')) ?></div>
+                <div class="quote-keyword-tags">
+                    <?php foreach ($legacyKeywords as $kw): ?>
+                    <span class="quote-keyword-chip"><?= $esc($kw) ?></span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+            <div class="quote-footer-note">
+                <?= $esc(sprintf(t('quote_footer_note'), $fmtDate($legacyAssignment['expires_at']))) ?>
+            </div>
+        </div>
+        <?php endif; ?>
+
+    </main>
+
+    <div class="quote-lightbox" id="quoteLightbox" role="dialog" aria-modal="true">
+        <button class="quote-lightbox-close" onclick="closeLightbox()" aria-label="Close">&times;</button>
+        <img id="lightboxImg" src="" alt="">
+    </div>
+
+    <script>
+    function openLightbox(src, alt) {
+        document.getElementById('lightboxImg').src = src;
+        document.getElementById('lightboxImg').alt = alt || '';
+        document.getElementById('quoteLightbox').classList.add('active');
+    }
+    function closeLightbox() {
+        document.getElementById('quoteLightbox').classList.remove('active');
+        document.getElementById('lightboxImg').src = '';
+    }
+    document.getElementById('quoteLightbox').addEventListener('click', function(e) {
+        if (e.target === this) closeLightbox();
+    });
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') closeLightbox();
+    });
+    </script>
+
+</body>
+</html>

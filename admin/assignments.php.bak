@@ -1,0 +1,1259 @@
+<?php
+/**
+ * /login/admin/assignments.php — Product assignment management
+ *
+ * Access  : role = 'admin' OR role = 'owner'
+ * Purpose : Create private quotation links (secret links) for customer clients.
+ *           Admin/owner selects a product, sets a profit margin, and generates a
+ *           unique token-based URL that the client can open to see only the final
+ *           price — never the raw FOB/CIF cost.
+ *
+ * Security notes:
+ *  - Only SHA-256 hash of the token is stored in the DB (never the plain token).
+ *  - final_price is calculated server-side; the frontend preview is informational only.
+ *  - product_id is validated against DB; price data comes from DB, never from POST.
+ *  - CSRF token required on every state-changing request.
+ *  - Prepared statements used for all queries.
+ */
+
+// ── Security headers ─────────────────────────────────────────
+header('X-Frame-Options: DENY');
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: strict-origin-when-cross-origin');
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Content-Type: text/html; charset=utf-8');
+
+// ── Bootstrap ────────────────────────────────────────────────
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path'     => '/',
+    'secure'   => false,
+    'httponly' => true,
+    'samesite' => 'Lax',
+]);
+session_start();
+
+require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/csrf.php';
+require_once __DIR__ . '/../includes/lang.php';
+require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/tabs.php';
+require_once __DIR__ . '/../includes/audit.php';
+
+requireAuth();
+initLang();
+requireRole(['admin', 'owner']);   // supplier and user must NOT access this
+
+$pdo    = getDB();
+$userId = (int) $_SESSION['user_id'];
+$orgId  = (int) ($_SESSION['org_id'] ?? 0);
+$lang   = currentLang();
+
+// ── Helpers ───────────────────────────────────────────────────
+
+/**
+ * Build the absolute public quote URL for a plain token.
+ */
+function buildQuoteLink(string $plainToken): string
+{
+    $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+    $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+    return $scheme . '://' . $host . '/login/quote.php?t=' . rawurlencode($plainToken);
+}
+
+// ── POST handler ──────────────────────────────────────────────
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrfValidate();
+
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'create_assignment') {
+
+        $errors = [];
+
+        // ── 1. Validate product_id ───────────────────────────
+        $productId = (int) ($_POST['product_id'] ?? 0);
+        if ($productId <= 0) {
+            $errors[] = t('asgn_err_product_required');
+        }
+
+        // ── 2. Validate customer name ────────────────────────
+        $customerName = mb_substr(trim($_POST['customer_name'] ?? ''), 0, 200);
+        if ($customerName === '') {
+            $errors[] = t('asgn_err_customer_required');
+        }
+
+        // ── 3. Validate price base type (whitelist) ──────────
+        $baseType = strtolower(trim($_POST['price_base_type'] ?? ''));
+        if (!in_array($baseType, ['fob', 'cif'], true)) {
+            $errors[] = t('asgn_err_base_invalid');
+        }
+
+        // ── 4. Validate profit percentage ────────────────────
+        //    Accept integer or decimal 0–999; coerce to float for DB.
+        $profitRaw = trim($_POST['profit_percentage'] ?? '');
+        if (!is_numeric($profitRaw)) {
+            $errors[] = t('asgn_err_profit_invalid');
+            $profitPct = 0.0;
+        } else {
+            $profitPct = (float) $profitRaw;
+            if ($profitPct < 0 || $profitPct > 999) {
+                $errors[] = t('asgn_err_profit_invalid');
+            }
+        }
+
+        // ── 5. Load product from DB (authoritative source) ───
+        $product = null;
+        if ($productId > 0 && empty($errors)) {
+            $stmt = $pdo->prepare(
+                'SELECT id, product_name, supplier_product_code,
+                        admin_product_code, internal_product_code, price_fob, price_cif
+                   FROM supplier_products
+                  WHERE id = ? AND active = 1
+                  LIMIT 1'
+            );
+            $stmt->execute([$productId]);
+            $product = $stmt->fetch();
+            if (!$product) {
+                $errors[] = t('asgn_err_product_invalid');
+            }
+        }
+
+        // ── 6. Verify chosen base price exists ───────────────
+        $baseAmount = null;
+        if ($product && empty($errors)) {
+            if ($baseType === 'fob') {
+                if ($product['price_fob'] === null || $product['price_fob'] === '') {
+                    $errors[] = t('asgn_err_no_fob');
+                } else {
+                    $baseAmount = (float) $product['price_fob'];
+                }
+            } else { // cif
+                if ($product['price_cif'] === null || $product['price_cif'] === '') {
+                    $errors[] = t('asgn_err_no_cif');
+                } else {
+                    $baseAmount = (float) $product['price_cif'];
+                }
+            }
+        }
+
+        if (!empty($errors)) {
+            $_SESSION['asgn_errors']  = $errors;
+            $_SESSION['asgn_form']    = $_POST; // repopulate form
+            header('Location: /login/admin/assignments.php');
+            exit;
+        }
+
+        // ── 7. Server-side price calculation ─────────────────
+        $finalPrice = round($baseAmount * (1 + $profitPct / 100), 2);
+
+        // ── 8. Generate secure token ──────────────────────────
+        //    plain_token = 32 random bytes -> 64-char hex string
+        //    stored_hash = SHA-256 of plain_token (64-char hex)
+        $plainToken = bin2hex(random_bytes(32));
+        $tokenHash  = hash('sha256', $plainToken);
+
+        // ── 9. Set expiry: now + 7 days ───────────────────────
+        $validFrom = date('Y-m-d H:i:s');
+        $expiresAt = date('Y-m-d H:i:s', strtotime('+7 days'));
+
+        // ── 10. Insert into DB ────────────────────────────────
+        try {
+            $ins = $pdo->prepare(
+                'INSERT INTO product_assignments
+                    (product_id, org_id, assigned_customer_name,
+                     token_hash, status, price_base_type,
+                     price_base_amount, profit_percentage, final_price,
+                     valid_from, expires_at, created_by_user_id)
+                 VALUES (?, ?, ?, ?, "active", ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $ins->execute([
+                $productId,
+                $orgId,
+                $customerName,
+                $tokenHash,
+                $baseType,
+                $baseAmount,
+                $profitPct,
+                $finalPrice,
+                $validFrom,
+                $expiresAt,
+                $userId,
+            ]);
+
+            $newAssignmentId = (int) $pdo->lastInsertId();
+            auditLog('assignment_created', 'info', $newAssignmentId, $userId, [
+                'product_id'    => $productId,
+                'product_name'  => $product['product_name'],
+                'customer_name' => $customerName,
+                'base_type'     => $baseType,
+                'profit_pct'    => $profitPct,
+                'final_price'   => $finalPrice,
+                'expires_at'    => $expiresAt,
+            ]);
+
+        } catch (\PDOException $e) {
+            error_log('assignments.php insert failed: ' . $e->getMessage());
+            $_SESSION['asgn_errors'] = [t('asgn_err_save')];
+            $_SESSION['asgn_form']   = $_POST;
+            header('Location: /login/admin/assignments.php');
+            exit;
+        }
+
+        // ── 11. PRG: Store plain token in session for one load ─
+        $_SESSION['asgn_new_link']         = buildQuoteLink($plainToken);
+        $_SESSION['asgn_new_customer']     = $customerName;
+        $_SESSION['asgn_new_product_name'] = $product['product_name'];
+        $_SESSION['asgn_new_expires']      = $expiresAt;
+        $_SESSION['asgn_new_price']        = $finalPrice;
+        $_SESSION['asgn_feedback']         = t('asgn_success');
+        $_SESSION['asgn_feedback_type']    = 'success';
+
+        header('Location: /login/admin/assignments.php');
+        exit;
+
+    } elseif ($action === 'revoke_assignment') {
+
+        // ── Revoke: set status='revoked' only if currently 'active' ──
+        $assignmentId = (int) ($_POST['assignment_id'] ?? 0);
+        if ($assignmentId <= 0) {
+            $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
+            $_SESSION['asgn_feedback_type'] = 'error';
+            header('Location: /login/admin/assignments.php');
+            exit;
+        }
+
+        try {
+            $upd = $pdo->prepare(
+                "UPDATE product_assignments
+                    SET status = 'revoked',
+                        revoked_at = NOW(),
+                        revoked_by_user_id = ?,
+                        updated_at = NOW()
+                  WHERE id = ? AND status = 'active'"
+            );
+            $upd->execute([$userId, $assignmentId]);
+
+            if ($upd->rowCount() > 0) {
+                auditLog('assignment_revoked', 'info', $assignmentId, $userId);
+                $_SESSION['asgn_feedback']      = t('asgn_revoked_success');
+                $_SESSION['asgn_feedback_type'] = 'success';
+            } else {
+                $_SESSION['asgn_feedback']      = t('asgn_err_revoke_failed');
+                $_SESSION['asgn_feedback_type'] = 'error';
+            }
+        } catch (\PDOException $e) {
+            error_log('assignments.php revoke failed: ' . $e->getMessage());
+            $_SESSION['asgn_feedback']      = t('asgn_err_revoke_failed');
+            $_SESSION['asgn_feedback_type'] = 'error';
+        }
+
+        header('Location: /login/admin/assignments.php');
+        exit;
+
+    } elseif ($action === 'delete_assignment') {
+
+        // ── Soft-delete: set status='deleted', hide from list ──
+        $assignmentId = (int) ($_POST['assignment_id'] ?? 0);
+        if ($assignmentId <= 0) {
+            $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
+            $_SESSION['asgn_feedback_type'] = 'error';
+            header('Location: /login/admin/assignments.php');
+            exit;
+        }
+
+        try {
+            $upd = $pdo->prepare(
+                "UPDATE product_assignments
+                    SET status = 'deleted',
+                        deleted_at = NOW(),
+                        deleted_by_user_id = ?,
+                        updated_at = NOW()
+                  WHERE id = ? AND status IN ('active','expired','revoked')"
+            );
+            $upd->execute([$userId, $assignmentId]);
+
+            if ($upd->rowCount() > 0) {
+                auditLog('assignment_deleted', 'info', $assignmentId, $userId);
+                $_SESSION['asgn_feedback']      = t('asgn_deleted_success');
+                $_SESSION['asgn_feedback_type'] = 'success';
+            } else {
+                $_SESSION['asgn_feedback']      = t('asgn_err_delete_failed');
+                $_SESSION['asgn_feedback_type'] = 'error';
+            }
+        } catch (\PDOException $e) {
+            error_log('assignments.php delete failed: ' . $e->getMessage());
+            $_SESSION['asgn_feedback']      = t('asgn_err_delete_failed');
+            $_SESSION['asgn_feedback_type'] = 'error';
+        }
+
+        header('Location: /login/admin/assignments.php');
+        exit;
+
+    } elseif ($action === 'regen_link') {
+
+        // ── Regen: clone assignment with new token + optional new customer name ──
+        $assignmentId    = (int) ($_POST['assignment_id'] ?? 0);
+        $newCustomerName = mb_substr(trim($_POST['customer_name'] ?? ''), 0, 200);
+
+        if ($assignmentId <= 0) {
+            $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
+            $_SESSION['asgn_feedback_type'] = 'error';
+            header('Location: /login/admin/assignments.php');
+            exit;
+        }
+        if ($newCustomerName === '') {
+            $_SESSION['asgn_feedback']      = t('asgn_err_customer_required');
+            $_SESSION['asgn_feedback_type'] = 'error';
+            header('Location: /login/admin/assignments.php');
+            exit;
+        }
+
+        try {
+            // Load parent assignment (must not be deleted)
+            $sel = $pdo->prepare(
+                "SELECT id, product_id, org_id, price_base_type,
+                        price_base_amount, profit_percentage, final_price,
+                        p.product_name
+                   FROM product_assignments a
+                   JOIN supplier_products p ON p.id = a.product_id
+                  WHERE a.id = ? AND a.status != 'deleted'
+                  LIMIT 1"
+            );
+            $sel->execute([$assignmentId]);
+            $parent = $sel->fetch();
+
+            if (!$parent) {
+                $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
+                $_SESSION['asgn_feedback_type'] = 'error';
+                header('Location: /login/admin/assignments.php');
+                exit;
+            }
+
+            // Generate new token
+            $plainToken = bin2hex(random_bytes(32));
+            $tokenHash  = hash('sha256', $plainToken);
+            $validFrom  = date('Y-m-d H:i:s');
+            $expiresAt  = date('Y-m-d H:i:s', strtotime('+7 days'));
+
+            // Insert new assignment (child), linked to parent
+            $ins = $pdo->prepare(
+                'INSERT INTO product_assignments
+                    (product_id, org_id, assigned_customer_name,
+                     token_hash, status, price_base_type,
+                     price_base_amount, profit_percentage, final_price,
+                     valid_from, expires_at, created_by_user_id, parent_assignment_id)
+                 VALUES (?, ?, ?, ?, "active", ?, ?, ?, ?, ?, ?, ?, ?)'
+            );
+            $ins->execute([
+                $parent['product_id'],
+                $parent['org_id'],
+                $newCustomerName,
+                $tokenHash,
+                $parent['price_base_type'],
+                $parent['price_base_amount'],
+                $parent['profit_percentage'],
+                $parent['final_price'],
+                $validFrom,
+                $expiresAt,
+                $userId,
+                $assignmentId,
+            ]);
+
+            $newAssignmentId = (int) $pdo->lastInsertId();
+            auditLog('assignment_link_regenerated', 'info', $newAssignmentId, $userId, [
+                'parent_id'    => $assignmentId,
+                'customer'     => $newCustomerName,
+                'final_price'  => $parent['final_price'],
+                'expires_at'   => $expiresAt,
+            ]);
+
+            // Flash new link (same pattern as create_assignment)
+            $_SESSION['asgn_new_link']         = buildQuoteLink($plainToken);
+            $_SESSION['asgn_new_customer']     = $newCustomerName;
+            $_SESSION['asgn_new_product_name'] = $parent['product_name'];
+            $_SESSION['asgn_new_expires']      = $expiresAt;
+            $_SESSION['asgn_new_price']        = $parent['final_price'];
+            $_SESSION['asgn_feedback']         = t('asgn_regen_success');
+            $_SESSION['asgn_feedback_type']    = 'success';
+
+        } catch (\PDOException $e) {
+            error_log('assignments.php regen_link failed: ' . $e->getMessage());
+            $_SESSION['asgn_feedback']      = t('asgn_err_save');
+            $_SESSION['asgn_feedback_type'] = 'error';
+        }
+
+        header('Location: /login/admin/assignments.php');
+        exit;
+    }
+}
+
+// ── Flash messages ────────────────────────────────────────────
+$feedback     = $_SESSION['asgn_feedback']      ?? null;
+$feedbackType = $_SESSION['asgn_feedback_type'] ?? 'info';
+$formErrors   = $_SESSION['asgn_errors']        ?? [];
+$formRepop    = $_SESSION['asgn_form']          ?? [];
+$newLink      = $_SESSION['asgn_new_link']      ?? null;
+$newCustomer  = $_SESSION['asgn_new_customer']  ?? null;
+$newProdName  = $_SESSION['asgn_new_product_name'] ?? null;
+$newExpires   = $_SESSION['asgn_new_expires']   ?? null;
+$newPrice     = $_SESSION['asgn_new_price']     ?? null;
+
+unset(
+    $_SESSION['asgn_feedback'],
+    $_SESSION['asgn_feedback_type'],
+    $_SESSION['asgn_errors'],
+    $_SESSION['asgn_form'],
+    $_SESSION['asgn_new_link'],
+    $_SESSION['asgn_new_customer'],
+    $_SESSION['asgn_new_product_name'],
+    $_SESSION['asgn_new_expires'],
+    $_SESSION['asgn_new_price']
+);
+
+// ── Load all active products for the selector ─────────────────
+// Include price_fob / price_cif for JS preview (safe: admin-only page)
+$allProducts = $pdo->query(
+    'SELECT p.id,
+            p.product_name,
+            p.supplier_product_code,
+            p.admin_product_code,
+            p.internal_product_code,
+            p.price_fob,
+            p.price_cif,
+            u.username     AS supplier_username,
+            u.company_name AS supplier_company,
+            o.name         AS org_name
+       FROM supplier_products p
+       JOIN users u ON u.id = p.supplier_id
+       LEFT JOIN org_members om  ON om.user_id = u.id AND om.is_active = 1
+       LEFT JOIN organizations o ON o.id = om.org_id
+      WHERE p.active = 1
+      ORDER BY p.product_name ASC, p.supplier_product_code ASC'
+)->fetchAll();
+
+// ── Load recent assignments (last 30, exclude deleted) ──────────
+$recentAssignments = $pdo->query(
+    "SELECT a.id,
+            a.product_id,
+            a.assigned_customer_name,
+            a.price_base_type,
+            a.profit_percentage,
+            a.final_price,
+            a.status,
+            a.expires_at,
+            a.view_count,
+            a.created_at,
+            a.revoked_at,
+            a.parent_assignment_id,
+            p.product_name,
+            p.supplier_product_code,
+            p.internal_product_code,
+            u.username AS creator_username
+       FROM product_assignments a
+       JOIN supplier_products p ON p.id = a.product_id
+       JOIN users u ON u.id = a.created_by_user_id
+      WHERE a.status != 'deleted'
+      ORDER BY a.created_at DESC
+      LIMIT 30"
+)->fetchAll();
+
+// ── View helpers ──────────────────────────────────────────────
+$esc      = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
+$username = htmlspecialchars($_SESSION['username'] ?? '', ENT_QUOTES, 'UTF-8');
+$initial  = strtoupper(substr($username, 0, 1));
+$orgName  = htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8');
+$csrf     = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
+
+$fmtPrice = fn($v) => ($v !== null && $v !== '')
+    ? '$ ' . number_format((float) $v, 2)
+    : '—';
+
+// Repopulate helpers
+$repop = function(string $key, string $default = '') use ($formRepop): string {
+    return htmlspecialchars($formRepop[$key] ?? $default, ENT_QUOTES, 'UTF-8');
+};
+$repopIs = function(string $key, string $value) use ($formRepop): bool {
+    return ($formRepop[$key] ?? '') === $value;
+};
+
+// Status badge class
+$statusClass = [
+    'active'  => 'status-badge--active',
+    'expired' => 'status-badge--inactive',
+    'revoked' => 'status-badge--inactive',
+    'deleted' => 'status-badge--inactive',
+];
+
+?>
+<!DOCTYPE html>
+<html lang="<?= $lang ?>">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta http-equiv="Cache-Control" content="no-store">
+    <title><?= $esc(t('asgn_page_title')) ?></title>
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
+    <style>
+        /* ── Assignment-specific styles ── */
+        .asgn-price-preview {
+            background: #f0f7ff;
+            border: 1px solid #b8d6f5;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-top: 8px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .asgn-price-preview .preview-value {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: var(--color-accent, #0071e3);
+        }
+        .asgn-price-preview .preview-note {
+            font-size: 0.82rem;
+            color: #666;
+        }
+        .profit-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 6px;
+        }
+        .profit-btn {
+            padding: 6px 14px;
+            border: 1.5px solid #d0d0d5;
+            border-radius: 20px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .profit-btn:hover {
+            border-color: var(--color-accent, #0071e3);
+        }
+        .profit-btn.selected {
+            background: var(--color-accent, #0071e3);
+            border-color: var(--color-accent, #0071e3);
+            color: #fff;
+            font-weight: 600;
+        }
+        .base-btn-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 6px;
+        }
+        .base-btn {
+            flex: 1;
+            padding: 10px;
+            border: 1.5px solid #d0d0d5;
+            border-radius: 8px;
+            background: #fff;
+            cursor: pointer;
+            font-size: 0.95rem;
+            font-weight: 500;
+            text-align: center;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .base-btn:hover { border-color: var(--color-accent, #0071e3); }
+        .base-btn.selected {
+            background: var(--color-accent, #0071e3);
+            border-color: var(--color-accent, #0071e3);
+            color: #fff;
+        }
+        .link-result-box {
+            background: #f0fff4;
+            border: 1.5px solid #68d391;
+            border-radius: 10px;
+            padding: 18px 20px;
+            margin-bottom: 24px;
+        }
+        .link-result-box h3 {
+            margin: 0 0 10px;
+            font-size: 1rem;
+            color: #276749;
+        }
+        .link-copy-row {
+            display: flex;
+            gap: 8px;
+            align-items: stretch;
+        }
+        .link-copy-input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #b2dfdb;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            color: #2d3748;
+            background: #fff;
+            font-family: monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .link-meta {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            color: #444;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+        }
+        .link-meta span { display: flex; align-items: center; gap: 4px; }
+        .asgn-table-wrap { overflow-x: auto; }
+        .free-profit-row {
+            margin-top: 8px;
+            display: none;
+            align-items: center;
+            gap: 8px;
+        }
+        .free-profit-row.visible { display: flex; }
+        .free-profit-input {
+            width: 90px;
+            padding: 6px 10px;
+            border: 1.5px solid #d0d0d5;
+            border-radius: 6px;
+            font-size: 0.95rem;
+        }
+        .free-profit-suffix { font-size: 0.9rem; color: #555; }
+        /* ── Assignment action buttons ── */
+        .asgn-actions { display:flex; gap:5px; flex-wrap:wrap; }
+        .btn-asgn-action {
+            padding: 4px 10px;
+            font-size: 0.78rem;
+            font-weight: 500;
+            border-radius: 6px;
+            border: 1.5px solid transparent;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.15s, color 0.15s;
+        }
+        .btn-asgn-action--danger {
+            background: #fff0f0;
+            border-color: #f5c2c2;
+            color: #c0392b;
+        }
+        .btn-asgn-action--danger:hover {
+            background: #fde8e8;
+            border-color: #e74c3c;
+        }
+        .btn-asgn-action--primary {
+            background: #eaf4ff;
+            border-color: #b8d6f5;
+            color: #0071e3;
+        }
+        .btn-asgn-action--primary:hover {
+            background: #d6ebff;
+            border-color: #0071e3;
+        }
+        /* ── Regen modal ── */
+        .asgn-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        .asgn-modal-overlay.open { display: flex; }
+        .asgn-modal {
+            background: #fff;
+            border-radius: 14px;
+            padding: 28px 28px 22px;
+            max-width: 440px;
+            width: 92%;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+        }
+        .asgn-modal h3 {
+            margin: 0 0 16px;
+            font-size: 1.05rem;
+            color: #1a1a2e;
+        }
+        .asgn-modal .form-label {
+            font-size: 0.88rem;
+            margin-bottom: 4px;
+        }
+        .asgn-modal input[type=text] {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1.5px solid #d0d0d5;
+            border-radius: 7px;
+            font-size: 0.95rem;
+            box-sizing: border-box;
+            margin-bottom: 16px;
+        }
+        .asgn-modal-actions { display:flex; gap:10px; justify-content:flex-end; }
+    </style>
+</head>
+<body class="wide-layout">
+
+    <!-- ── Top bar ─────────────────────────────────────────── -->
+    <div class="top-bar">
+        <div class="top-bar-brand">
+            <div class="welcome-avatar small"><?= $initial ?></div>
+            <span class="top-bar-title">
+                <?= $username ?>
+                <span class="org-badge"><?= $orgName ?></span>
+            </span>
+        </div>
+        <div class="top-bar-right">
+            <nav class="top-bar-lang" aria-label="<?= t('language_label') ?>">
+                <a href="?set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>" hreflang="es">ES</a>
+                <span class="lang-sep">|</span>
+                <a href="?set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>" hreflang="en">EN</a>
+                <span class="lang-sep">|</span>
+                <a href="?set_lang=zh" class="lang-btn<?= $lang === 'zh' ? ' active' : '' ?>" hreflang="zh">中文</a>
+            </nav>
+            <form method="POST" action="/login/logout.php" class="top-bar-logout">
+                <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
+                <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
+            </form>
+        </div>
+    </div>
+
+    <?= renderTabs('assignments') ?>
+
+    <div class="page-content">
+
+        <!-- ── Generated link result (flash, shown once after POST) ── -->
+        <?php if ($newLink): ?>
+        <div class="link-result-box">
+            <h3>
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true"
+                     style="vertical-align:middle;margin-right:4px;">
+                    <path d="M6.5 9.5l-2-2 2-2M9.5 6.5l2 2-2 2M5 8h6"
+                          stroke="#276749" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <?= $esc(t('asgn_link_title')) ?>
+            </h3>
+            <div class="link-copy-row">
+                <input type="text" class="link-copy-input" id="generatedLink"
+                       value="<?= $esc($newLink) ?>" readonly
+                       onclick="this.select()">
+                <button type="button" class="btn-secondary btn-sm" onclick="copyAssignmentLink()">
+                    <?= $esc(t('asgn_link_copy')) ?>
+                </button>
+            </div>
+            <div class="link-meta">
+                <span>
+                    <strong><?= $esc(t('asgn_link_client')) ?></strong>
+                    <?= $esc($newCustomer) ?>
+                </span>
+                <span>
+                    <strong><?= $esc(t('asgn_link_product')) ?></strong>
+                    <?= $esc($newProdName) ?>
+                </span>
+                <span>
+                    <strong><?= $esc(t('asgn_link_price')) ?></strong>
+                    <?= $esc('$ ' . number_format((float) $newPrice, 2)) ?>
+                </span>
+                <span>
+                    <strong><?= $esc(t('asgn_link_expires')) ?></strong>
+                    <?= $esc(date('d/m/Y H:i', strtotime($newExpires))) ?>
+                </span>
+            </div>
+        </div>
+        <?php endif; ?>
+
+        <!-- ── Feedback banner ──────────────────────────────── -->
+        <?php if ($feedback && !$newLink): ?>
+        <div class="feedback-banner feedback-banner--<?= $esc($feedbackType) ?>" role="alert">
+            <?= $esc($feedback) ?>
+        </div>
+        <?php endif; ?>
+
+        <!-- ════════ CREATE ASSIGNMENT FORM ════════ -->
+        <div class="card profile-form-card" style="max-width:720px;margin-bottom:32px;">
+            <h1 class="card-title"><?= $esc(t('asgn_form_title')) ?></h1>
+            <p class="card-subtitle"><?= $esc(t('asgn_subtitle')) ?></p>
+
+            <!-- Validation errors -->
+            <?php if (!empty($formErrors)): ?>
+            <div class="feedback-banner feedback-banner--error" role="alert">
+                <ul style="margin:0;padding-left:18px;">
+                    <?php foreach ($formErrors as $err): ?>
+                    <li><?= $esc($err) ?></li>
+                    <?php endforeach; ?>
+                </ul>
+            </div>
+            <?php endif; ?>
+
+            <form method="POST" action="/login/admin/assignments.php" id="assignmentForm" novalidate>
+                <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
+                <input type="hidden" name="action" value="create_assignment">
+
+                <div class="form-section" style="margin-bottom:0;">
+
+                    <!-- ── 1. Product selector ── -->
+                    <div class="form-group">
+                        <label class="form-label" for="product_id">
+                            <?= $esc(t('asgn_product_label')) ?>
+                            <span class="required-star" aria-hidden="true">*</span>
+                        </label>
+                        <select name="product_id" id="product_id"
+                                class="form-input" required
+                                onchange="onProductChange(this)">
+                            <option value=""><?= $esc(t('asgn_product_ph')) ?></option>
+                            <?php foreach ($allProducts as $prod): ?>
+                            <?php
+                                $sel    = ((int)($formRepop['product_id'] ?? 0) === (int)$prod['id']) ? ' selected' : '';
+                                $label  = $prod['product_name'];
+                                $code   = $prod['supplier_product_code']  ?? '';
+                                $aCode  = $prod['admin_product_code']     ?? '';
+                                $iCode  = $prod['internal_product_code']  ?? '';
+                                $supp   = $prod['supplier_company']       ?? $prod['supplier_username'];
+                                $orgN   = $prod['org_name']               ?? '';
+                                // Build readable option text (admin sees all codes)
+                                $optText = $label;
+                                if ($code)  $optText .= ' [' . $code . ']';
+                                if ($iCode) $optText .= ' {' . $iCode . '}';
+                                if ($aCode) $optText .= ' (Admin: ' . $aCode . ')';
+                                if ($supp)  $optText .= ' — ' . $supp;
+                                if ($orgN)  $optText .= ' / ' . $orgN;
+                                // Embed prices as data attrs for JS preview (admin-only page — safe)
+                            ?>
+                            <option value="<?= (int)$prod['id'] ?>"
+                                    data-fob="<?= $esc($prod['price_fob'] ?? '') ?>"
+                                    data-cif="<?= $esc($prod['price_cif'] ?? '') ?>"
+                                    data-name="<?= $esc($prod['product_name']) ?>"
+                                    <?= $sel ?>>
+                                <?= $esc($optText) ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+
+                    <!-- ── 2. Customer / client name ── -->
+                    <div class="form-group">
+                        <label class="form-label" for="customer_name">
+                            <?= $esc(t('asgn_customer_label')) ?>
+                            <span class="required-star" aria-hidden="true">*</span>
+                        </label>
+                        <input type="text" name="customer_name" id="customer_name"
+                               class="form-input"
+                               placeholder="<?= $esc(t('asgn_customer_ph')) ?>"
+                               maxlength="200"
+                               value="<?= $repop('customer_name') ?>"
+                               required>
+                    </div>
+
+                    <!-- ── 3. Price base type ── -->
+                    <div class="form-group">
+                        <label class="form-label"><?= $esc(t('asgn_base_label')) ?></label>
+                        <div class="base-btn-group">
+                            <button type="button" class="base-btn<?= $repopIs('price_base_type', 'fob') ? ' selected' : '' ?>"
+                                    id="btn-fob"
+                                    onclick="selectBase('fob')">
+                                <?= $esc(t('asgn_base_fob')) ?>
+                            </button>
+                            <button type="button" class="base-btn<?= $repopIs('price_base_type', 'cif') ? ' selected' : '' ?>"
+                                    id="btn-cif"
+                                    onclick="selectBase('cif')">
+                                <?= $esc(t('asgn_base_cif')) ?>
+                            </button>
+                        </div>
+                        <input type="hidden" name="price_base_type" id="price_base_type"
+                               value="<?= $repop('price_base_type') ?>">
+                    </div>
+
+                    <!-- ── 4. Profit percentage ── -->
+                    <div class="form-group">
+                        <label class="form-label"><?= $esc(t('asgn_profit_label')) ?></label>
+                        <?php
+                        $predefined = [5, 10, 15, 20, 25, 30, 35, 40];
+                        $repopProfit = $formRepop['profit_percentage'] ?? '';
+                        $isCustom = ($repopProfit !== '' && !in_array((int)$repopProfit, $predefined, true));
+                        ?>
+                        <div class="profit-grid" id="profitGrid">
+                            <?php foreach ($predefined as $pct): ?>
+                            <button type="button"
+                                    class="profit-btn<?= ((int)$repopProfit === $pct && !$isCustom) ? ' selected' : '' ?>"
+                                    data-pct="<?= $pct ?>"
+                                    onclick="selectProfit(<?= $pct ?>)">
+                                <?= $pct ?>%
+                            </button>
+                            <?php endforeach; ?>
+                            <button type="button"
+                                    class="profit-btn<?= $isCustom ? ' selected' : '' ?>"
+                                    id="btn-free-profit"
+                                    onclick="selectFreeProfit()">
+                                <?= $esc(t('asgn_profit_free')) ?>
+                            </button>
+                        </div>
+                        <div class="free-profit-row<?= $isCustom ? ' visible' : '' ?>" id="freeProfitRow">
+                            <input type="number" id="freeProfitInput"
+                                   class="free-profit-input"
+                                   placeholder="<?= $esc(t('asgn_profit_free_ph')) ?>"
+                                   min="0" max="999" step="1"
+                                   value="<?= $isCustom ? $esc($repopProfit) : '' ?>"
+                                   oninput="onFreeProfitChange(this)">
+                            <span class="free-profit-suffix">%</span>
+                        </div>
+                        <input type="hidden" name="profit_percentage" id="profit_percentage"
+                               value="<?= $esc($repopProfit) ?>">
+                    </div>
+
+                    <!-- ── 5. Calculated price preview (informational — server recalculates) ── -->
+                    <div class="form-group">
+                        <label class="form-label"><?= $esc(t('asgn_price_preview_label')) ?></label>
+                        <div class="asgn-price-preview" id="pricePreview">
+                            <div>
+                                <div class="preview-value" id="previewValue">—</div>
+                                <div class="preview-note" id="previewNote">
+                                    <?= $esc(t('asgn_price_preview_note')) ?>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── 6. Validity ── -->
+                    <div class="form-group">
+                        <label class="form-label"><?= $esc(t('asgn_expires_label')) ?></label>
+                        <p class="form-help"><?= $esc(t('asgn_expires_default')) ?></p>
+                    </div>
+
+                    <!-- ── Submit ── -->
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary" id="submitBtn">
+                            <?= $esc(t('btn_generate_assignment')) ?>
+                        </button>
+                    </div>
+
+                </div>
+            </form>
+        </div>
+
+        <!-- ════════ RECENT ASSIGNMENTS LIST ════════ -->
+        <div class="card profile-form-card" style="max-width:100%;">
+            <h2 class="card-title" style="font-size:1.1rem;">
+                <?= $esc(t('asgn_list_title')) ?>
+            </h2>
+
+            <?php if (empty($recentAssignments)): ?>
+            <p class="text-muted"><?= $esc(t('asgn_no_assignments')) ?></p>
+            <?php else: ?>
+            <div class="asgn-table-wrap">
+                <table class="data-table" style="min-width:800px;">
+                    <thead>
+                        <tr>
+                            <th><?= $esc(t('asgn_col_product')) ?></th>
+                            <th><?= $esc(t('asgn_col_customer')) ?></th>
+                            <th><?= $esc(t('asgn_col_base')) ?></th>
+                            <th><?= $esc(t('asgn_col_profit')) ?></th>
+                            <th><?= $esc(t('asgn_col_price')) ?></th>
+                            <th><?= $esc(t('asgn_col_status')) ?></th>
+                            <th><?= $esc(t('asgn_col_expires')) ?></th>
+                            <th><?= $esc(t('asgn_col_views')) ?></th>
+                            <th><?= $esc(t('asgn_col_created_at')) ?></th>
+                            <th><?= $esc(t('asgn_col_actions')) ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($recentAssignments as $a): ?>
+                        <?php
+                            $now        = time();
+                            $expTs      = strtotime($a['expires_at']);
+                            $isExpired  = ($a['status'] === 'active' && $expTs < $now);
+                            $dispStatus = $isExpired ? 'expired' : $a['status'];
+                            $badgeClass = $statusClass[$dispStatus] ?? 'status-badge--inactive';
+                            $statusLabel = t('asgn_status_' . $dispStatus);
+                        ?>
+                        <tr>
+                            <td>
+                                <div><?= $esc($a['product_name']) ?></div>
+                                <div style="font-size:0.78rem;color:#666;">
+                                    <?= $esc($a['supplier_product_code']) ?>
+                                </div>
+                                <?php if (!empty($a['internal_product_code'])): ?>
+                                <div style="font-size:0.75rem;">
+                                    <code style="background:#eaf4ff;color:#0071e3;
+                                                 padding:1px 5px;border-radius:4px;">
+                                        <?= $esc($a['internal_product_code']) ?>
+                                    </code>
+                                </div>
+                                <?php endif; ?>
+                            </td>
+                            <td><?= $esc($a['assigned_customer_name']) ?></td>
+                            <td style="text-transform:uppercase;font-weight:600;font-size:0.85rem;">
+                                <?= $esc($a['price_base_type']) ?>
+                            </td>
+                            <td><?= $esc(number_format((float)$a['profit_percentage'], 2)) ?>%</td>
+                            <td style="font-weight:600;"><?= $esc('$ ' . number_format((float)$a['final_price'], 2)) ?></td>
+                            <td>
+                                <span class="status-badge <?= $badgeClass ?>">
+                                    <?= $esc($statusLabel) ?>
+                                </span>
+                            </td>
+                            <td class="text-muted" style="font-size:0.85rem;">
+                                <?= $esc(date('d/m/Y H:i', $expTs)) ?>
+                            </td>
+                            <td style="text-align:center;"><?= (int)$a['view_count'] ?></td>
+                            <td class="text-muted" style="font-size:0.85rem;">
+                                <?= $esc(date('d/m/Y', strtotime($a['created_at']))) ?>
+                                <br><span style="font-size:0.78rem;"><?= $esc($a['creator_username']) ?></span>
+                            </td>
+                            <td>
+                                <div class="asgn-actions">
+                                    <?php if ($dispStatus === 'active'): ?>
+                                    <!-- Revoke -->
+                                    <form method="POST" action="/login/admin/assignments.php" style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
+                                        <input type="hidden" name="action" value="revoke_assignment">
+                                        <input type="hidden" name="assignment_id" value="<?= (int)$a['id'] ?>">
+                                        <button type="button" class="btn-asgn-action btn-asgn-action--danger"
+                                            onclick="confirmAction(this.form, '<?= $esc(t('asgn_confirm_revoke')) ?>')">
+                                            <?= $esc(t('asgn_btn_revoke')) ?>
+                                        </button>
+                                    </form>
+                                    <?php endif; ?>
+
+                                    <!-- Delete -->
+                                    <form method="POST" action="/login/admin/assignments.php" style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
+                                        <input type="hidden" name="action" value="delete_assignment">
+                                        <input type="hidden" name="assignment_id" value="<?= (int)$a['id'] ?>">
+                                        <button type="button" class="btn-asgn-action btn-asgn-action--danger"
+                                            onclick="confirmAction(this.form, '<?= $esc(t('asgn_confirm_delete')) ?>')">
+                                            <?= $esc(t('asgn_btn_delete')) ?>
+                                        </button>
+                                    </form>
+
+                                    <!-- Regen link -->
+                                    <button type="button" class="btn-asgn-action btn-asgn-action--primary"
+                                        onclick="openRegenModal(<?= (int)$a['id'] ?>, '<?= $esc($a['assigned_customer_name']) ?>')">
+                                        <?= $esc(t('asgn_btn_regen')) ?>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        </div>
+
+    </div><!-- /page-content -->
+
+    <!-- ════════ REGEN LINK MODAL ════════ -->
+    <div class="asgn-modal-overlay" id="regenModalOverlay" role="dialog"
+         aria-modal="true" aria-labelledby="regenModalTitle">
+        <div class="asgn-modal">
+            <h3 id="regenModalTitle"><?= $esc(t('asgn_regen_modal_title')) ?></h3>
+            <form method="POST" action="/login/admin/assignments.php" id="regenForm">
+                <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
+                <input type="hidden" name="action" value="regen_link">
+                <input type="hidden" name="assignment_id" id="regenAssignmentId" value="">
+
+                <label class="form-label" for="regenCustomerName">
+                    <?= $esc(t('asgn_regen_customer_label')) ?>
+                </label>
+                <input type="text" id="regenCustomerName" name="customer_name"
+                       maxlength="200"
+                       placeholder="<?= $esc(t('asgn_regen_customer_ph')) ?>">
+
+                <div class="asgn-modal-actions">
+                    <button type="button" class="btn-secondary btn-sm"
+                            onclick="closeRegenModal()">
+                        <?= $esc(t('asgn_regen_cancel')) ?>
+                    </button>
+                    <button type="submit" class="btn-primary btn-sm">
+                        <?= $esc(t('asgn_regen_submit')) ?>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <footer class="global-footer">
+        &copy; <?= date('Y') ?> Local App &mdash; Development environment only
+    </footer>
+
+    <script>
+    // ── State ─────────────────────────────────────────────────
+    let selectedBase   = '<?= $esc($formRepop['price_base_type'] ?? '') ?>';
+    let selectedProfit = <?= is_numeric($formRepop['profit_percentage'] ?? '') ? (float)($formRepop['profit_percentage']) : 'null' ?>;
+
+    // ── On product change ─────────────────────────────────────
+    function onProductChange(sel) {
+        updatePreview();
+    }
+
+    // ── Select price base ─────────────────────────────────────
+    function selectBase(type) {
+        selectedBase = type;
+        document.getElementById('price_base_type').value = type;
+        document.getElementById('btn-fob').classList.toggle('selected', type === 'fob');
+        document.getElementById('btn-cif').classList.toggle('selected', type === 'cif');
+        updatePreview();
+    }
+
+    // ── Select predefined profit ──────────────────────────────
+    function selectProfit(pct) {
+        selectedProfit = pct;
+        document.getElementById('profit_percentage').value = pct;
+        document.querySelectorAll('.profit-btn').forEach(function(b) {
+            b.classList.toggle('selected', b.dataset.pct == pct);
+        });
+        document.getElementById('btn-free-profit').classList.remove('selected');
+        document.getElementById('freeProfitRow').classList.remove('visible');
+        updatePreview();
+    }
+
+    // ── Select free profit ────────────────────────────────────
+    function selectFreeProfit() {
+        document.querySelectorAll('.profit-btn').forEach(function(b) {
+            b.classList.remove('selected');
+        });
+        document.getElementById('btn-free-profit').classList.add('selected');
+        document.getElementById('freeProfitRow').classList.add('visible');
+        const freeInput = document.getElementById('freeProfitInput');
+        freeInput.focus();
+        // Reset profit_percentage until user types
+        const val = parseFloat(freeInput.value);
+        if (!isNaN(val) && val >= 0 && val <= 999) {
+            selectedProfit = val;
+            document.getElementById('profit_percentage').value = val;
+        } else {
+            selectedProfit = null;
+            document.getElementById('profit_percentage').value = '';
+        }
+        updatePreview();
+    }
+
+    // ── Free profit input handler ─────────────────────────────
+    function onFreeProfitChange(input) {
+        // Enforce max 3 digits (0–999), integers only
+        let val = input.value.replace(/[^0-9]/g, '');
+        if (val.length > 3) val = val.substring(0, 3);
+        input.value = val;
+        const num = parseInt(val, 10);
+        if (!isNaN(num) && num >= 0 && num <= 999) {
+            selectedProfit = num;
+            document.getElementById('profit_percentage').value = num;
+        } else {
+            selectedProfit = null;
+            document.getElementById('profit_percentage').value = '';
+        }
+        updatePreview();
+    }
+
+    // ── Update price preview ──────────────────────────────────
+    function updatePreview() {
+        const sel   = document.getElementById('product_id');
+        const opt   = sel && sel.selectedIndex > 0 ? sel.options[sel.selectedIndex] : null;
+        const val   = document.getElementById('previewValue');
+        const note  = document.getElementById('previewNote');
+
+        if (!opt || selectedBase === '' || selectedProfit === null) {
+            val.textContent  = '—';
+            note.textContent = '<?= addslashes(t('asgn_price_preview_note')) ?>';
+            return;
+        }
+
+        const base = selectedBase === 'fob'
+            ? parseFloat(opt.dataset.fob || '')
+            : parseFloat(opt.dataset.cif || '');
+
+        if (isNaN(base) || base <= 0) {
+            val.textContent  = '<?= addslashes(t('asgn_price_no_base')) ?>';
+            note.textContent = '';
+            return;
+        }
+
+        const finalPrice = base * (1 + selectedProfit / 100);
+        val.textContent  = '$ ' + finalPrice.toFixed(2);
+        note.textContent = '<?= addslashes(t('asgn_price_preview_formula')) ?>'
+            .replace('{base}', base.toFixed(2))
+            .replace('{pct}',  selectedProfit);
+    }
+
+    // ── Copy link to clipboard ────────────────────────────────
+    function copyAssignmentLink() {
+        const input = document.getElementById('generatedLink');
+        if (!input) return;
+        input.select();
+        input.setSelectionRange(0, 99999);
+        try {
+            navigator.clipboard.writeText(input.value).then(function() {
+                showCopied();
+            }).catch(function() {
+                document.execCommand('copy');
+                showCopied();
+            });
+        } catch (e) {
+            document.execCommand('copy');
+            showCopied();
+        }
+    }
+    function showCopied() {
+        const btn = document.querySelector('.link-copy-row .btn-secondary');
+        if (!btn) return;
+        const orig = btn.textContent;
+        btn.textContent = '<?= addslashes(t('asgn_link_copied')) ?>';
+        btn.disabled = true;
+        setTimeout(function() {
+            btn.textContent = orig;
+            btn.disabled = false;
+        }, 2000);
+    }
+
+    // ── Idle timeout logout ───────────────────────────────────
+    (function () {
+        const TIMEOUT_MS = <?= IDLE_TIMEOUT * 1000 ?>;
+        let last = Date.now();
+        ['mousemove', 'keydown', 'click', 'scroll'].forEach(function (ev) {
+            document.addEventListener(ev, function () { last = Date.now(); }, { passive: true });
+        });
+        setInterval(function () {
+            if (Date.now() - last >= TIMEOUT_MS) {
+                window.location.href = '/login/index.php?reason=timeout';
+            }
+        }, 10000);
+    }());
+
+    // ── Init on load ──────────────────────────────────────────
+    (function() {
+        // Trigger preview if form was repopulated after error
+        if (selectedBase && selectedProfit !== null) {
+            updatePreview();
+        }
+    }());
+
+    // ── Assignment action helpers ─────────────────────────────
+    function confirmAction(form, message) {
+        if (window.confirm(message)) {
+            form.submit();
+        }
+    }
+
+    function openRegenModal(assignmentId, currentCustomer) {
+        document.getElementById('regenAssignmentId').value = assignmentId;
+        document.getElementById('regenCustomerName').value = currentCustomer;
+        document.getElementById('regenModalOverlay').classList.add('open');
+        document.getElementById('regenCustomerName').focus();
+        document.getElementById('regenCustomerName').select();
+    }
+
+    function closeRegenModal() {
+        document.getElementById('regenModalOverlay').classList.remove('open');
+        document.getElementById('regenAssignmentId').value = '';
+        document.getElementById('regenCustomerName').value = '';
+    }
+
+    // Close modal on overlay click
+    document.getElementById('regenModalOverlay').addEventListener('click', function(e) {
+        if (e.target === this) { closeRegenModal(); }
+    });
+
+    // Close modal on Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') { closeRegenModal(); }
+    });
+    </script>
+
+</body>
+</html>

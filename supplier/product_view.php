@@ -421,6 +421,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </span>
                 </div>
 
+                <div class="detail-row">
+                    <span class="detail-label"><?= $esc(t('col_internal_code')) ?></span>
+                    <span class="detail-value">
+                        <?php if (!empty($product['internal_product_code'])): ?>
+                        <code style="font-size:0.9rem;background:#eaf4ff;color:#0071e3;
+                                     padding:2px 8px;border-radius:6px;">
+                            <?= $esc($product['internal_product_code']) ?>
+                        </code>
+                        <?php else: ?>
+                        <span class="text-muted">—</span>
+                        <?php endif; ?>
+                    </span>
+                </div>
+
                 <?php if (!empty($product['admin_product_code'])): ?>
                 <div class="detail-row">
                     <span class="detail-label"><?= $esc(t('field_admin_code')) ?></span>

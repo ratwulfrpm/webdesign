@@ -45,6 +45,7 @@ require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/image_validate.php';
+require_once __DIR__ . '/../includes/product_code.php';
 
 requireAuth();
 initLang();
@@ -258,16 +259,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $pdo->beginTransaction();
 
+                // Generate a unique internal product code before inserting.
+                $internalCode = generateInternalProductCode($pdo);
+
                 $pdo->prepare(
                     'INSERT INTO supplier_products
                         (supplier_id, supplier_product_code, admin_product_code,
+                         internal_product_code,
                          product_name, technical_description,
                          price_fob, price_cif, active, created_by)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)'
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)'
                 )->execute([
                     $supplierId,
                     $fv['supplier_product_code'],
                     $adminCodeClean,
+                    $internalCode,
                     $fv['product_name'],
                     $fv['technical_description'] !== '' ? $fv['technical_description'] : null,
                     $priceFobClean,
