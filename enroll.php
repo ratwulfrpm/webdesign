@@ -353,7 +353,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                        name="username"
                        placeholder="<?= t('enroll_username_ph') ?>"
                        value="<?= htmlspecialchars($formData['username'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
-                       autocomplete="username"
+                       autocomplete="off"
                        maxlength="60"
                        pattern="[a-zA-Z0-9_\-]+"
                        required>
@@ -411,6 +411,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     </div><!-- /.card -->
 
 <script>
+// Auto-fill username from the locked email local-part (only when field is empty)
+(function () {
+    var emailInput    = document.getElementById('email');
+    var usernameInput = document.getElementById('username');
+    if (!emailInput || !usernameInput) return;
+
+    function deriveUsername(email) {
+        var local = email.split('@')[0];
+        // keep only allowed chars
+        return local.replace(/[^a-zA-Z0-9_\-]/g, '_').slice(0, 60);
+    }
+
+    // Pre-fill on page load if username is empty and email has a value
+    if (usernameInput.value === '' && emailInput.value.indexOf('@') !== -1) {
+        usernameInput.value = deriveUsername(emailInput.value);
+    }
+
+    // Also react live when email is editable (open invitation — no locked email)
+    if (!emailInput.readOnly) {
+        emailInput.addEventListener('blur', function () {
+            if (usernameInput.value === '' && emailInput.value.indexOf('@') !== -1) {
+                usernameInput.value = deriveUsername(emailInput.value);
+            }
+        });
+    }
+}());
+
 function togglePw(fieldId, btn) {
     var input = document.getElementById(fieldId);
     if (!input) return;
