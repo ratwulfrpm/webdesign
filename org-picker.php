@@ -76,6 +76,11 @@ $lang = currentLang();
            class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>"
            hreflang="en"
            aria-current="<?= $lang === 'en' ? 'true' : 'false' ?>">EN</a>
+        <span class="lang-sep">|</span>
+        <a href="?set_lang=zh"
+           class="lang-btn<?= $lang === 'zh' ? ' active' : '' ?>"
+           hreflang="zh"
+           aria-current="<?= $lang === 'zh' ? 'true' : 'false' ?>">中文</a>
     </div>
 
     <!-- Brand mark -->

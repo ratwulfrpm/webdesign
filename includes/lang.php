@@ -9,7 +9,7 @@
  *   echo t('sign_in');   // outputs translated string
  */
 
-define('SUPPORTED_LANGS', ['es', 'en']);
+define('SUPPORTED_LANGS', ['es', 'en', 'zh']);
 define('DEFAULT_LANG',    'es');
 
 /**

@@ -36,7 +36,7 @@ require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/config/db.php';
 
 // ── Language (no session-based auth, detect from GET/cookie) ─
-$supportedLangs = ['es', 'en'];
+$supportedLangs = ['es', 'en', 'zh'];
 if (isset($_GET['set_lang']) && in_array($_GET['set_lang'], $supportedLangs, true)) {
     $_SESSION['lang'] = $_GET['set_lang'];
     // Preserve token in redirect
@@ -255,10 +255,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <!-- Language selector -->
     <div class="lang-selector">
         <a href="?set_lang=es&t=<?= rawurlencode($plainToken) ?>"
-           class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>">ES</a>
+           class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>" hreflang="es">ES</a>
         <span class="lang-sep">|</span>
         <a href="?set_lang=en&t=<?= rawurlencode($plainToken) ?>"
-           class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>">EN</a>
+           class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>" hreflang="en">EN</a>
+        <span class="lang-sep">|</span>
+        <a href="?set_lang=zh&t=<?= rawurlencode($plainToken) ?>"
+           class="lang-btn<?= $lang === 'zh' ? ' active' : '' ?>" hreflang="zh">中文</a>
     </div>
 
     <div class="card" style="max-width:480px;">

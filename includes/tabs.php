@@ -69,6 +69,11 @@ function getTabsForRole(string $role): array
                     'url'   => '/login/admin/index.php',
                 ],
                 [
+                    'id'    => 'all_products',
+                    'label' => t('tab_all_products'),
+                    'url'   => '/login/admin/products.php',
+                ],
+                [
                     'id'    => 'invitations',
                     'label' => t('tab_invitations'),
                     'url'   => '/login/invitations.php',
@@ -93,6 +98,11 @@ function getTabsForRole(string $role): array
                     'id'    => 'users',
                     'label' => t('tab_users'),
                     'url'   => '/login/owner/index.php',
+                ],
+                [
+                    'id'    => 'all_products',
+                    'label' => t('tab_all_products'),
+                    'url'   => '/login/admin/products.php',
                 ],
                 [
                     'id'    => 'invitations',

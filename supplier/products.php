@@ -48,7 +48,7 @@ $supplierId  = (int) $_SESSION['user_id'];
 // Show success banner after save redirect
 $justSaved = isset($_GET['saved']);
 
-// Load all products with aerial thumbnail and image count
+// Load all products with front-view thumbnail and image count
 $stmt = $pdo->prepare(
     'SELECT p.id,
             p.supplier_product_code,
@@ -58,10 +58,11 @@ $stmt = $pdo->prepare(
             p.active,
             p.created_at,
             thumb.file_path AS thumbnail,
-            (SELECT COUNT(*) FROM supplier_product_images si WHERE si.product_id = p.id) AS img_count
+            (SELECT COUNT(*) FROM supplier_product_images si WHERE si.product_id = p.id) AS img_count,
+            (SELECT COUNT(*) FROM product_keywords pk WHERE pk.product_id = p.id) AS kw_count
        FROM supplier_products p
        LEFT JOIN supplier_product_images thumb
-              ON thumb.product_id = p.id AND thumb.image_slot = "aerial"
+              ON thumb.product_id = p.id AND thumb.image_slot = "front"
       WHERE p.supplier_id = ?
       ORDER BY p.created_at DESC'
 );
@@ -84,13 +85,7 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
     <title><?= t('my_products_page_title') ?></title>
     <link rel="stylesheet" href="/login/css/style.css?v=6">
 </head>
-<body>
-
-    <div class="lang-selector">
-        <a href="?set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>">ES</a>
-        <span class="lang-sep">|</span>
-        <a href="?set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>">EN</a>
-    </div>
+<body class="wide-layout">
 
     <div class="top-bar">
         <div class="top-bar-brand">
@@ -100,10 +95,19 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
                 <span class="org-badge"><?= $esc($_SESSION['org_name'] ?? '') ?></span>
             </span>
         </div>
-        <form method="POST" action="/login/logout.php" class="top-bar-logout">
-            <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-            <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
-        </form>
+        <div class="top-bar-right">
+            <nav class="top-bar-lang" aria-label="<?= t('language_label') ?>">
+                <a href="?set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>" hreflang="es">ES</a>
+                <span class="lang-sep">|</span>
+                <a href="?set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>" hreflang="en">EN</a>
+                <span class="lang-sep">|</span>
+                <a href="?set_lang=zh" class="lang-btn<?= $lang === 'zh' ? ' active' : '' ?>" hreflang="zh">中文</a>
+            </nav>
+            <form method="POST" action="/login/logout.php" class="top-bar-logout">
+                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
+            </form>
+        </div>
     </div>
 
     <?= renderTabs('my_products') ?>

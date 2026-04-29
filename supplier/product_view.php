@@ -80,12 +80,20 @@ foreach ($imgStmt->fetchAll() as $img) {
 
 // Slot definitions for display
 $gallerySlots = [
-    'aerial'        => ['label_key' => 'img_slot_aerial',        'main' => true],
-    'lateral_front' => ['label_key' => 'img_slot_lateral_front', 'main' => false],
-    'lateral_back'  => ['label_key' => 'img_slot_lateral_back',  'main' => false],
-    'lateral_left'  => ['label_key' => 'img_slot_lateral_left',  'main' => false],
-    'lateral_right' => ['label_key' => 'img_slot_lateral_right', 'main' => false],
+    'front'  => ['label_key' => 'img_slot_front',  'main' => true],
+    'back'   => ['label_key' => 'img_slot_back',   'main' => false],
+    'left'   => ['label_key' => 'img_slot_left',   'main' => false],
+    'right'  => ['label_key' => 'img_slot_right',  'main' => false],
+    'aerial' => ['label_key' => 'img_slot_aerial', 'main' => false],
+    'bottom' => ['label_key' => 'img_slot_bottom', 'main' => false],
 ];
+
+// ── Load keywords ───────────────────────────────────────
+$kwStmt = $pdo->prepare(
+    'SELECT keyword FROM product_keywords WHERE product_id = ? ORDER BY keyword ASC'
+);
+$kwStmt->execute([$productId]);
+$productKeywords = $kwStmt->fetchAll(PDO::FETCH_COLUMN);
 
 // ── View helpers ──────────────────────────────────────────────
 $esc      = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
@@ -100,11 +108,12 @@ $fmtPrice = fn($v): string => $v !== null
 
 // ── Upload config (used for update) ──────────────────────────
 $uploadSlots = [
-    'aerial'        => true,
-    'lateral_front' => false,
-    'lateral_back'  => false,
-    'lateral_left'  => false,
-    'lateral_right' => false,
+    'front'  => true,    // required
+    'back'   => false,
+    'left'   => false,
+    'right'  => false,
+    'aerial' => false,
+    'bottom' => false,
 ];
 $allowedMimes  = ALLOWED_IMAGE_MIMES;
 $maxFileBytes  = 5 * 1024 * 1024;
@@ -253,6 +262,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if (!is_dir($productDir)) mkdir($productDir, 0755, true);
                         $result   = validateUploadedImage($file, $maxFileBytes);
                         $ext      = $result['ok'] ? $result['ext'] : 'jpg';
+                        $mime     = $result['ok'] ? $result['mime'] : 'image/jpeg';
                         $safeName = $slot . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
                         $dest     = $productDir . DIRECTORY_SEPARATOR . $safeName;
                         if (!move_uploaded_file($file['tmp_name'], $dest)) {
@@ -262,12 +272,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $origName = mb_substr(basename($file['name']), 0, 255);
                         $pdo->prepare(
                             'INSERT INTO supplier_product_images
-                                (product_id, supplier_id, image_slot, file_path, original_name, file_size)
-                             VALUES (?, ?, ?, ?, ?, ?)'
+                                (product_id, supplier_id, image_slot,
+                                 file_path, original_name, file_size,
+                                 mime_type, uploaded_by_user_id)
+                             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
                         )->execute([
                             $productId, $supplierId, $slot,
                             $relPath, $origName, (int) $file['size'],
+                            $mime, $supplierId,
                         ]);
+                    }
+                }
+
+                // ── Keyword update: replace all keywords ──────────────
+                $rawKwJson = trim($_POST['keywords_json'] ?? '');
+                if ($rawKwJson !== '') {
+                    $kwDecoded = json_decode($rawKwJson, true);
+                    if (is_array($kwDecoded)) {
+                        $parsedKws = [];
+                        foreach ($kwDecoded as $kw) {
+                            $kw = mb_strtolower(trim((string) $kw));
+                            if ($kw !== '' && mb_strlen($kw) <= 60
+                                && !preg_match('/\s/', $kw)
+                                && preg_match('/^[\p{L}\p{N}\-_]+$/u', $kw)
+                                && !in_array($kw, $parsedKws, true)) {
+                                $parsedKws[] = $kw;
+                            }
+                        }
+                        // Replace keywords: delete existing then insert new
+                        $pdo->prepare(
+                            'DELETE FROM product_keywords WHERE product_id = ?'
+                        )->execute([$productId]);
+                        if (!empty($parsedKws)) {
+                            $kwIns = $pdo->prepare(
+                                'INSERT IGNORE INTO product_keywords (product_id, keyword) VALUES (?, ?)'
+                            );
+                            foreach ($parsedKws as $kw) {
+                                $kwIns->execute([$productId, $kw]);
+                            }
+                        }
                     }
                 }
 
@@ -294,13 +337,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <title><?= t('product_view_page_title') ?></title>
     <link rel="stylesheet" href="/login/css/style.css?v=6">
 </head>
-<body>
-
-    <div class="lang-selector">
-        <a href="?id=<?= $productId ?>&set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>">ES</a>
-        <span class="lang-sep">|</span>
-        <a href="?id=<?= $productId ?>&set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>">EN</a>
-    </div>
+<body class="wide-layout">
 
     <div class="top-bar">
         <div class="top-bar-brand">
@@ -310,10 +347,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <span class="org-badge"><?= $esc($_SESSION['org_name'] ?? '') ?></span>
             </span>
         </div>
-        <form method="POST" action="/login/logout.php" class="top-bar-logout">
-            <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-            <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
-        </form>
+        <div class="top-bar-right">
+            <nav class="top-bar-lang" aria-label="<?= t('language_label') ?>">
+                <a href="?id=<?= $productId ?>&set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>" hreflang="es">ES</a>
+                <span class="lang-sep">|</span>
+                <a href="?id=<?= $productId ?>&set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>" hreflang="en">EN</a>
+                <span class="lang-sep">|</span>
+                <a href="?id=<?= $productId ?>&set_lang=zh" class="lang-btn<?= $lang === 'zh' ? ' active' : '' ?>" hreflang="zh">中文</a>
+            </nav>
+            <form method="POST" action="/login/logout.php" class="top-bar-logout">
+                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
+            </form>
+        </div>
     </div>
 
     <?= renderTabs('my_products') ?>
@@ -442,33 +488,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <p class="text-muted"><?= t('no_images') ?></p>
                 <?php else: ?>
 
-                <!-- Aerial view (main/large) -->
-                <?php if (isset($images['aerial'])): ?>
+                <!-- Front view (main/large) -->
+                <?php if (isset($images['front'])): ?>
                 <div style="margin-bottom:16px;">
                     <div class="gallery-slot gallery-slot--aerial">
-                        <img src="/login/<?= $esc($images['aerial']['file_path']) ?>"
-                             alt="<?= $esc(t('img_slot_aerial')) ?>"
+                        <img src="/login/<?= $esc($images['front']['file_path']) ?>"
+                             alt="<?= $esc(t('img_slot_front')) ?>"
                              class="gallery-slot-img"
                              onclick="openLightbox(this.src, this.alt)">
                         <div class="gallery-slot-caption">
-                            <?= $esc(t('img_slot_aerial')) ?>
+                            <?= $esc(t('img_slot_front')) ?>
                             <span class="img-slot-required">*</span>
                         </div>
                     </div>
                 </div>
                 <?php endif; ?>
 
-                <!-- Lateral views grid -->
+                <!-- Optional views grid -->
                 <?php
-                $lateralSlots = ['lateral_front', 'lateral_back', 'lateral_left', 'lateral_right'];
-                $hasLateral = false;
-                foreach ($lateralSlots as $s) {
-                    if (isset($images[$s])) { $hasLateral = true; break; }
+                $optionalSlots = ['back', 'left', 'right', 'aerial', 'bottom'];
+                $hasOptional = false;
+                foreach ($optionalSlots as $s) {
+                    if (isset($images[$s])) { $hasOptional = true; break; }
                 }
-                if ($hasLateral):
+                if ($hasOptional):
                 ?>
                 <div class="product-gallery" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));">
-                    <?php foreach ($lateralSlots as $slot): ?>
+                    <?php foreach ($optionalSlots as $slot): ?>
                         <?php if (isset($images[$slot])): ?>
                         <div class="gallery-slot">
                             <img src="/login/<?= $esc($images[$slot]['file_path']) ?>"
@@ -487,6 +533,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <?php endif; // empty($images) ?>
 
             </div><!-- /form-section gallery -->
+
+            <!-- ── Keywords display ──────────────────── -->
+            <?php if (!empty($productKeywords)): ?>
+            <div class="form-section" style="margin-top:20px;">
+                <h2 class="form-section-title" style="font-size:0.95rem;">
+                    <?= $esc(t('section_product_keywords')) ?>
+                </h2>
+                <div class="keyword-tags-readonly">
+                    <?php foreach ($productKeywords as $kw): ?>
+                    <span class="keyword-chip keyword-chip--readonly"><?= $esc($kw) ?></span>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+
             </div><!-- /pv-pane-detail -->
 
             <!-- ═══════════════ PANE: EDIT ═══════════════ -->
@@ -631,17 +692,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                         <?php
                         $editImgSlots = [
-                            'aerial'        => ['label_key' => 'img_aerial_label',        'required' => true],
-                            'lateral_front' => ['label_key' => 'img_lateral_front_label', 'required' => false],
-                            'lateral_back'  => ['label_key' => 'img_lateral_back_label',  'required' => false],
-                            'lateral_left'  => ['label_key' => 'img_lateral_left_label',  'required' => false],
-                            'lateral_right' => ['label_key' => 'img_lateral_right_label', 'required' => false],
+                            'front'  => ['label_key' => 'img_front_label',  'required' => true],
+                            'back'   => ['label_key' => 'img_back_label',   'required' => false],
+                            'left'   => ['label_key' => 'img_left_label',   'required' => false],
+                            'right'  => ['label_key' => 'img_right_label',  'required' => false],
+                            'aerial' => ['label_key' => 'img_aerial_label', 'required' => false],
+                            'bottom' => ['label_key' => 'img_bottom_label', 'required' => false],
                         ];
                         ?>
 
-                        <!-- Vista aérea (ancho completo) -->
+                        <!-- Vista frontal (ancho completo) -->
                         <div class="img-grid-main" style="margin-bottom:20px;">
-                        <?php $slot = 'aerial'; $ecfg = $editImgSlots[$slot]; $fk = 'img_' . $slot; ?>
+                        <?php $slot = 'front'; $ecfg = $editImgSlots[$slot]; $fk = 'img_' . $slot; ?>
                         <div class="img-edit-slot" id="edit-slot-<?= $slot ?>">
                             <div class="img-slot-meta" style="margin-bottom:6px;">
                                 <span class="img-slot-label">
@@ -698,9 +760,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                         </div><!-- /img-grid-main -->
 
-                        <!-- Vistas laterales -->
-                        <div class="img-grid-lateral">
-                        <?php foreach (['lateral_front','lateral_back','lateral_left','lateral_right'] as $slot):
+                        <!-- Vistas opcionales -->
+                        <div class="img-grid-lateral img-grid-lateral--5col">
+                        <?php foreach (['back','left','right','aerial','bottom'] as $slot):
                             $ecfg = $editImgSlots[$slot]; $fk = 'img_' . $slot;
                         ?>
                         <div class="img-edit-slot" id="edit-slot-<?= $slot ?>">
@@ -761,6 +823,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div><!-- /img-grid-lateral -->
 
                     </div><!-- /form-section images -->
+
+                    <!-- ── Palabras clave (editar) ───────── -->
+                    <div class="form-section">
+                        <h2 class="form-section-title">
+                            <span class="section-icon" aria-hidden="true">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                    <path d="M7 7h10M7 12h6" stroke="currentColor"
+                                          stroke-width="1.5" stroke-linecap="round"/>
+                                    <rect x="3" y="3" width="18" height="18" rx="3"
+                                          stroke="currentColor" stroke-width="1.5"/>
+                                </svg>
+                            </span>
+                            <?= $esc(t('section_product_keywords')) ?>
+                        </h2>
+                        <p class="input-help" style="margin-bottom:14px;">
+                            <?= $esc(t('keywords_subtitle')) ?>
+                        </p>
+                        <div class="keyword-input-wrap">
+                            <div class="keyword-tags" id="edit-keyword-tags" role="list"></div>
+                            <div class="keyword-add-row">
+                                <input type="text" id="edit-keyword-input"
+                                       class="keyword-text-input"
+                                       placeholder="<?= $esc(t('keywords_input_ph')) ?>"
+                                       maxlength="60" autocomplete="off">
+                                <button type="button" id="edit-keyword-add-btn"
+                                        class="btn-secondary btn-sm">
+                                    <?= $esc(t('btn_add_keyword')) ?>
+                                </button>
+                            </div>
+                            <div id="edit-keyword-client-error" class="field-error"
+                                 style="display:none;margin-top:6px;"></div>
+                        </div>
+                        <input type="hidden" id="edit-keywords_json" name="keywords_json"
+                               value="<?= $esc(json_encode($productKeywords)) ?>">
+                    </div>
 
                     <!-- ── Botones ───────────────────────── -->
                     <div class="form-actions">
@@ -904,12 +1001,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             reader.readAsDataURL(file);
         }
 
-        ['aerial','lateral_front','lateral_back','lateral_left','lateral_right'].forEach(function(slot) {
+        ['front','back','left','right','aerial','bottom'].forEach(function(slot) {
             var input = document.getElementById('img_' + slot);
             if (input) {
                 input.addEventListener('change', function(){ editHandleFileChange(slot); });
             }
         });
+
+        // ── Edit keywords widget ──────────────────────────────
+        var editKwJson     = document.getElementById('edit-keywords_json');
+        var editKwInput    = document.getElementById('edit-keyword-input');
+        var editKwAddBtn   = document.getElementById('edit-keyword-add-btn');
+        var editKwTags     = document.getElementById('edit-keyword-tags');
+        var editKwErrEl    = document.getElementById('edit-keyword-client-error');
+        var editCurrentKws = [];
+
+        try {
+            var ekStored = JSON.parse(editKwJson ? (editKwJson.value || '[]') : '[]');
+            if (Array.isArray(ekStored)) {
+                ekStored.forEach(function(k) { if (k) ekAddTag(k, true); });
+            }
+        } catch(ex) {}
+
+        function ekShowErr(msg) { if (editKwErrEl) { editKwErrEl.textContent = msg; editKwErrEl.style.display = 'block'; } }
+        function ekClearErr()   { if (editKwErrEl) { editKwErrEl.style.display = 'none'; editKwErrEl.textContent = ''; } }
+        function ekSave()       { if (editKwJson) editKwJson.value = JSON.stringify(editCurrentKws); }
+
+        function ekAddTag(kw, skipCheck) {
+            kw = kw.trim().toLowerCase();
+            if (!skipCheck && editCurrentKws.indexOf(kw) !== -1) return false;
+            if (editCurrentKws.indexOf(kw) === -1) editCurrentKws.push(kw);
+            var chip = document.createElement('span');
+            chip.className = 'keyword-chip';
+            chip.setAttribute('role', 'listitem');
+            var text = document.createTextNode(kw + '\u00a0');
+            chip.appendChild(text);
+            var rb = document.createElement('button');
+            rb.type = 'button'; rb.className = 'keyword-chip-remove';
+            rb.setAttribute('aria-label', 'Eliminar ' + kw); rb.textContent = '\u00d7';
+            rb.addEventListener('click', function() {
+                var i = editCurrentKws.indexOf(kw);
+                if (i > -1) editCurrentKws.splice(i, 1);
+                if (editKwTags && chip.parentNode === editKwTags) editKwTags.removeChild(chip);
+                ekSave();
+            });
+            chip.appendChild(rb);
+            if (editKwTags) editKwTags.appendChild(chip);
+            ekSave(); return true;
+        }
+
+        function ekValidateAdd() {
+            ekClearErr();
+            var kw = editKwInput ? (editKwInput.value || '').trim().toLowerCase() : '';
+            if (!kw) { ekShowErr('<?= addslashes(t('err_keyword_empty')) ?>'); return; }
+            if (/\s/.test(kw)) { ekShowErr('<?= addslashes(t('err_keyword_spaces')) ?>'); return; }
+            if (kw.length > 60) { ekShowErr('<?= addslashes(t('err_keyword_too_long')) ?>'); return; }
+            if (!/^[\w\-]+$/i.test(kw)) { ekShowErr('<?= addslashes(t('err_keyword_invalid_chars')) ?>'); return; }
+            if (editCurrentKws.indexOf(kw) !== -1) { ekShowErr('<?= addslashes(t('err_keyword_duplicate')) ?>'); return; }
+            ekAddTag(kw, false);
+            if (editKwInput) { editKwInput.value = ''; editKwInput.focus(); }
+        }
+        if (editKwAddBtn) editKwAddBtn.addEventListener('click', ekValidateAdd);
+        if (editKwInput) {
+            editKwInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); ekValidateAdd(); }
+            });
+        }
     }());
     </script>
 

@@ -1,20 +1,25 @@
 <?php
 /**
- * /login/supplier/add_product.php — Carga de productos con imágenes
+ * /login/supplier/add_product.php — Carga de productos con imágenes y palabras clave
  *
  * POST actions:
- *  save_product — valida y persiste producto + imágenes
+ *  save_product — valida y persiste producto + fotos + keywords
  *
  * RBAC  : solo role = 'supplier'
  * Guard : first_login = 0
  *
- * Imágenes:
- *  - img_aerial         → vista aérea     (requerida)
- *  - img_lateral_front  → vista frontal   (opcional)
- *  - img_lateral_back   → vista trasera   (opcional)
- *  - img_lateral_left   → vista izquierda (opcional)
- *  - img_lateral_right  → vista derecha   (opcional)
- *  Máx. 5 MB por imagen | formatos: JPG / PNG / WEBP
+ * Fotos (hasta 6, una por vista canónica):
+ *  - img_front   → vista frontal   (REQUERIDA)
+ *  - img_back    → vista trasera   (opcional)
+ *  - img_left    → vista lateral izquierda (opcional)
+ *  - img_right   → vista lateral derecha   (opcional)
+ *  - img_aerial  → vista aérea     (opcional)
+ *  - img_bottom  → vista desde abajo (opcional)
+ *  Máx. 5 MB por imagen | formatos: JPG / PNG / WEBP / GIF / BMP / AVIF
+ *
+ * Keywords:
+ *  - palabras clave individuales (sin espacios, lowercase)
+ *  - enviadas como JSON en campo oculto keywords_json
  */
 
 // ── Security headers ─────────────────────────────────────────
@@ -55,20 +60,26 @@ $lang    = currentLang();
 $isAdmin = ($_SESSION['role'] ?? '') === 'admin';
 
 // ── Upload config ─────────────────────────────────────────────
+// Canonical view slots: front is required, others optional.
+// ENUM in DB: 'front','back','left','right','aerial','bottom'
+define('ALLOWED_VIEW_TYPES', ['front', 'back', 'left', 'right', 'aerial', 'bottom']);
+
 $uploadSlots = [
-    'aerial'        => true,   // required
-    'lateral_front' => false,
-    'lateral_back'  => false,
-    'lateral_left'  => false,
-    'lateral_right' => false,
+    'front'  => true,    // required
+    'back'   => false,
+    'left'   => false,
+    'right'  => false,
+    'aerial' => false,
+    'bottom' => false,
 ];
 
 $slotLabelKeys = [
-    'aerial'        => 'img_aerial_label',
-    'lateral_front' => 'img_lateral_front_label',
-    'lateral_back'  => 'img_lateral_back_label',
-    'lateral_left'  => 'img_lateral_left_label',
-    'lateral_right' => 'img_lateral_right_label',
+    'front'  => 'img_front_label',
+    'back'   => 'img_back_label',
+    'left'   => 'img_left_label',
+    'right'  => 'img_right_label',
+    'aerial' => 'img_aerial_label',
+    'bottom' => 'img_bottom_label',
 ];
 
 $allowedMimes  = ALLOWED_IMAGE_MIMES;
@@ -88,6 +99,8 @@ $fv = [
     'price_fob'             => '',
     'price_cif'             => '',
 ];
+$keywordsInput = [];   // array of validated keywords from current POST
+$keywordsError = '';   // single error string for keywords section
 
 // ── POST dispatcher ───────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -167,14 +180,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        // ── Keyword validation ────────────────────────────────
+        $rawKeywordsJson = trim($_POST['keywords_json'] ?? '');
+        $parsedKeywords  = [];
+        if ($rawKeywordsJson !== '' && $rawKeywordsJson !== '[]') {
+            $decoded = json_decode($rawKeywordsJson, true);
+            if (!is_array($decoded)) {
+                $errors['keywords'] = t('err_keyword_empty');
+            } else {
+                $seen = [];
+                foreach ($decoded as $kw) {
+                    $kw = mb_strtolower(trim((string) $kw));
+                    if ($kw === '') continue;
+                    if (mb_strlen($kw) > 60) {
+                        $errors['keywords'] = t('err_keyword_too_long');
+                        break;
+                    }
+                    if (preg_match('/\s/', $kw)) {
+                        $errors['keywords'] = t('err_keyword_spaces');
+                        break;
+                    }
+                    if (!preg_match('/^[\p{L}\p{N}\-_]+$/u', $kw)) {
+                        $errors['keywords'] = t('err_keyword_invalid_chars');
+                        break;
+                    }
+                    if (in_array($kw, $seen, true)) {
+                        $errors['keywords'] = t('err_keyword_duplicate');
+                        break;
+                    }
+                    $seen[]           = $kw;
+                    $parsedKeywords[] = $kw;
+                }
+                if (!isset($errors['keywords'])) {
+                    $keywordsInput = $parsedKeywords;
+                }
+            }
+        }
+
         // ── Image validations ─────────────────────────────────
+        $hasAnyUpload = false;
         foreach ($uploadSlots as $slot => $required) {
             $key  = 'img_' . $slot;
             $file = $_FILES[$key] ?? ['error' => UPLOAD_ERR_NO_FILE];
 
             if ($file['error'] === UPLOAD_ERR_NO_FILE) {
                 if ($required) {
-                    $errors[$key] = t('err_img_required');
+                    $errors[$key] = t('err_img_front_required');
                 }
                 continue;
             }
@@ -193,6 +244,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $typeCheck = validateUploadedImage($file, $maxFileBytes);
             if (!$typeCheck['ok'] && $typeCheck['error'] !== 'err_img_size') {
                 $errors[$key] = t($typeCheck['error']);
+            } else {
+                $hasAnyUpload = true;
             }
         }
 
@@ -240,6 +293,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     $result   = validateUploadedImage($file, $maxFileBytes);
                     $ext      = $result['ok'] ? $result['ext'] : 'jpg';
+                    $mime     = $result['ok'] ? $result['mime'] : 'image/jpeg';
                     $safeName = $slot . '_' . bin2hex(random_bytes(8)) . '.' . $ext;
                     $dest     = $productDir . DIRECTORY_SEPARATOR . $safeName;
 
@@ -247,17 +301,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         throw new RuntimeException('move_uploaded_file failed for slot: ' . $slot);
                     }
 
-                    $relPath = 'uploads/products/' . $productId . '/' . $safeName;
+                    $relPath  = 'uploads/products/' . $productId . '/' . $safeName;
                     $origName = mb_substr(basename($file['name']), 0, 255);
 
                     $pdo->prepare(
                         'INSERT INTO supplier_product_images
-                            (product_id, supplier_id, image_slot, file_path, original_name, file_size)
-                         VALUES (?, ?, ?, ?, ?, ?)'
+                            (product_id, supplier_id, image_slot,
+                             file_path, original_name, file_size,
+                             mime_type, uploaded_by_user_id)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
                     )->execute([
                         $productId, $supplierId, $slot,
                         $relPath, $origName, (int) $file['size'],
+                        $mime, $supplierId,
                     ]);
+                }
+
+                // Persist keywords
+                if (!empty($parsedKeywords)) {
+                    $kwStmt = $pdo->prepare(
+                        'INSERT IGNORE INTO product_keywords (product_id, keyword)
+                         VALUES (?, ?)'
+                    );
+                    foreach ($parsedKeywords as $kw) {
+                        $kwStmt->execute([$productId, $kw]);
+                    }
                 }
 
                 $pdo->commit();
@@ -295,11 +363,12 @@ $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
 
 // Build slot configs for view
 $slots = [
-    'aerial'        => ['label_key' => 'img_aerial_label',        'required' => true],
-    'lateral_front' => ['label_key' => 'img_lateral_front_label', 'required' => false],
-    'lateral_back'  => ['label_key' => 'img_lateral_back_label',  'required' => false],
-    'lateral_left'  => ['label_key' => 'img_lateral_left_label',  'required' => false],
-    'lateral_right' => ['label_key' => 'img_lateral_right_label', 'required' => false],
+    'front'  => ['label_key' => 'img_front_label',  'required' => true],
+    'back'   => ['label_key' => 'img_back_label',   'required' => false],
+    'left'   => ['label_key' => 'img_left_label',   'required' => false],
+    'right'  => ['label_key' => 'img_right_label',  'required' => false],
+    'aerial' => ['label_key' => 'img_aerial_label', 'required' => false],
+    'bottom' => ['label_key' => 'img_bottom_label', 'required' => false],
 ];
 
 // Helper: render one upload slot
@@ -371,13 +440,7 @@ HTML;
     <title><?= t('add_product_page_title') ?></title>
     <link rel="stylesheet" href="/login/css/style.css?v=6">
 </head>
-<body>
-
-    <div class="lang-selector">
-        <a href="?set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>">ES</a>
-        <span class="lang-sep">|</span>
-        <a href="?set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>">EN</a>
-    </div>
+<body class="wide-layout">
 
     <div class="top-bar">
         <div class="top-bar-brand">
@@ -387,10 +450,19 @@ HTML;
                 <span class="org-badge"><?= $esc($_SESSION['org_name'] ?? '') ?></span>
             </span>
         </div>
-        <form method="POST" action="/login/logout.php" class="top-bar-logout">
-            <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
-            <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
-        </form>
+        <div class="top-bar-right">
+            <nav class="top-bar-lang" aria-label="<?= t('language_label') ?>">
+                <a href="?set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>" hreflang="es">ES</a>
+                <span class="lang-sep">|</span>
+                <a href="?set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>" hreflang="en">EN</a>
+                <span class="lang-sep">|</span>
+                <a href="?set_lang=zh" class="lang-btn<?= $lang === 'zh' ? ' active' : '' ?>" hreflang="zh">中文</a>
+            </nav>
+            <form method="POST" action="/login/logout.php" class="top-bar-logout">
+                <input type="hidden" name="csrf_token" value="<?= $csrfToken ?>">
+                <button type="submit" class="btn-secondary btn-sm"><?= t('sign_out') ?></button>
+            </form>
+        </div>
     </div>
 
     <?= renderTabs('add_product') ?>
@@ -541,19 +613,71 @@ HTML;
                         <?= t('section_product_images') ?>
                     </h2>
 
-                    <!-- Vista aérea — requerida (ancho completo) -->
+                    <!-- Vista frontal — requerida (ancho completo) -->
                     <div class="img-grid-main">
+                        <?= renderUploadSlot('front', $slots['front'], $esc, $errMsg) ?>
+                    </div>
+
+                    <!-- 5 vistas opcionales -->
+                    <div class="img-grid-lateral img-grid-lateral--5col">
+                        <?= renderUploadSlot('back',   $slots['back'],   $esc, $errMsg) ?>
+                        <?= renderUploadSlot('left',   $slots['left'],   $esc, $errMsg) ?>
+                        <?= renderUploadSlot('right',  $slots['right'],  $esc, $errMsg) ?>
                         <?= renderUploadSlot('aerial', $slots['aerial'], $esc, $errMsg) ?>
+                        <?= renderUploadSlot('bottom', $slots['bottom'], $esc, $errMsg) ?>
                     </div>
 
-                    <!-- 4 vistas laterales -->
-                    <div class="img-grid-lateral">
-                        <?= renderUploadSlot('lateral_front', $slots['lateral_front'], $esc, $errMsg) ?>
-                        <?= renderUploadSlot('lateral_back',  $slots['lateral_back'],  $esc, $errMsg) ?>
-                        <?= renderUploadSlot('lateral_left',  $slots['lateral_left'],  $esc, $errMsg) ?>
-                        <?= renderUploadSlot('lateral_right', $slots['lateral_right'], $esc, $errMsg) ?>
+                </div>
+
+                <!-- ══ Sección 4: Palabras clave ════════════════════ -->
+                <div class="form-section">
+                    <h2 class="form-section-title">
+                        <span class="section-icon" aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                                <path d="M7 7h10M7 12h6" stroke="currentColor"
+                                      stroke-width="1.5" stroke-linecap="round"/>
+                                <rect x="3" y="3" width="18" height="18" rx="3"
+                                      stroke="currentColor" stroke-width="1.5"/>
+                            </svg>
+                        </span>
+                        <?= t('section_product_keywords') ?>
+                    </h2>
+                    <p class="input-help" style="margin-bottom:14px;">
+                        <?= $esc(t('keywords_subtitle')) ?>
+                    </p>
+
+                    <?php if (!empty($errors['keywords'])): ?>
+                    <div class="alert alert-error" role="alert" style="margin-bottom:12px;">
+                        <span><?= $esc($errors['keywords']) ?></span>
+                    </div>
+                    <?php endif; ?>
+
+                    <div class="keyword-input-wrap">
+                        <div class="keyword-tags" id="keyword-tags" role="list"
+                             aria-label="<?= $esc(t('section_product_keywords')) ?>">
+                        </div>
+                        <div class="keyword-add-row">
+                            <input type="text"
+                                   id="keyword-input"
+                                   class="keyword-text-input"
+                                   placeholder="<?= $esc(t('keywords_input_ph')) ?>"
+                                   maxlength="60"
+                                   autocomplete="off"
+                                   aria-label="<?= $esc(t('keywords_input_ph')) ?>">
+                            <button type="button"
+                                    id="keyword-add-btn"
+                                    class="btn-secondary btn-sm">
+                                <?= $esc(t('btn_add_keyword')) ?>
+                            </button>
+                        </div>
+                        <div id="keyword-client-error" class="field-error"
+                             style="display:none;margin-top:6px;"></div>
                     </div>
 
+                    <input type="hidden"
+                           id="keywords_json"
+                           name="keywords_json"
+                           value="<?= $esc(json_encode($keywordsInput)) ?>">
                 </div>
 
                 <!-- ══ Botones ════════════════════════════════════════ -->
@@ -658,7 +782,7 @@ HTML;
         }
 
         // Wire change events for all slots
-        ['aerial','lateral_front','lateral_back','lateral_left','lateral_right'].forEach(function(slot){
+        ['front','back','left','right','aerial','bottom'].forEach(function(slot){
             var input = document.getElementById('img_' + slot);
             if (input) {
                 input.addEventListener('change', function(){ handleFileChange(slot); });
@@ -679,15 +803,93 @@ HTML;
                     }
                 });
 
-                // Check aerial image
-                var aerial = document.getElementById('img_aerial');
-                var aerialArea = document.getElementById('area-aerial');
-                if (aerial && !aerial.files.length) {
-                    if (aerialArea) aerialArea.classList.add('is-invalid');
+                // Check front view image (required)
+                var frontInput = document.getElementById('img_front');
+                var frontArea  = document.getElementById('area-front');
+                if (frontInput && !frontInput.files.length) {
+                    if (frontArea) frontArea.classList.add('is-invalid');
                     valid = false;
                 }
 
                 if (!valid) e.preventDefault();
+            });
+        }
+
+        // ── Keywords widget ───────────────────────────────────
+        var keywordsJson  = document.getElementById('keywords_json');
+        var keywordInput  = document.getElementById('keyword-input');
+        var keywordAddBtn = document.getElementById('keyword-add-btn');
+        var keywordTags   = document.getElementById('keyword-tags');
+        var keywordErrEl  = document.getElementById('keyword-client-error');
+
+        var currentKeywords = [];
+
+        // Re-hydrate from hidden field (server-side validation failure)
+        try {
+            var stored = JSON.parse(keywordsJson ? (keywordsJson.value || '[]') : '[]');
+            if (Array.isArray(stored)) {
+                stored.forEach(function(k) { if (k) addKeywordTag(k, true); });
+            }
+        } catch(ex) {}
+
+        function showKwError(msg) {
+            if (keywordErrEl) { keywordErrEl.textContent = msg; keywordErrEl.style.display = 'block'; }
+        }
+        function clearKwError() {
+            if (keywordErrEl) { keywordErrEl.style.display = 'none'; keywordErrEl.textContent = ''; }
+        }
+        function saveKeywords() {
+            if (keywordsJson) keywordsJson.value = JSON.stringify(currentKeywords);
+        }
+
+        function addKeywordTag(kw, skipDupeCheck) {
+            kw = kw.trim().toLowerCase();
+            if (!skipDupeCheck && currentKeywords.indexOf(kw) !== -1) return false;
+            if (currentKeywords.indexOf(kw) === -1) currentKeywords.push(kw);
+
+            var chip = document.createElement('span');
+            chip.className = 'keyword-chip';
+            chip.setAttribute('role', 'listitem');
+            chip.dataset.kw = kw;
+
+            var text = document.createTextNode(kw + '\u00a0');
+            chip.appendChild(text);
+
+            var removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'keyword-chip-remove';
+            removeBtn.setAttribute('aria-label', 'Eliminar ' + kw);
+            removeBtn.textContent = '\u00d7';
+            removeBtn.addEventListener('click', function() {
+                var idx = currentKeywords.indexOf(kw);
+                if (idx > -1) currentKeywords.splice(idx, 1);
+                if (keywordTags && chip.parentNode === keywordTags) keywordTags.removeChild(chip);
+                saveKeywords();
+            });
+            chip.appendChild(removeBtn);
+            if (keywordTags) keywordTags.appendChild(chip);
+            saveKeywords();
+            return true;
+        }
+
+        function validateAndAddKeyword() {
+            clearKwError();
+            var kw = keywordInput ? (keywordInput.value || '').trim().toLowerCase() : '';
+
+            if (!kw) { showKwError('<?= addslashes(t('err_keyword_empty')) ?>'); return; }
+            if (/\s/.test(kw)) { showKwError('<?= addslashes(t('err_keyword_spaces')) ?>'); return; }
+            if (kw.length > 60) { showKwError('<?= addslashes(t('err_keyword_too_long')) ?>'); return; }
+            if (!/^[\w\-]+$/i.test(kw)) { showKwError('<?= addslashes(t('err_keyword_invalid_chars')) ?>'); return; }
+            if (currentKeywords.indexOf(kw) !== -1) { showKwError('<?= addslashes(t('err_keyword_duplicate')) ?>'); return; }
+
+            addKeywordTag(kw, false);
+            if (keywordInput) { keywordInput.value = ''; keywordInput.focus(); }
+        }
+
+        if (keywordAddBtn) keywordAddBtn.addEventListener('click', validateAndAddKeyword);
+        if (keywordInput) {
+            keywordInput.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter') { e.preventDefault(); validateAndAddKeyword(); }
             });
         }
     }());

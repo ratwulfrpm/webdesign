@@ -99,6 +99,8 @@ $lang = currentLang();
         <a href="?set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>" hreflang="es">ES</a>
         <span class="lang-sep">|</span>
         <a href="?set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>" hreflang="en">EN</a>
+        <span class="lang-sep">|</span>
+        <a href="?set_lang=zh" class="lang-btn<?= $lang === 'zh' ? ' active' : '' ?>" hreflang="zh">中文</a>
     </div>
 
     <!-- Brand -->

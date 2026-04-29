@@ -139,13 +139,6 @@ $lang     = currentLang();
 </head>
 <body class="wide-layout">
 
-    <!-- Language selector -->
-    <div class="lang-selector">
-        <a href="?set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>">ES</a>
-        <span class="lang-sep">|</span>
-        <a href="?set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>">EN</a>
-    </div>
-
     <!-- Top nav -->
     <div class="top-bar">
         <div class="top-bar-brand">
@@ -155,13 +148,22 @@ $lang     = currentLang();
                 <span class="org-badge"><?= $orgName ?></span>
             </span>
         </div>
-        <form method="POST" action="/login/logout.php" class="top-bar-logout">
-            <input type="hidden" name="csrf_token"
-                   value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
-            <button type="submit" class="btn-secondary btn-sm">
-                <?= t('sign_out') ?>
-            </button>
-        </form>
+        <div class="top-bar-right">
+            <nav class="top-bar-lang" aria-label="<?= t('language_label') ?>">
+                <a href="?set_lang=es" class="lang-btn<?= $lang === 'es' ? ' active' : '' ?>" hreflang="es">ES</a>
+                <span class="lang-sep">|</span>
+                <a href="?set_lang=en" class="lang-btn<?= $lang === 'en' ? ' active' : '' ?>" hreflang="en">EN</a>
+                <span class="lang-sep">|</span>
+                <a href="?set_lang=zh" class="lang-btn<?= $lang === 'zh' ? ' active' : '' ?>" hreflang="zh">中文</a>
+            </nav>
+            <form method="POST" action="/login/logout.php" class="top-bar-logout">
+                <input type="hidden" name="csrf_token"
+                       value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+                <button type="submit" class="btn-secondary btn-sm">
+                    <?= t('sign_out') ?>
+                </button>
+            </form>
+        </div>
     </div>
 
     <?= renderTabs('users') ?>
