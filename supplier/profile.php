@@ -38,6 +38,7 @@ require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/mailer.php';
+require_once __DIR__ . '/../includes/image_validate.php';
 
 requireAuth();
 initLang();
@@ -528,7 +529,7 @@ $devCode         = ($isLocalDev && $evPending && $smtpFailed) ? $esc($profile['e
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('profile_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
 </head>
 <body class="wide-layout">
 
@@ -688,6 +689,9 @@ $devCode         = ($isLocalDev && $evPending && $smtpFailed) ? $esc($profile['e
             <form method="POST" action="/login/supplier/profile.php" novalidate>
                 <?= $csrfField ?>
                 <input type="hidden" name="action" value="save_profile">
+
+                <div class="profile-sections-layout">
+                <div class="profile-sections-col">
 
                 <!-- ══ Sección 1: Información General ════════════ -->
                 <div class="form-section">
@@ -859,6 +863,9 @@ $devCode         = ($isLocalDev && $evPending && $smtpFailed) ? $esc($profile['e
                     </div>
                 </div>
 
+                </div><!-- /profile-sections-col left -->
+                <div class="profile-sections-col">
+
                 <!-- ══ Sección 3: Dirección Oficina Principal ═════ -->
                 <div class="form-section">
                     <h2 class="form-section-title">
@@ -995,6 +1002,9 @@ $devCode         = ($isLocalDev && $evPending && $smtpFailed) ? $esc($profile['e
 
                     </div>
                 </div>
+
+                </div><!-- /profile-sections-col right -->
+                </div><!-- /profile-sections-layout -->
 
                 <!-- ══ Form actions ═══════════════════════════════ -->
                 <div class="form-actions">

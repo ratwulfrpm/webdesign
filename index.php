@@ -128,7 +128,7 @@ $lang = currentLang();
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <title><?= t('page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
 </head>
 <body>
 

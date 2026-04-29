@@ -997,6 +997,44 @@ html {
 .profile-form-card .card-title { text-align: left; }
 .profile-form-card .card-subtitle { text-align: left; }
 
+/* ── Wide-layout: expand profile form and contacts cards to fill width ── */
+body.wide-layout .profile-form-card,
+body.wide-layout .contacts-card {
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+/* panel-card: full-width card for documents / wide pages */
+.panel-card {
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+}
+
+/* ── Two-column layout for profile form sections ─────────────── */
+.profile-sections-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0 52px;
+    align-items: start;
+}
+
+.profile-sections-col {
+    min-width: 0;
+}
+
+.profile-sections-col .form-section:last-child {
+    margin-bottom: 0;
+}
+
+/* Collapse to single column on narrower screens */
+@media (max-width: 900px) {
+    .profile-sections-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* ── Form sections ──────────────────────────────────────────── */
 .form-section {
     margin-bottom: 32px;
@@ -1045,15 +1083,17 @@ html {
     display: flex;
     gap: 8px;
     align-items: flex-end;
+    max-width: 460px; /* prevent stretching across a full-width column */
 }
 
 .phone-pair .phone-code-wrap {
-    width: 130px;
+    width: 210px;    /* wide enough for "+44 (United Kingdom)" */
     flex-shrink: 0;
 }
 
 .phone-pair .phone-number-wrap {
     flex: 1;
+    min-width: 140px;
 }
 
 /* ── Select inputs ──────────────────────────────────────────── */
@@ -1138,6 +1178,15 @@ html {
     margin: 24px auto 0;
     padding: 32px 40px;
     text-align: left;
+}
+
+/* On wide-layout, the contacts table never needs a horizontal scrollbar */
+body.wide-layout .contacts-card .table-wrap {
+    overflow-x: visible;
+}
+
+body.wide-layout .contacts-card .data-table {
+    min-width: 0;
 }
 
 .contacts-card .card-title {
@@ -1285,10 +1334,15 @@ html {
     .phone-pair {
         flex-direction: column;
         gap: 0;
+        max-width: none;
     }
 
     .phone-pair .phone-code-wrap {
         width: 100%;
+    }
+
+    .phone-pair .phone-number-wrap {
+        min-width: 0;
     }
 }
 
@@ -2374,6 +2428,46 @@ html {
     border-radius: 6px;
     font-size: .7rem;
     font-weight: 600;
+}
+
+/* ============================================================
+   SUMMARY LAYOUT — two-column: profile card + contract widget
+   ============================================================ */
+
+.summary-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 24px;
+    max-width: 1000px;
+    margin: 0 auto 24px;
+}
+
+/* Profile card keeps its natural width, centered internally */
+.summary-layout .dashboard-card {
+    flex: 1 1 0;
+    min-width: 0;
+}
+
+/* Contract widget fixed width on the right */
+.summary-contract-widget {
+    flex: 0 0 300px;
+    min-width: 260px;
+}
+
+.summary-contract-widget .card {
+    padding: 20px 22px;
+}
+
+/* On narrow screens, stack vertically */
+@media (max-width: 800px) {
+    .summary-layout {
+        flex-direction: column;
+    }
+    .summary-contract-widget {
+        flex: 1 1 auto;
+        width: 100%;
+        min-width: 0;
+    }
 }
 
 /* ============================================================

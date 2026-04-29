@@ -1,6 +1,6 @@
-﻿<?php
+<?php
 /**
- * includes/mailer.php — PHPMailer + Gmail SMTP helper
+ * includes/mailer.php � PHPMailer + Gmail SMTP helper
  *
  * Requires: config/mail.php (credentials)
  *           includes/phpmailer/PHPMailer.php

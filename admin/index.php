@@ -135,7 +135,7 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('admin_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=7">
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
 </head>
 <body class="wide-layout">
 

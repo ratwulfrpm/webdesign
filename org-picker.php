@@ -61,7 +61,7 @@ $lang = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('org_picker_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
 </head>
 <body>
 

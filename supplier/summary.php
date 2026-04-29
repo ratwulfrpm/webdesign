@@ -67,6 +67,17 @@ if (!$profile) {
     exit;
 }
 
+// Load current (primary) contract for the sidebar widget
+$contractStmt = $pdo->prepare(
+    'SELECT id, original_filename, signed_date, effective_start_date,
+            effective_end_date, created_at
+       FROM supplier_contracts
+      WHERE supplier_id = ? AND is_primary = 1
+      LIMIT 1'
+);
+$contractStmt->execute([(int) $_SESSION['user_id']]);
+$primaryContract = $contractStmt->fetch() ?: null;
+
 // Show "saved" confirmation if redirected from profile.php
 $saved = isset($_GET['saved']);
 
@@ -95,7 +106,7 @@ $displayEmail = $esc($profile['email'] ?? '');
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('summary_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=5">
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
 </head>
 <body class="wide-layout">
 
@@ -138,6 +149,9 @@ $displayEmail = $esc($profile['email'] ?? '');
             <span><?= t('profile_success') ?></span>
         </div>
         <?php endif; ?>
+
+        <!-- ── Two-column layout: profile + contract widget ── -->
+        <div class="summary-layout">
 
         <div class="card dashboard-card" role="main">
 
@@ -244,6 +258,55 @@ $displayEmail = $esc($profile['email'] ?? '');
             </div>
 
         </div><!-- /dashboard-card -->
+
+        <!-- ── Contract widget (right column) ───────────────── -->
+        <div class="summary-contract-widget">
+            <div class="card" style="text-align:left;">
+                <h2 class="card-title" style="font-size:1rem;margin-bottom:6px;">
+                    <?= t('contract_current_label') ?>
+                </h2>
+                <?php if ($primaryContract): ?>
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap;">
+                    <span class="status-badge status-badge--active" style="font-size:.72rem;">
+                        <?= t('contract_primary_badge') ?>
+                    </span>
+                    <span style="font-size:.875rem;font-weight:600;word-break:break-all;">
+                        <?= htmlspecialchars($primaryContract['original_filename'], ENT_QUOTES, 'UTF-8') ?>
+                    </span>
+                </div>
+                <div style="font-size:.8rem;color:var(--color-text-muted);line-height:1.8;margin-bottom:14px;">
+                    <?php if ($primaryContract['signed_date']): ?>
+                    <div><strong><?= t('col_contract_signed_date') ?>:</strong>
+                        <?= htmlspecialchars($primaryContract['signed_date'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <?php endif; ?>
+                    <?php if ($primaryContract['effective_start_date']): ?>
+                    <div><strong><?= t('col_contract_start') ?>:</strong>
+                        <?= htmlspecialchars($primaryContract['effective_start_date'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <?php endif; ?>
+                    <?php if ($primaryContract['effective_end_date']): ?>
+                    <div><strong><?= t('col_contract_end') ?>:</strong>
+                        <?= htmlspecialchars($primaryContract['effective_end_date'], ENT_QUOTES, 'UTF-8') ?></div>
+                    <?php endif; ?>
+                    <div><strong><?= t('col_contract_uploaded_at') ?>:</strong>
+                        <?= htmlspecialchars(substr($primaryContract['created_at'], 0, 10), ENT_QUOTES, 'UTF-8') ?></div>
+                </div>
+                <a href="/login/supplier/documents.php"
+                   class="btn-secondary btn-sm" style="display:inline-block;">
+                    <?= t('summary_view_documents') ?>
+                </a>
+                <?php else: ?>
+                <p class="text-muted" style="font-size:.875rem;margin-bottom:14px;">
+                    <?= t('no_contracts') ?>
+                </p>
+                <a href="/login/supplier/documents.php"
+                   class="btn-secondary btn-sm" style="display:inline-block;">
+                    <?= t('tab_documents') ?>
+                </a>
+                <?php endif; ?>
+            </div>
+        </div><!-- /contract widget -->
+
+        </div><!-- /summary-layout -->
 
         <?php if ($evExpired && !$evPending): ?>
         <!-- ════════════════ SECCIÓN BORRADOR ════════════════ -->

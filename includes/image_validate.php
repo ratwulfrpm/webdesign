@@ -91,6 +91,75 @@ function isSvgFile(string $tmpPath, string $originalName, string $declaredMime):
 }
 
 // ─────────────────────────────────────────────────────────────
+// Contract file size limit — 10 MB
+// ─────────────────────────────────────────────────────────────
+if (!defined('CONTRACT_MAX_BYTES')) {
+    define('CONTRACT_MAX_BYTES', 10 * 1024 * 1024);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Validate a contract upload (PDF, JPEG or PNG).
+//
+// Does NOT use finfo (unavailable on some MAMP builds).
+// Detection strategy:
+//   PDF  → magic bytes check (%PDF-)
+//   JPEG → getimagesize() MIME detection
+//   PNG  → getimagesize() MIME detection
+//   SVG  → explicitly blocked via isSvgFile()
+//
+// Returns: ['ok' => true, 'mime' => '...', 'ext' => '...']
+//       or ['ok' => false, 'error' => 'lang_key']
+// ─────────────────────────────────────────────────────────────
+function validateContractFile(array $file, int $maxBytes): array
+{
+    // No file selected
+    if (($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+        return ['ok' => false, 'error' => 'err_contract_required'];
+    }
+
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        return ['ok' => false, 'error' => 'err_contract_save'];
+    }
+
+    if ($file['size'] > $maxBytes) {
+        return ['ok' => false, 'error' => 'err_contract_size'];
+    }
+
+    $tmpPath      = $file['tmp_name'];
+    $originalName = $file['name'] ?? '';
+
+    // ── PDF: check magic bytes (%PDF-) ────────────────────────
+    $handle = @fopen($tmpPath, 'rb');
+    if ($handle !== false) {
+        $header = (string) fread($handle, 5);
+        fclose($handle);
+        if ($header === '%PDF-') {
+            return ['ok' => true, 'mime' => 'application/pdf', 'ext' => 'pdf'];
+        }
+    }
+
+    // ── Image: JPEG or PNG via getimagesize() ─────────────────
+    $imgInfo = @getimagesize($tmpPath);
+    $imgMime = ($imgInfo !== false) ? image_type_to_mime_type($imgInfo[2]) : '';
+
+    // Block SVG using existing helper
+    if (isSvgFile($tmpPath, $originalName, $imgMime)) {
+        return ['ok' => false, 'error' => 'err_contract_type'];
+    }
+
+    $allowedContractImages = [
+        'image/jpeg' => 'jpg',
+        'image/png'  => 'png',
+    ];
+
+    if (!array_key_exists($imgMime, $allowedContractImages)) {
+        return ['ok' => false, 'error' => 'err_contract_type'];
+    }
+
+    return ['ok' => true, 'mime' => $imgMime, 'ext' => $allowedContractImages[$imgMime]];
+}
+
+// ─────────────────────────────────────────────────────────────
 // Validate a single uploaded image file
 //
 // Returns: ['ok' => true, 'mime' => '...', 'ext' => '...']

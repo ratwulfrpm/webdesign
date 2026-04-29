@@ -28,14 +28,14 @@ function getTabsForRole(string $role): array
         case 'supplier':
             return [
                 [
-                    'id'    => 'profile',
-                    'label' => t('tab_profile'),
-                    'url'   => '/login/supplier/profile.php',
-                ],
-                [
                     'id'    => 'summary',
                     'label' => t('tab_summary'),
                     'url'   => '/login/supplier/summary.php',
+                ],
+                [
+                    'id'    => 'profile',
+                    'label' => t('tab_profile'),
+                    'url'   => '/login/supplier/profile.php',
                 ],
                 [
                     'id'    => 'add_product',
@@ -48,10 +48,9 @@ function getTabsForRole(string $role): array
                     'url'   => '/login/supplier/products.php',
                 ],
                 [
-                    'id'       => 'documents',
-                    'label'    => t('tab_documents'),
-                    'url'      => '#',
-                    'disabled' => true,
+                    'id'  => 'documents',
+                    'label' => t('tab_documents'),
+                    'url'   => '/login/supplier/documents.php',
                 ],
                 [
                     'id'       => 'orders',
@@ -64,14 +63,14 @@ function getTabsForRole(string $role): array
         case 'admin':
             return [
                 [
-                    'id'    => 'users',
-                    'label' => t('tab_users'),
-                    'url'   => '/login/admin/index.php',
-                ],
-                [
                     'id'    => 'all_products',
                     'label' => t('tab_all_products'),
                     'url'   => '/login/admin/products.php',
+                ],
+                [
+                    'id'    => 'users',
+                    'label' => t('tab_users'),
+                    'url'   => '/login/admin/index.php',
                 ],
                 [
                     'id'    => 'invitations',
@@ -95,14 +94,14 @@ function getTabsForRole(string $role): array
         case 'owner':
             return [
                 [
-                    'id'    => 'users',
-                    'label' => t('tab_users'),
-                    'url'   => '/login/owner/index.php',
-                ],
-                [
                     'id'    => 'all_products',
                     'label' => t('tab_all_products'),
                     'url'   => '/login/admin/products.php',
+                ],
+                [
+                    'id'    => 'users',
+                    'label' => t('tab_users'),
+                    'url'   => '/login/owner/index.php',
                 ],
                 [
                     'id'    => 'invitations',

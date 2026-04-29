@@ -107,8 +107,8 @@ $sql = "
         o.id         AS org_id,
         o.name       AS org_name,
         (SELECT COUNT(*) FROM supplier_product_images si WHERE si.product_id = p.id) AS photo_count,
-        (SELECT COUNT(*) FROM supplier_product_images fi
-          WHERE fi.product_id = p.id AND fi.image_slot = 'front') AS has_front,
+        (SELECT file_path FROM supplier_product_images fi
+          WHERE fi.product_id = p.id AND fi.image_slot = 'front' LIMIT 1) AS front_img_path,
         (SELECT GROUP_CONCAT(pk.keyword ORDER BY pk.keyword SEPARATOR ', ')
            FROM product_keywords pk WHERE pk.product_id = p.id) AS keywords
     FROM supplier_products p
@@ -116,7 +116,10 @@ $sql = "
     JOIN org_members om ON om.user_id = u.id AND om.is_active = 1
     JOIN organizations o ON o.id = om.org_id
     WHERE $whereClause
-    GROUP BY p.id
+    GROUP BY p.id, p.supplier_product_code, p.admin_product_code, p.product_name,
+             p.active, p.created_at,
+             u.id, u.username, u.company_name,
+             o.id, o.name
     ORDER BY p.created_at DESC
     LIMIT 500
 ";
@@ -147,7 +150,7 @@ $filterUrl = function(array $overrides = []): string {
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('all_products_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=8">
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
 </head>
 <body class="wide-layout">
 
@@ -264,6 +267,7 @@ $filterUrl = function(array $overrides = []): string {
                 <table class="data-table data-table--products">
                     <thead>
                         <tr>
+                            <th style="width:64px;"><?= $esc(t('col_front_view')) ?></th>
                             <th><?= $esc(t('col_product_name')) ?></th>
                             <th><?= $esc(t('col_product_code')) ?></th>
                             <th><?= $esc(t('field_admin_code')) ?></th>
@@ -272,13 +276,34 @@ $filterUrl = function(array $overrides = []): string {
                             <th><?= $esc(t('col_active')) ?></th>
                             <th><?= $esc(t('col_created_at')) ?></th>
                             <th><?= $esc(t('col_photos')) ?></th>
-                            <th><?= $esc(t('col_front_view')) ?></th>
                             <th><?= $esc(t('col_keywords')) ?></th>
+                            <th style="width:60px;"></th>
                         </tr>
                     </thead>
                     <tbody>
                     <?php foreach ($products as $p): ?>
                         <tr>
+                            <td>
+                            <?php if (!empty($p['front_img_path'])): ?>
+                                <img src="/login/<?= $esc($p['front_img_path']) ?>"
+                                     alt="<?= $esc($p['product_name']) ?>"
+                                     style="width:56px;height:42px;object-fit:cover;
+                                            border-radius:8px;border:1px solid var(--color-border);">
+                            <?php else: ?>
+                                <div style="width:56px;height:42px;border-radius:8px;
+                                            background:#f0f0f3;border:1px solid var(--color-border);
+                                            display:flex;align-items:center;justify-content:center;">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                                         style="opacity:.3">
+                                        <rect x="3" y="3" width="18" height="18" rx="3"
+                                              stroke="currentColor" stroke-width="1.5"/>
+                                        <circle cx="8.5" cy="8.5" r="1.5" stroke="currentColor" stroke-width="1.5"/>
+                                        <path d="M21 15l-5-5L5 21" stroke="currentColor"
+                                              stroke-width="1.5" stroke-linecap="round"/>
+                                    </svg>
+                                </div>
+                            <?php endif; ?>
+                            </td>
                             <td>
                                 <strong><?= $esc($p['product_name']) ?></strong>
                             </td>
@@ -317,13 +342,6 @@ $filterUrl = function(array $overrides = []): string {
                                 <?= (int) $p['photo_count'] ?>
                             </td>
                             <td>
-                                <?php if ((int)$p['has_front'] > 0): ?>
-                                <span class="badge-yes" title="<?= t('front_view_yes') ?>">&#10003;</span>
-                                <?php else: ?>
-                                <span class="badge-no"  title="<?= t('front_view_no') ?>">&#10007;</span>
-                                <?php endif; ?>
-                            </td>
-                            <td>
                                 <?php if ($p['keywords']): ?>
                                 <div class="keywords-cell">
                                     <?php foreach (explode(', ', $p['keywords']) as $kw): ?>
@@ -335,6 +353,10 @@ $filterUrl = function(array $overrides = []): string {
                                 <?php else: ?>
                                 <span class="text-muted">—</span>
                                 <?php endif; ?>
+                            </td>
+                            <td style="text-align:center;">
+                                <a href="/login/admin/product_view.php?id=<?= (int)$p['id'] ?>"
+                                   class="btn-tbl btn-tbl-view"><?= $esc(t('btn_view_product')) ?></a>
                             </td>
                         </tr>
                     <?php endforeach; ?>

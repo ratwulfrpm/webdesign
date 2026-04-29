@@ -335,7 +335,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('product_view_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=6">
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
 </head>
 <body class="wide-layout">
 

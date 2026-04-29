@@ -34,6 +34,7 @@ session_start();
 require_once __DIR__ . '/includes/lang.php';
 require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/includes/image_validate.php';
 
 // ── Language (no session-based auth, detect from GET/cookie) ─
 $supportedLangs = ['es', 'en', 'zh'];
@@ -163,7 +164,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($formError === '') {
-            // ── Create user + org_member in a transaction ─────
+            // ── Validate contract file ─────────────────────────────
+            $contractResult = validateContractFile(
+                $_FILES['contract_file'] ?? ['error' => UPLOAD_ERR_NO_FILE],
+                CONTRACT_MAX_BYTES
+            );
+            if (!$contractResult['ok']) {
+                $formError = t($contractResult['error']);
+            }
+        }
+
+        if ($formError === '') {
+            // ── Create user + org_member + contract in a transaction ─
+            $finalContractPath = null; // track for cleanup on failure
             try {
                 $pdo->beginTransaction();
 
@@ -179,7 +192,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $username,
                     $email,
                     $passwordHash,
-                    $inv['role'],       // global role = invitation role
+                    $inv['role'],
                     $fullName,
                     $lang,
                 ]);
@@ -202,13 +215,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
                 $updInv->execute([$newUserId, $inv['id']]);
 
-                // TODO: if audit_log table exists, log successful enrollment here.
+                // 4. Save contract file (user_id now known)
+                $contractsBase = __DIR__ . '/uploads/contracts';
+                $supplierDir   = $contractsBase . DIRECTORY_SEPARATOR . $newUserId;
+                $uniqueName    = bin2hex(random_bytes(16)) . '.' . $contractResult['ext'];
+                $finalContractPath = $supplierDir . DIRECTORY_SEPARATOR . $uniqueName;
+                $storagePath   = 'uploads/contracts/' . $newUserId . '/' . $uniqueName;
+
+                if (!is_dir($supplierDir) && !mkdir($supplierDir, 0755, true)) {
+                    throw new RuntimeException('mkdir_failed');
+                }
+                if (!move_uploaded_file($_FILES['contract_file']['tmp_name'], $finalContractPath)) {
+                    throw new RuntimeException('move_failed');
+                }
+
+                $fileHash = hash_file('sha256', $finalContractPath) ?: null;
+
+                // 5. Insert contract record (first contract → is_primary = 1)
+                $pdo->prepare(
+                    'INSERT INTO supplier_contracts
+                        (supplier_id, storage_path, original_filename, mime_type, file_size,
+                         file_hash, signed_date, effective_start_date, effective_end_date,
+                         notes, is_primary, uploaded_by_user_id)
+                     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 1, ?)'
+                )->execute([
+                    $newUserId,
+                    $storagePath,
+                    mb_substr((string) ($_FILES['contract_file']['name'] ?? ''), 0, 255),
+                    $contractResult['mime'],
+                    (int) ($_FILES['contract_file']['size'] ?? 0),
+                    $fileHash,
+                    $newUserId,
+                ]);
+
+                // TODO: if audit_log table exists, log: enrollment + initial contract upload.
 
                 $pdo->commit();
 
-                // ── Redirect to login with success flash ──────
-                // Destroy any existing session (e.g. admin testing while logged in)
-                // so the success flash lands on a clean anonymous session.
+                // ── Redirect to login with success flash ──────────
                 $flashMsg = t('enroll_success');
                 $_SESSION = [];
                 if (ini_get('session.use_cookies')) {
@@ -222,8 +266,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header('Location: /login/index.php');
                 exit;
 
-            } catch (PDOException $e) {
-                $pdo->rollBack();
+            } catch (Throwable $e) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                // Clean up any file that was moved before the DB failure
+                if ($finalContractPath !== null && is_file($finalContractPath)) {
+                    @unlink($finalContractPath);
+                }
                 $formError = t('enroll_err_save');
             }
         }
@@ -248,7 +298,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('enroll_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=6">
+    <link rel="stylesheet" href="/login/css/style.css?v=12">
 </head>
 <body>
 
@@ -309,7 +359,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
         <?php endif; ?>
 
-        <form method="POST" action="/login/enroll.php" novalidate>
+        <form method="POST" action="/login/enroll.php"
+              enctype="multipart/form-data" novalidate>
             <?= csrfField() ?>
             <!-- Carry the plain token through POST so validation still works -->
             <input type="hidden" name="_token"
@@ -416,6 +467,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </svg>
                     </button>
                 </div>
+            </div>
+
+            <!-- Signed contract (required) -->
+            <div class="input-wrap">
+                <label for="contract_file"><?= t('enroll_contract_label') ?></label>
+                <p class="input-help" style="margin-bottom:6px;"><?= t('enroll_contract_help') ?></p>
+                <input type="file"
+                       id="contract_file"
+                       name="contract_file"
+                       accept=".pdf,.jpg,.jpeg,.png"
+                       required>
             </div>
 
             <button type="submit" class="btn-primary"><?= t('btn_enroll') ?></button>
