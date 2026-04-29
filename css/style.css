@@ -1117,6 +1117,61 @@ html {
     margin-bottom: 20px;
 }
 
+/* ── Inline contact edit row / panel ────────────────────────── */
+.ct-edit-row { display: none; }
+.ct-edit-row.ct-edit-open { display: table-row; }
+
+.ct-edit-panel {
+    background: #f0f7ff;
+    border-top: 2px solid var(--color-accent);
+    border-bottom: 1.5px solid var(--color-border);
+    padding: 18px 20px 16px;
+}
+
+.ct-edit-panel .form-row { gap: 12px; }
+
+/* ── Contact email pending badge ────────────────────────────── */
+.badge-pending-email {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    padding: 2px 8px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: #92620a;
+    background: #fff8e1;
+    border: 1px solid #f5d97e;
+    border-radius: 20px;
+    vertical-align: middle;
+    cursor: default;
+}
+
+/* ── Contact email verification panel ───────────────────────── */
+.ct-verify-row { }
+
+.ct-verify-panel {
+    background: #fffbf0;
+    border-top: 1.5px solid #f5d97e;
+    border-bottom: 1.5px solid var(--color-border);
+    padding: 14px 20px;
+}
+
+.ct-verify-panel .evb-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.875rem;
+    color: var(--color-text);
+}
+
+.ct-verify-panel .evb-header em {
+    font-style: normal;
+    font-weight: 600;
+    color: var(--color-accent);
+}
+
 /* ── Add-contact collapsible form ───────────────────────────── */
 .add-contact-panel {
     background: #f9f9fb;

@@ -305,7 +305,126 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $flash     = t('contact_deleted');
         }
 
-    // ─── Action: verify_email ────────────────────────────────
+    // ─── Action: edit_contact ────────────────────────────────
+    } elseif ($action === 'edit_contact') {
+
+        $uid       = (int) $_SESSION['user_id'];
+        $contactId = (int) ($_POST['contact_id'] ?? 0);
+
+        // Verify ownership and fetch current state
+        $ecStmt = $pdo->prepare(
+            'SELECT id, email, email_pending, email_verify_expires
+               FROM supplier_contacts WHERE id = ? AND supplier_id = ? LIMIT 1'
+        );
+        $ecStmt->execute([$contactId, $uid]);
+        $existing = $ecStmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($existing) {
+            $cName    = mb_substr(trim($_POST['ec_name']         ?? ''), 0, 200);
+            $cRole    = mb_substr(trim($_POST['ec_role']         ?? ''), 0, 100);
+            $cEmail   = mb_strtolower(mb_substr(trim($_POST['ec_email'] ?? ''), 0, 254));
+            $cCode    = mb_substr(trim($_POST['ec_phone_code']   ?? ''), 0, 8);
+            $cPhone   = mb_substr(trim($_POST['ec_phone_number'] ?? ''), 0, 30);
+            $cPrimary = isset($_POST['ec_is_primary']) ? 1 : 0;
+
+            if ($cName === '') {
+                $errors['ec_name_' . $contactId] = t('contact_error_name');
+            } elseif ($cEmail !== '' && !filter_var($cEmail, FILTER_VALIDATE_EMAIL)) {
+                $errors['ec_email_' . $contactId] = t('email_invalid');
+            } else {
+                if ($cPrimary) {
+                    $pdo->prepare(
+                        'UPDATE supplier_contacts SET is_primary = 0 WHERE supplier_id = ?'
+                    )->execute([$uid]);
+                }
+
+                $currentEmail = strtolower(trim($existing['email'] ?? ''));
+                $emailChanged = $cEmail !== '' && $cEmail !== $currentEmail;
+
+                if ($emailChanged) {
+                    $pendingEmail  = strtolower(trim($existing['email_pending'] ?? ''));
+                    $pendingExpiry = $existing['email_verify_expires'] ?? null;
+                    $pendingActive = $pendingEmail !== ''
+                                    && $pendingExpiry !== null
+                                    && strtotime($pendingExpiry) > time();
+
+                    if ($pendingActive && $cEmail === $pendingEmail) {
+                        // Same pending email still within window — update other fields, remind
+                        $pdo->prepare(
+                            'UPDATE supplier_contacts
+                                SET name=?, role=?, phone_code=?, phone_number=?, is_primary=?
+                              WHERE id=?'
+                        )->execute([$cName, $cRole ?: null, $cCode ?: null, $cPhone ?: null,
+                                    $cPrimary, $contactId]);
+                        $flash     = t('email_verify_already_pending');
+                        $flashType = 'info';
+                    } else {
+                        // New email or re-attempt after expiry — start verification
+                        $vCode   = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+                        $expires = date('Y-m-d H:i:s', time() + 7200);
+                        $pdo->prepare(
+                            'UPDATE supplier_contacts
+                                SET name=?, role=?, phone_code=?, phone_number=?, is_primary=?,
+                                    email_pending=?, email_verify_code=?, email_verify_expires=?
+                              WHERE id=?'
+                        )->execute([$cName, $cRole ?: null, $cCode ?: null, $cPhone ?: null,
+                                    $cPrimary, $cEmail, $vCode, $expires, $contactId]);
+                        $mailResult = sendVerificationEmail($cEmail, $vCode, $lang);
+                        $_SESSION['ev_contact_smtp_' . $contactId] = $mailResult['sent'];
+                        $flash     = t('contact_verify_sent');
+                        $flashType = 'info';
+                    }
+                } else {
+                    // No email change — update all fields directly
+                    $pdo->prepare(
+                        'UPDATE supplier_contacts
+                            SET name=?, role=?, email=?, phone_code=?, phone_number=?, is_primary=?,
+                                email_pending=NULL, email_verify_code=NULL, email_verify_expires=NULL
+                          WHERE id=?'
+                    )->execute([$cName, $cRole ?: null,
+                                $cEmail !== '' ? $cEmail : ($existing['email'] ?: null),
+                                $cCode ?: null, $cPhone ?: null, $cPrimary, $contactId]);
+                    $flash = t('contact_updated');
+                }
+
+                $contacts = loadContacts($pdo, $uid);
+            }
+        }
+
+    // ─── Action: verify_contact_email ────────────────────────
+    } elseif ($action === 'verify_contact_email') {
+
+        $uid        = (int) $_SESSION['user_id'];
+        $contactId  = (int) ($_POST['contact_id'] ?? 0);
+        $submitCode = mb_substr(trim($_POST['verify_code'] ?? ''), 0, 6);
+
+        $vcStmt = $pdo->prepare(
+            'SELECT id, email_pending, email_verify_code, email_verify_expires
+               FROM supplier_contacts WHERE id = ? AND supplier_id = ? LIMIT 1'
+        );
+        $vcStmt->execute([$contactId, $uid]);
+        $vcr = $vcStmt->fetch();
+
+        if (!$vcr || empty($vcr['email_pending'])) {
+            $errors['cverify_' . $contactId] = t('email_verify_no_pending');
+        } elseif (!$vcr['email_verify_expires'] || strtotime($vcr['email_verify_expires']) <= time()) {
+            $errors['cverify_' . $contactId] = t('email_verify_expired');
+        } elseif (!hash_equals($vcr['email_verify_code'], $submitCode)) {
+            $errors['cverify_' . $contactId] = t('email_verify_wrong_code');
+        } else {
+            $pdo->prepare(
+                'UPDATE supplier_contacts
+                    SET email=?, email_pending=NULL, email_verify_code=NULL, email_verify_expires=NULL
+                  WHERE id=?'
+            )->execute([$vcr['email_pending'], $contactId]);
+            unset($_SESSION['ev_contact_smtp_' . $contactId]);
+            $flash     = t('contact_verify_done');
+            $flashType = 'success';
+        }
+
+        $contacts = loadContacts($pdo, $uid);
+
+
     } elseif ($action === 'verify_email') {
 
         $uid        = (int) $_SESSION['user_id'];
@@ -917,11 +1036,45 @@ $devCode         = ($isLocalDev && $evPending && $smtpFailed) ? $esc($profile['e
                         </tr>
                     </thead>
                     <tbody>
-                    <?php foreach ($contacts as $ct): ?>
-                        <tr>
+                    <?php foreach ($contacts as $ct):
+                        $ctId          = (int) $ct['id'];
+                        $ctHasPending  = !empty($ct['email_pending'])
+                                         && !empty($ct['email_verify_expires'])
+                                         && strtotime($ct['email_verify_expires']) > time();
+                        // Time left for contact pending
+                        $ctTimeLeft = '';
+                        if ($ctHasPending) {
+                            $sl = strtotime($ct['email_verify_expires']) - time();
+                            $ch = (int) floor($sl / 3600);
+                            $cm = (int) floor(($sl % 3600) / 60);
+                            $ctTimeLeft = ($ch > 0 ? $ch . 'h ' : '') . $cm . 'min';
+                        }
+                        // Dev mode: show code when SMTP failed
+                        $ctSmtpFailed = isset($_SESSION['ev_contact_smtp_' . $ctId])
+                                        && !$_SESSION['ev_contact_smtp_' . $ctId];
+                        $ctDevCode    = ($isLocalDev && $ctHasPending && $ctSmtpFailed)
+                                        ? $esc($ct['email_verify_code'] ?? '') : '';
+                        // Edit error keys
+                        $ecNameErr  = $errors['ec_name_'  . $ctId] ?? '';
+                        $ecEmailErr = $errors['ec_email_' . $ctId] ?? '';
+                        $cverifyErr = $errors['cverify_'  . $ctId] ?? '';
+                        // Re-open edit panel if there was a validation error on this contact
+                        $editOpen   = ($ecNameErr !== '' || $ecEmailErr !== '');
+                    ?>
+                        <!-- ── Read row ──────────────────────────────── -->
+                        <tr id="ct-row-<?= $ctId ?>">
                             <td><?= $esc($ct['name']) ?></td>
                             <td><?= $esc($ct['role'] ?? '') ?: '<em class="text-muted">—</em>' ?></td>
-                            <td><?= $esc($ct['email'] ?? '') ?: '<em class="text-muted">—</em>' ?></td>
+                            <td>
+                                <?php if ($ctHasPending): ?>
+                                    <?= $esc($ct['email'] ?? '') ?: '<em class="text-muted">—</em>' ?>
+                                    <span class="badge-pending-email" title="<?= t('contact_email_pending_badge') ?>">
+                                        ⏳ <?= $esc($ct['email_pending']) ?>
+                                    </span>
+                                <?php else: ?>
+                                    <?= $esc($ct['email'] ?? '') ?: '<em class="text-muted">—</em>' ?>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <?php
                                 $ph = trim(($ct['phone_code'] ?? '') . ' ' . ($ct['phone_number'] ?? ''));
@@ -934,18 +1087,168 @@ $devCode         = ($isLocalDev && $evPending && $smtpFailed) ? $esc($profile['e
                                     : '<span class="text-muted">' . t('contact_no') . '</span>' ?>
                             </td>
                             <td class="actions-cell">
+                                <button type="button"
+                                        class="btn-tbl btn-secondary"
+                                        onclick="toggleContactEdit(<?= $ctId ?>)">
+                                    <?= t('btn_edit') ?>
+                                </button>
                                 <form method="POST" action="/login/supplier/profile.php"
                                       onsubmit="return confirm('<?= t('btn_delete') ?>?');"
                                       style="display:inline;">
                                     <?= $csrfField ?>
                                     <input type="hidden" name="action"     value="delete_contact">
-                                    <input type="hidden" name="contact_id" value="<?= (int) $ct['id'] ?>">
+                                    <input type="hidden" name="contact_id" value="<?= $ctId ?>">
                                     <button type="submit" class="btn-tbl btn-danger">
                                         <?= t('btn_delete') ?>
                                     </button>
                                 </form>
                             </td>
                         </tr>
+
+                        <!-- ── Edit panel row ────────────────────────── -->
+                        <tr id="ct-edit-<?= $ctId ?>" class="ct-edit-row<?= $editOpen ? ' ct-edit-open' : '' ?>">
+                            <td colspan="6" style="padding:0;">
+                                <div class="ct-edit-panel">
+                                    <form method="POST" action="/login/supplier/profile.php" novalidate>
+                                        <?= $csrfField ?>
+                                        <input type="hidden" name="action"     value="edit_contact">
+                                        <input type="hidden" name="contact_id" value="<?= $ctId ?>">
+
+                                        <div class="form-row">
+                                            <div class="input-wrap">
+                                                <label><?= t('contact_name_label') ?></label>
+                                                <input type="text" name="ec_name"
+                                                       value="<?= $esc($_POST['ec_name'] ?? $ct['name']) ?>"
+                                                       class="<?= $ecNameErr ? 'is-invalid' : '' ?>"
+                                                       maxlength="200">
+                                                <?php if ($ecNameErr): ?>
+                                                <span class="field-error"><?= $esc($ecNameErr) ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div class="input-wrap">
+                                                <label><?= t('contact_role_label') ?></label>
+                                                <input type="text" name="ec_role"
+                                                       value="<?= $esc($_POST['ec_role'] ?? $ct['role'] ?? '') ?>"
+                                                       maxlength="100">
+                                            </div>
+                                        </div>
+
+                                        <div class="form-row" style="margin-top:12px;">
+                                            <div class="input-wrap">
+                                                <label><?= t('contact_email_label') ?></label>
+                                                <input type="email" name="ec_email"
+                                                       value="<?= $esc($_POST['ec_email'] ?? $ct['email'] ?? '') ?>"
+                                                       class="<?= $ecEmailErr ? 'is-invalid' : '' ?>"
+                                                       placeholder="<?= t('contact_email_placeholder') ?>"
+                                                       maxlength="254">
+                                                <?php if ($ecEmailErr): ?>
+                                                <span class="field-error"><?= $esc($ecEmailErr) ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div>
+                                                <label><?= t('contact_phone_label') ?></label>
+                                                <div class="phone-pair" style="margin-top:6px;">
+                                                    <div class="input-wrap phone-code-wrap">
+                                                        <select name="ec_phone_code"
+                                                                aria-label="<?= t('phone_code_placeholder') ?>">
+                                                            <option value=""><?= t('phone_code_placeholder') ?></option>
+                                                            <?php foreach ($countries as $c): ?>
+                                                            <option value="<?= $esc($c['phone_code']) ?>"
+                                                                <?= (($_POST['ec_phone_code'] ?? $ct['phone_code'] ?? '') === $c['phone_code']) ? 'selected' : '' ?>>
+                                                                <?= $esc($c['phone_code']) ?>
+                                                            </option>
+                                                            <?php endforeach; ?>
+                                                        </select>
+                                                    </div>
+                                                    <div class="input-wrap phone-number-wrap">
+                                                        <input type="tel" name="ec_phone_number"
+                                                               value="<?= $esc($_POST['ec_phone_number'] ?? $ct['phone_number'] ?? '') ?>"
+                                                               placeholder="<?= t('phone_number_placeholder') ?>"
+                                                               maxlength="30">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <label class="checkbox-wrap" style="margin-top:14px;">
+                                            <input type="checkbox" name="ec_is_primary" value="1"
+                                                   <?= (int) ($ct['is_primary'] ?? 0) ? 'checked' : '' ?>>
+                                            <?= t('contact_primary_label') ?>
+                                        </label>
+
+                                        <div style="margin-top:16px; display:flex; gap:10px;">
+                                            <button type="submit" class="btn-primary"
+                                                    style="width:auto;min-width:160px;height:40px;font-size:.875rem;">
+                                                <?= t('btn_save_contact') ?>
+                                            </button>
+                                            <button type="button"
+                                                    class="btn-secondary"
+                                                    style="height:40px;font-size:.875rem;"
+                                                    onclick="toggleContactEdit(<?= $ctId ?>)">
+                                                <?= t('btn_cancel') ?>
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+
+                        <?php if ($ctHasPending): ?>
+                        <!-- ── Contact email verification row ────────── -->
+                        <tr class="ct-verify-row">
+                            <td colspan="6" style="padding:0;">
+                                <div class="ct-verify-panel">
+                                    <div class="evb-header">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                            <rect x="2" y="4" width="20" height="16" rx="3" stroke="currentColor" stroke-width="1.5"/>
+                                            <path d="M2 8l10 7 10-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                                        </svg>
+                                        <strong>
+                                            <?= t('contact_verify_enter_code') ?>
+                                            <em><?= $esc($ct['email_pending']) ?></em>
+                                        </strong>
+                                        <span class="evb-expires" style="margin-left:auto; font-size:.8rem;">
+                                            ⏱ <?= sprintf(t('contact_verify_expires_in'), $ctTimeLeft) ?>
+                                        </span>
+                                    </div>
+
+                                    <?php if ($ctDevCode !== ''): ?>
+                                    <div class="evb-dev-notice" style="margin-top:8px;">
+                                        <strong>🛠 Dev mode</strong> — SMTP falló, código en <code>logs/mail.log</code>:<br>
+                                        <span class="evb-dev-code"><?= $ctDevCode ?></span>
+                                    </div>
+                                    <?php endif; ?>
+
+                                    <?php if ($cverifyErr): ?>
+                                    <p class="field-error" style="margin:6px 0 0;"><?= $esc($cverifyErr) ?></p>
+                                    <?php endif; ?>
+
+                                    <form method="POST" action="/login/supplier/profile.php" novalidate
+                                          class="evb-form" style="margin-top:10px;">
+                                        <?= $csrfField ?>
+                                        <input type="hidden" name="action"     value="verify_contact_email">
+                                        <input type="hidden" name="contact_id" value="<?= $ctId ?>">
+                                        <div class="evb-code-row">
+                                            <div class="evb-code-wrap">
+                                                <input type="text"
+                                                       name="verify_code"
+                                                       inputmode="numeric"
+                                                       pattern="\d{6}"
+                                                       maxlength="6"
+                                                       placeholder="000000"
+                                                       autocomplete="one-time-code"
+                                                       class="evb-code-input ct-verify-input<?= $cverifyErr ? ' is-invalid' : '' ?>">
+                                            </div>
+                                            <button type="submit" class="btn-primary evb-submit-btn">
+                                                <?= t('email_verify_btn') ?>
+                                            </button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        <?php endif; ?>
+
                     <?php endforeach; ?>
                     </tbody>
                 </table>
@@ -1066,27 +1369,58 @@ $devCode         = ($isLocalDev && $evPending && $smtpFailed) ? $esc($profile['e
     <!-- Verification code input: digits only, auto-trim, submit on 6 digits -->
     <script>
     (function () {
+        // ── Profile-level email verification ──────────────────
         const inp = document.getElementById('verify_code');
-        if (!inp) return;
+        if (inp) {
+            inp.addEventListener('input', function () {
+                this.value = this.value.replace(/\D/g, '').slice(0, 6);
+                if (this.value.length === 6) {
+                    const form = this.closest('form');
+                    if (form) form.submit();
+                }
+            });
+            inp.addEventListener('paste', function (e) {
+                e.preventDefault();
+                const pasted = (e.clipboardData || window.clipboardData).getData('text');
+                this.value = pasted.replace(/\D/g, '').slice(0, 6);
+                this.dispatchEvent(new Event('input'));
+            });
+        }
 
-        inp.addEventListener('input', function () {
-            // Strip anything that is not a digit
-            this.value = this.value.replace(/\D/g, '').slice(0, 6);
-            // Auto-submit when exactly 6 digits entered
-            if (this.value.length === 6) {
-                const form = this.closest('form');
-                if (form) form.submit();
-            }
-        });
-
-        // Allow paste: strip non-digits, keep first 6
-        inp.addEventListener('paste', function (e) {
-            e.preventDefault();
-            const pasted = (e.clipboardData || window.clipboardData).getData('text');
-            this.value = pasted.replace(/\D/g, '').slice(0, 6);
-            this.dispatchEvent(new Event('input'));
+        // ── Contact-level verification inputs ─────────────────
+        document.querySelectorAll('.ct-verify-input').forEach(function (ci) {
+            ci.addEventListener('input', function () {
+                this.value = this.value.replace(/\D/g, '').slice(0, 6);
+                if (this.value.length === 6) {
+                    const form = this.closest('form');
+                    if (form) form.submit();
+                }
+            });
+            ci.addEventListener('paste', function (e) {
+                e.preventDefault();
+                const pasted = (e.clipboardData || window.clipboardData).getData('text');
+                this.value = pasted.replace(/\D/g, '').slice(0, 6);
+                this.dispatchEvent(new Event('input'));
+            });
         });
     })();
+
+    // ── Inline contact edit toggle ─────────────────────────────
+    function toggleContactEdit(id) {
+        const row = document.getElementById('ct-edit-' + id);
+        if (!row) return;
+        const open = row.classList.toggle('ct-edit-open');
+        // Focus first input inside if opening
+        if (open) {
+            const first = row.querySelector('input[type="text"], input[type="email"]');
+            if (first) setTimeout(function () { first.focus(); }, 50);
+        }
+    }
+
+    // Auto-open edit panel if PHP set it open (validation error)
+    document.querySelectorAll('.ct-edit-row.ct-edit-open').forEach(function (row) {
+        row.style.display = '';
+    });
     </script>
 
 </body>

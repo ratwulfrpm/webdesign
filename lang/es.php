@@ -200,6 +200,16 @@ return [
     'contact_error_name'        => 'El nombre del contacto es requerido.',
     'contact_added'             => 'Contacto agregado correctamente.',
     'contact_deleted'           => 'Contacto eliminado.',
+    'contact_updated'           => 'Contacto actualizado.',
+    'btn_edit'                  => 'Editar',
+    'btn_cancel'                => 'Cancelar',
+    'btn_save_contact'          => 'Guardar cambios',
+    // contact email verification
+    'contact_verify_sent'       => 'Código de verificación enviado al nuevo correo del contacto.',
+    'contact_verify_done'       => 'Correo del contacto verificado correctamente.',
+    'contact_email_pending_badge' => 'Pendiente de verificación',
+    'contact_verify_enter_code' => 'Ingrese el código enviado a',
+    'contact_verify_expires_in' => 'Expira en: %s',
 
     // ── Botón Regresar ────────────────────────────────────────
     'btn_back'                  => 'Regresar',

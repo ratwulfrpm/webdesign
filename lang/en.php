@@ -200,6 +200,16 @@ return [
     'contact_error_name'        => 'Contact name is required.',
     'contact_added'             => 'Contact added successfully.',
     'contact_deleted'           => 'Contact deleted.',
+    'contact_updated'           => 'Contact updated.',
+    'btn_edit'                  => 'Edit',
+    'btn_cancel'                => 'Cancel',
+    'btn_save_contact'          => 'Save changes',
+    // contact email verification
+    'contact_verify_sent'       => 'Verification code sent to the new contact email.',
+    'contact_verify_done'       => 'Contact email verified successfully.',
+    'contact_email_pending_badge' => 'Pending verification',
+    'contact_verify_enter_code' => 'Enter the code sent to',
+    'contact_verify_expires_in' => 'Expires in: %s',
 
     // ── Back button ───────────────────────────────────────────
     'btn_back'                  => 'Back',
