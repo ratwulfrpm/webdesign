@@ -242,7 +242,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                     email_verify_expires = ?
                               WHERE id = ?'
                         )->execute([$contactEmail, $code, $expires, (int) $_SESSION['user_id']]);
-                        sendVerificationEmail($contactEmail, $code, $lang);
+                        $mailResult = sendVerificationEmail($contactEmail, $code, $lang);
+                        $_SESSION['ev_smtp_sent'] = $mailResult['sent'];
                         header('Location: /login/supplier/profile.php?ev=sent');
                     }
                     exit;
@@ -395,7 +396,10 @@ $evPendingEmail  = $esc($profile['email_pending'] ?? '');
 $contactEmailVal = $esc($profile['email_pending'] ?: $profile['email'] ?? '');
 // Dev mode: show the code in the UI when running on localhost (mail() unlikely to work)
 $isLocalDev      = in_array($_SERVER['SERVER_NAME'] ?? 'localhost', ['localhost', '127.0.0.1', '::1'], true);
-$devCode         = ($isLocalDev && $evPending) ? $esc($profile['email_verify_code'] ?? '') : '';
+// Show dev code only when SMTP actually failed (session flag set at send time).
+// If no flag in session (page reload, etc.) default to NOT showing the code.
+$smtpFailed      = isset($_SESSION['ev_smtp_sent']) && !$_SESSION['ev_smtp_sent'];
+$devCode         = ($isLocalDev && $evPending && $smtpFailed) ? $esc($profile['email_verify_code'] ?? '') : '';
 ?>
 <!DOCTYPE html>
 <html lang="<?= $lang ?>">
@@ -468,7 +472,7 @@ $devCode         = ($isLocalDev && $evPending) ? $esc($profile['email_verify_cod
 
             <?php if ($devCode !== ''): ?>
             <div class="evb-dev-notice">
-                <strong>🛠 Dev mode</strong> — código enviado a log (mail() no disponible en local):<br>
+                <strong>🛠 Dev mode</strong> — SMTP falló, código guardado en <code>logs/mail.log</code>:<br>
                 <span class="evb-dev-code" id="devCodeSpan"><?= $devCode ?></span>
                 <button type="button" onclick="navigator.clipboard.writeText('<?= $devCode ?>')
                     .then(()=>this.textContent='✓')
