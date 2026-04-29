@@ -71,6 +71,17 @@ function sendVerificationEmail(string $toEmail, string $code, string $lang = 'es
         $mail->Username   = MAIL_USER;
         $mail->Password   = str_replace(' ', '', MAIL_PASS);
 
+        // Disable SSL peer verification in local dev (MAMP on Windows lacks cacert)
+        if (!defined('MAIL_VERIFY_SSL') || !MAIL_VERIFY_SSL) {
+            $mail->SMTPOptions = [
+                'ssl' => [
+                    'verify_peer'       => false,
+                    'verify_peer_name'  => false,
+                    'allow_self_signed' => true,
+                ],
+            ];
+        }
+
         $mail->CharSet = PHPMailer::CHARSET_UTF8;
 
         $mail->setFrom(MAIL_USER, MAIL_FROM_NAME);

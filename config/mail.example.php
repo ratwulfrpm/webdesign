@@ -10,3 +10,6 @@ define('MAIL_REPLY_TO',  MAIL_USER);
 define('MAIL_HOST',      'smtp.gmail.com');
 define('MAIL_PORT',      587);
 define('MAIL_ENCRYPT',   'tls');
+
+// Set false only in local dev (MAMP/Windows SSL issue). true in production.
+define('MAIL_VERIFY_SSL', true);
