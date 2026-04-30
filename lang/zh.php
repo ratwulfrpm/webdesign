@@ -638,8 +638,10 @@ return [
     'asgn_section_transport'           => '运输',
     'asgn_section_tax'                 => '税费',
     'asgn_section_validity'            => '链接有效期',
+    'asgn_calc_type_none'              => '无',
     'asgn_calc_type_percentage'        => '百分比',
     'asgn_calc_type_specific'          => '固定金额',
+    'asgn_validity_expires_at'         => '过期:',
     'asgn_profit_percentage_label'     => '利润 %',
     'asgn_profit_percentage_ph'        => '5 到 999',
     'asgn_profit_amount_label'         => '利润金额',
@@ -660,6 +662,8 @@ return [
     'asgn_err_validity_exceeded'       => '有效期不能超过7天。',
     'asgn_err_no_calculation_type'     => '选择百分比或固定金额。',
     'asgn_err_invalid_fee'             => '费用金额无效。',
+    'asgn_err_invalid_transport'       => '运输金额无效。',
+    'asgn_err_invalid_tax'             => '税费金额无效。',
 
     // ── 产品搜索 ──────────────────────────────────────────────
     'asgn_search_title'                => '搜索产品',

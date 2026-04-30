@@ -641,8 +641,10 @@ return [
     'asgn_section_transport'           => 'Transporte',
     'asgn_section_tax'                 => 'Impuesto',
     'asgn_section_validity'            => 'Validez del enlace',
+    'asgn_calc_type_none'              => 'Ninguno',
     'asgn_calc_type_percentage'        => 'Porcentaje',
     'asgn_calc_type_specific'          => 'Monto específico',
+    'asgn_validity_expires_at'         => 'Expira:',
     'asgn_profit_percentage_label'     => 'Ganancia %',
     'asgn_profit_percentage_ph'        => '5 a 999',
     'asgn_profit_amount_label'         => 'Monto de ganancia',
@@ -663,6 +665,8 @@ return [
     'asgn_err_validity_exceeded'       => 'La validez no puede exceder 7 días.',
     'asgn_err_no_calculation_type'     => 'Selecciona porcentaje o monto específico.',
     'asgn_err_invalid_fee'             => 'Monto de cargo inválido.',
+    'asgn_err_invalid_transport'       => 'Valor de transporte inválido.',
+    'asgn_err_invalid_tax'             => 'Valor de impuesto inválido.',
 
     // ── Búsqueda de productos ────────────────────────────────────────
     'asgn_search_title'                => 'Buscar productos',

@@ -108,6 +108,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        // 6b. Transport (optional)
+        $transportType = strtolower(trim($_POST['transport_calculation_type'] ?? ''));
+        $transportPct = null;
+        $transportAmt = null;
+        if ($transportType !== '') {
+            if (!in_array($transportType, ['percentage', 'fixed_amount'], true)) {
+                $errors[] = t('asgn_err_invalid_transport');
+            } elseif ($transportType === 'percentage') {
+                $transportRaw = trim($_POST['transport_percentage'] ?? '');
+                if ($transportRaw !== '' && is_numeric($transportRaw)) {
+                    $transportPct = (float) $transportRaw;
+                    if ($transportPct < 0 || $transportPct > 100) {
+                        $errors[] = t('asgn_err_invalid_transport');
+                    }
+                }
+            } elseif ($transportType === 'fixed_amount') {
+                $transportRaw = trim($_POST['transport_fixed_amount'] ?? '');
+                if ($transportRaw !== '' && is_numeric($transportRaw)) {
+                    $transportAmt = round((float) $transportRaw, 2);
+                    if ($transportAmt < 0) {
+                        $errors[] = t('asgn_err_invalid_transport');
+                    }
+                }
+            }
+        }
+
+        // 6c. Tax (optional)
+        $taxType = strtolower(trim($_POST['tax_calculation_type'] ?? ''));
+        $taxPct = null;
+        $taxAmt = null;
+        if ($taxType !== '') {
+            if (!in_array($taxType, ['percentage', 'fixed_amount'], true)) {
+                $errors[] = t('asgn_err_invalid_tax');
+            } elseif ($taxType === 'percentage') {
+                $taxRaw = trim($_POST['tax_percentage'] ?? '');
+                if ($taxRaw !== '' && is_numeric($taxRaw)) {
+                    $taxPct = (float) $taxRaw;
+                    if ($taxPct < 0 || $taxPct > 100) {
+                        $errors[] = t('asgn_err_invalid_tax');
+                    }
+                }
+            } elseif ($taxType === 'fixed_amount') {
+                $taxRaw = trim($_POST['tax_fixed_amount'] ?? '');
+                if ($taxRaw !== '' && is_numeric($taxRaw)) {
+                    $taxAmt = round((float) $taxRaw, 2);
+                    if ($taxAmt < 0) {
+                        $errors[] = t('asgn_err_invalid_tax');
+                    }
+                }
+            }
+        }
+
+        // 6d. Validity (hours/days, max 7 days)
+        $validityAmount = (int) ($_POST['validity_amount'] ?? 7);
+        $validityUnit = strtolower(trim($_POST['validity_unit'] ?? 'days'));
+        if (!in_array($validityUnit, ['hours', 'days'], true)) {
+            $validityUnit = 'days';
+        }
+        $validityHours = $validityUnit === 'hours' ? $validityAmount : ($validityAmount * 24);
+        if ($validityHours <= 0 || $validityHours > 168) {
+            $errors[] = t('asgn_err_validity_exceeded');
+        }
+
         // 7. Product IDs (must be array of positive ints)
         $rawProductIds = $_POST['product_ids'] ?? [];
         if (!is_array($rawProductIds)) {
@@ -170,7 +233,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $plainToken = bin2hex(random_bytes(32));
         $tokenHash  = hash('sha256', $plainToken);
         $validFrom  = date('Y-m-d H:i:s');
-        $expiresAt  = date('Y-m-d H:i:s', strtotime('+7 days'));
+        $expiresAt  = date('Y-m-d H:i:s', time() + ($validityHours * 3600));
 
         // 10. Insert into DB (transaction)
         try {
@@ -180,8 +243,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'INSERT INTO quote_assignments
                     (org_id, assigned_customer_name, company_name,
                      special_conditions, discount_percentage,
+                     profit_calculation_type, transport_calculation_type, transport_percentage, transport_fixed_amount,
+                     tax_calculation_type, tax_percentage, tax_fixed_amount,
+                     validity_amount, validity_unit,
                      token_hash, status, valid_from, expires_at, created_by_user_id)
-                 VALUES (?, ?, ?, ?, ?, ?, "active", ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "active", ?, ?, ?)'
             );
             $insQuote->execute([
                 $orgId,
@@ -189,6 +255,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $companyName !== '' ? $companyName : null,
                 $specialConditions !== '' ? $specialConditions : null,
                 $discountPct,
+                'percentage',
+                $transportType !== '' ? $transportType : null,
+                $transportPct,
+                $transportAmt,
+                $taxType !== '' ? $taxType : null,
+                $taxPct,
+                $taxAmt,
+                $validityAmount,
+                $validityUnit,
                 $tokenHash,
                 $validFrom,
                 $expiresAt,
@@ -199,8 +274,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $insItem = $pdo->prepare(
                 'INSERT INTO quote_assignment_items
                     (quote_assignment_id, product_id, price_base_type,
-                     price_base_amount, profit_percentage, final_unit_price)
-                 VALUES (?, ?, ?, ?, ?, ?)'
+                     price_base_amount, profit_percentage, profit_calculation_type, final_unit_price)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)'
             );
 
             $itemSummary = [];
@@ -210,7 +285,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $finalPrice = round($baseAmount * (1 + $profitPct / 100), 2);
                 $insItem->execute([
                     $quoteId, $pid, $baseType,
-                    $baseAmount, $profitPct, $finalPrice,
+                    $baseAmount, $profitPct, 'percentage', $finalPrice,
                 ]);
                 $itemSummary[] = ['name' => $p['product_name'], 'price' => $finalPrice];
             }
@@ -223,6 +298,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'product_count'    => count($productIds),
                 'base_type'        => $baseType,
                 'profit_pct'       => $profitPct,
+                'transport_type'   => $transportType,
+                'tax_type'         => $taxType,
+                'validity_hours'   => $validityHours,
                 'discount_pct'     => $discountPct,
                 'expires_at'       => $expiresAt,
             ]);
@@ -783,6 +861,14 @@ $statusClass = [
                 <input type="hidden" name="action" value="create_assignment">
                 <input type="hidden" name="price_base_type" id="price_base_type" value="">
                 <input type="hidden" name="profit_percentage" id="profit_percentage" value="">
+                <input type="hidden" name="transport_calculation_type" id="transport_calculation_type" value="">
+                <input type="hidden" name="transport_percentage" id="transport_percentage" value="">
+                <input type="hidden" name="transport_fixed_amount" id="transport_fixed_amount" value="">
+                <input type="hidden" name="tax_calculation_type" id="tax_calculation_type" value="">
+                <input type="hidden" name="tax_percentage" id="tax_percentage" value="">
+                <input type="hidden" name="tax_fixed_amount" id="tax_fixed_amount" value="">
+                <input type="hidden" name="validity_amount" id="validity_amount" value="7">
+                <input type="hidden" name="validity_unit" id="validity_unit" value="days">
                 <!-- product_ids[] populated by JS before submit -->
 
                 <div class="asgn-layout">
@@ -906,6 +992,89 @@ $statusClass = [
                             </div>
                         </div>
 
+                        <!-- TRANSPORT SECTION -->
+                        <div class="form-group">
+                            <label class="form-label"><?= $esc(t('asgn_section_transport')) ?></label>
+                            <div style="display:flex;gap:8px;margin-top:6px;">
+                                <button type="button" class="profit-btn" id="btn-transport-none" 
+                                        onclick="selectTransport('none')">
+                                    <?= $esc(t('asgn_calc_type_none')) ?>
+                                </button>
+                                <button type="button" class="profit-btn" id="btn-transport-pct"
+                                        onclick="selectTransport('percentage')">
+                                    <?= $esc(t('asgn_calc_type_percentage')) ?>
+                                </button>
+                                <button type="button" class="profit-btn" id="btn-transport-amt"
+                                        onclick="selectTransport('fixed_amount')">
+                                    <?= $esc(t('asgn_calc_type_specific')) ?>
+                                </button>
+                            </div>
+                            <div class="free-profit-row" id="transportPctRow" style="display:none;margin-top:8px;">
+                                <input type="number" class="free-profit-input" id="transportPctInput"
+                                       min="0" max="100" step="0.01" placeholder="0"
+                                       oninput="onTransportChange('percentage')">
+                                <span style="font-size:0.85rem;color:#555;">%</span>
+                            </div>
+                            <div class="free-profit-row" id="transportAmtRow" style="display:none;margin-top:8px;">
+                                <span style="font-size:0.85rem;color:#555;">$</span>
+                                <input type="number" class="free-profit-input" id="transportAmtInput"
+                                       min="0" max="999999" step="0.01" placeholder="0.00"
+                                       oninput="onTransportChange('fixed_amount')"
+                                       style="flex:1;margin:0 6px;">
+                            </div>
+                        </div>
+
+                        <!-- TAX SECTION -->
+                        <div class="form-group">
+                            <label class="form-label"><?= $esc(t('asgn_section_tax')) ?></label>
+                            <div style="display:flex;gap:8px;margin-top:6px;">
+                                <button type="button" class="profit-btn" id="btn-tax-none"
+                                        onclick="selectTax('none')">
+                                    <?= $esc(t('asgn_calc_type_none')) ?>
+                                </button>
+                                <button type="button" class="profit-btn" id="btn-tax-pct"
+                                        onclick="selectTax('percentage')">
+                                    <?= $esc(t('asgn_calc_type_percentage')) ?>
+                                </button>
+                                <button type="button" class="profit-btn" id="btn-tax-amt"
+                                        onclick="selectTax('fixed_amount')">
+                                    <?= $esc(t('asgn_calc_type_specific')) ?>
+                                </button>
+                            </div>
+                            <div class="free-profit-row" id="taxPctRow" style="display:none;margin-top:8px;">
+                                <input type="number" class="free-profit-input" id="taxPctInput"
+                                       min="0" max="100" step="0.01" placeholder="0"
+                                       oninput="onTaxChange('percentage')">
+                                <span style="font-size:0.85rem;color:#555;">%</span>
+                            </div>
+                            <div class="free-profit-row" id="taxAmtRow" style="display:none;margin-top:8px;">
+                                <span style="font-size:0.85rem;color:#555;">$</span>
+                                <input type="number" class="free-profit-input" id="taxAmtInput"
+                                       min="0" max="999999" step="0.01" placeholder="0.00"
+                                       oninput="onTaxChange('fixed_amount')"
+                                       style="flex:1;margin:0 6px;">
+                            </div>
+                        </div>
+
+                        <!-- VALIDITY SECTION -->
+                        <div class="form-group">
+                            <label class="form-label"><?= $esc(t('asgn_section_validity')) ?></label>
+                            <div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px;">
+                                <input type="number" id="validityAmount" name="validity_amount"
+                                       class="form-input" min="1" max="168" value="7" step="1"
+                                       style="width:70px;padding:6px 8px;"
+                                       oninput="onValidityChange()">
+                                <select id="validityUnit" name="validity_unit"
+                                        class="form-input" style="flex:1;padding:6px 8px;"
+                                        onchange="onValidityChange()">
+                                    <option value="hours"><?= $esc(t('asgn_validity_unit_hours')) ?></option>
+                                    <option value="days" selected><?= $esc(t('asgn_validity_unit_days')) ?></option>
+                                </select>
+                            </div>
+                            <span class="form-help"><?= $esc(t('asgn_validity_help')) ?></span>
+                            <div id="validityPreview" style="margin-top:6px;font-size:0.85rem;color:#666;"></div>
+                        </div>
+
                         <!-- Customer name -->
                         <div class="form-group">
                             <label class="form-label" for="customer_name">
@@ -950,10 +1119,7 @@ $statusClass = [
                         </div>
 
                         <!-- Validity -->
-                        <div class="form-group">
-                            <label class="form-label"><?= $esc(t('asgn_expires_label')) ?></label>
-                            <p class="form-help"><?= $esc(t('asgn_expires_default')) ?></p>
-                        </div>
+                        <!-- Now handled above with dynamic selector -->
 
                         <div class="form-actions">
                             <button type="submit" class="btn-primary" id="submitBtn">
@@ -1524,6 +1690,122 @@ $statusClass = [
             document.getElementById('profit_percentage').value = '';
         }
         updateSelectedPanel();
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  TRANSPORT CONFIG
+    // ═══════════════════════════════════════════════════════════
+    function selectTransport(type) {
+        document.getElementById('transport_calculation_type').value = type !== 'none' ? type : '';
+        document.getElementById('transport_percentage').value = '';
+        document.getElementById('transport_fixed_amount').value = '';
+        
+        // Hide both rows
+        document.getElementById('transportPctRow').style.display = 'none';
+        document.getElementById('transportAmtRow').style.display = 'none';
+        
+        // Update button states
+        document.getElementById('btn-transport-none').classList.toggle('selected', type === 'none');
+        document.getElementById('btn-transport-pct').classList.toggle('selected', type === 'percentage');
+        document.getElementById('btn-transport-amt').classList.toggle('selected', type === 'fixed_amount');
+        
+        // Show appropriate input
+        if (type === 'percentage') {
+            document.getElementById('transportPctRow').style.display = 'flex';
+            document.getElementById('transportPctInput').focus();
+        } else if (type === 'fixed_amount') {
+            document.getElementById('transportAmtRow').style.display = 'flex';
+            document.getElementById('transportAmtInput').focus();
+        }
+    }
+
+    function onTransportChange(type) {
+        if (type === 'percentage') {
+            var val = parseFloat(document.getElementById('transportPctInput').value) || 0;
+            if (val >= 0 && val <= 100) {
+                document.getElementById('transport_percentage').value = val;
+                document.getElementById('transport_fixed_amount').value = '';
+            }
+        } else if (type === 'fixed_amount') {
+            var val = parseFloat(document.getElementById('transportAmtInput').value) || 0;
+            if (val >= 0) {
+                document.getElementById('transport_fixed_amount').value = val.toFixed(2);
+                document.getElementById('transport_percentage').value = '';
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  TAX CONFIG
+    // ═══════════════════════════════════════════════════════════
+    function selectTax(type) {
+        document.getElementById('tax_calculation_type').value = type !== 'none' ? type : '';
+        document.getElementById('tax_percentage').value = '';
+        document.getElementById('tax_fixed_amount').value = '';
+        
+        // Hide both rows
+        document.getElementById('taxPctRow').style.display = 'none';
+        document.getElementById('taxAmtRow').style.display = 'none';
+        
+        // Update button states
+        document.getElementById('btn-tax-none').classList.toggle('selected', type === 'none');
+        document.getElementById('btn-tax-pct').classList.toggle('selected', type === 'percentage');
+        document.getElementById('btn-tax-amt').classList.toggle('selected', type === 'fixed_amount');
+        
+        // Show appropriate input
+        if (type === 'percentage') {
+            document.getElementById('taxPctRow').style.display = 'flex';
+            document.getElementById('taxPctInput').focus();
+        } else if (type === 'fixed_amount') {
+            document.getElementById('taxAmtRow').style.display = 'flex';
+            document.getElementById('taxAmtInput').focus();
+        }
+    }
+
+    function onTaxChange(type) {
+        if (type === 'percentage') {
+            var val = parseFloat(document.getElementById('taxPctInput').value) || 0;
+            if (val >= 0 && val <= 100) {
+                document.getElementById('tax_percentage').value = val;
+                document.getElementById('tax_fixed_amount').value = '';
+            }
+        } else if (type === 'fixed_amount') {
+            var val = parseFloat(document.getElementById('taxAmtInput').value) || 0;
+            if (val >= 0) {
+                document.getElementById('tax_fixed_amount').value = val.toFixed(2);
+                document.getElementById('tax_percentage').value = '';
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    //  VALIDITY CONFIG
+    // ═══════════════════════════════════════════════════════════
+    function onValidityChange() {
+        var amount = parseInt(document.getElementById('validityAmount').value) || 7;
+        var unit = document.getElementById('validityUnit').value;
+        var maxAmount = unit === 'hours' ? 168 : 7;
+        
+        // Constrain value
+        if (amount < 1) amount = 1;
+        if (amount > maxAmount) amount = maxAmount;
+        
+        document.getElementById('validityAmount').value = amount;
+        document.getElementById('validity_amount').value = amount;
+        document.getElementById('validity_unit').value = unit;
+        
+        // Update preview
+        var now = new Date();
+        var expiry;
+        if (unit === 'hours') {
+            expiry = new Date(now.getTime() + amount * 3600000);
+        } else {
+            expiry = new Date(now.getTime() + amount * 86400000);
+        }
+        var preview = <?= json_encode(t('asgn_validity_expires_at')) ?> + ' ' 
+                    + expiry.toLocaleString('<?= $lang ?>');
+        var prevEl = document.getElementById('validityPreview');
+        if (prevEl) prevEl.textContent = preview;
     }
 
     // ═══════════════════════════════════════════════════════════

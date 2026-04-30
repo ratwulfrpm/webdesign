@@ -688,8 +688,10 @@ return [
     'asgn_section_transport'           => 'Transport',
     'asgn_section_tax'                 => 'Tax',
     'asgn_section_validity'            => 'Link validity',
+    'asgn_calc_type_none'              => 'None',
     'asgn_calc_type_percentage'        => 'Percentage',
     'asgn_calc_type_specific'          => 'Specific Amount',
+    'asgn_validity_expires_at'         => 'Expires:',
     'asgn_profit_percentage_label'     => 'Profit %',
     'asgn_profit_percentage_ph'        => '5 to 999',
     'asgn_profit_amount_label'         => 'Profit amount',
@@ -710,6 +712,8 @@ return [
     'asgn_err_validity_exceeded'       => 'Validity cannot exceed 7 days.',
     'asgn_err_no_calculation_type'     => 'Select percentage or specific amount.',
     'asgn_err_invalid_fee'             => 'Invalid fee value.',
+    'asgn_err_invalid_transport'       => 'Invalid transport value.',
+    'asgn_err_invalid_tax'             => 'Invalid tax value.',
 
     // ── Public quote view (quote.php — no auth) ──────────────────────
     'quote_page_title'                 => 'Product Quotation',
