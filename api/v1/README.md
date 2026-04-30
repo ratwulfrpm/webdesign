@@ -191,7 +191,17 @@ is_primary            1 | 0
   "company_name": "optional",
   "special_conditions": "optional",
   "price_base_type": "fob | cif",
+  "profit_calculation_type": "percentage | fixed_amount",
   "profit_percentage": 30.0,
+  "profit_fixed_amount": null,
+  "transport_calculation_type": "percentage | fixed_amount | null",
+  "transport_percentage": 5.0,
+  "transport_fixed_amount": null,
+  "tax_calculation_type": "percentage | fixed_amount | null",
+  "tax_percentage": 16.0,
+  "tax_fixed_amount": null,
+  "validity_amount": 7,
+  "validity_unit": "days | hours",
   "discount_percentage": 5.0,
   "product_ids": [1, 4, 7]
 }
@@ -219,14 +229,16 @@ is_primary            1 | 0
 {
   "totals": {
     "subtotal": 300.00,
+    "transport": 15.00,
+    "tax": 50.40,
     "discount_percent": 5.0,
-    "discount_amount": 15.00,
-    "grand_total": 285.00
+    "discount_amount": 18.27,
+    "grand_total": 347.13
   }
 }
 ```
 
-> Quotes expire **7 days** after creation.  
+> Quotes expiration is configurable per assignment (minimum 1 hour, maximum 7 days).  
 > Status lifecycle: `active` → `expired` (auto) | `revoked` (manual) | `deleted` (soft).
 
 ---
@@ -259,9 +271,11 @@ Rate limit: **20 requests / 10 min per IP**.
     ],
     "totals": {
       "subtotal": 300.00,
+      "transport": 15.00,
+      "tax": 50.40,
       "discount_percent": 5.0,
-      "discount_amount": 15.00,
-      "grand_total": 285.00
+      "discount_amount": 18.27,
+      "grand_total": 347.13
     }
   }
 }

@@ -200,24 +200,96 @@ function _createAssignment(array $auth, PDO $pdo): void
 {
     $body = parseBody();
 
+    // Customer & company info
     $customerName = strField($body['assigned_customer_name'] ?? '', 200);
     $companyName  = strField($body['company_name']           ?? '', 200);
     $conditions   = strField($body['special_conditions']     ?? '', 5000);
     $baseType     = strField($body['price_base_type']        ?? '', 3);
-    $profitPct    = isset($body['profit_percentage']) ? (float) $body['profit_percentage'] : null;
+    
+    // ── Discount (existing) ──
     $discountPct  = isset($body['discount_percentage']) && $body['discount_percentage'] !== ''
                     ? (float) $body['discount_percentage'] : null;
+    
+    // ── PROFIT: percentage or fixed amount ──
+    $profitCalcType = strtolower(strField($body['profit_calculation_type'] ?? '', 20));
+    if ($profitCalcType === '' || !in_array($profitCalcType, ['percentage', 'fixed_amount'], true)) {
+        $profitCalcType = 'percentage'; // Default to percentage for backward compat
+    }
+    $profitPct    = null;
+    $profitAmount = null;
+    if ($profitCalcType === 'percentage') {
+        $profitPct = isset($body['profit_percentage']) ? (float) $body['profit_percentage'] : null;
+        if ($profitPct === null || $profitPct < 0 || $profitPct > 999) {
+            jsonError('profit_percentage must be a number between 0 and 999');
+        }
+    } else {
+        $profitAmount = isset($body['profit_fixed_amount']) ? (float) $body['profit_fixed_amount'] : null;
+        if ($profitAmount === null || $profitAmount < 0) {
+            jsonError('profit_fixed_amount must be a non-negative number');
+        }
+    }
+    
+    // ── TRANSPORT: optional, percentage or fixed amount ──
+    $transportCalcType = strtolower(strField($body['transport_calculation_type'] ?? '', 20));
+    $transportPct    = null;
+    $transportAmount = null;
+    if ($transportCalcType !== '' && in_array($transportCalcType, ['percentage', 'fixed_amount'], true)) {
+        if ($transportCalcType === 'percentage') {
+            $transportPct = isset($body['transport_percentage']) ? (float) $body['transport_percentage'] : 0.0;
+            if ($transportPct < 0 || $transportPct > 100) {
+                jsonError('transport_percentage must be between 0 and 100');
+            }
+        } else {
+            $transportAmount = isset($body['transport_fixed_amount']) ? (float) $body['transport_fixed_amount'] : 0.0;
+            if ($transportAmount < 0) {
+                jsonError('transport_fixed_amount must be non-negative');
+            }
+        }
+    } else {
+        $transportCalcType = null;
+    }
+    
+    // ── TAX: optional, percentage or fixed amount ──
+    $taxCalcType = strtolower(strField($body['tax_calculation_type'] ?? '', 20));
+    $taxPct    = null;
+    $taxAmount = null;
+    if ($taxCalcType !== '' && in_array($taxCalcType, ['percentage', 'fixed_amount'], true)) {
+        if ($taxCalcType === 'percentage') {
+            $taxPct = isset($body['tax_percentage']) ? (float) $body['tax_percentage'] : 0.0;
+            if ($taxPct < 0 || $taxPct > 100) {
+                jsonError('tax_percentage must be between 0 and 100');
+            }
+        } else {
+            $taxAmount = isset($body['tax_fixed_amount']) ? (float) $body['tax_fixed_amount'] : 0.0;
+            if ($taxAmount < 0) {
+                jsonError('tax_fixed_amount must be non-negative');
+            }
+        }
+    } else {
+        $taxCalcType = null;
+    }
+    
+    // ── VALIDITY: duration in hours or days, max 7 days ──
+    $validityAmount = (int) ($body['validity_amount'] ?? 7);
+    $validityUnit   = strtolower(strField($body['validity_unit'] ?? '', 10));
+    if (!in_array($validityUnit, ['hours', 'days'], true)) {
+        $validityUnit = 'days';
+    }
+    // Validate max 7 days
+    $maxHours = 7 * 24; // 168 hours
+    $validityHours = $validityUnit === 'hours' ? $validityAmount : $validityAmount * 24;
+    if ($validityHours <= 0 || $validityHours > $maxHours) {
+        jsonError('Validity cannot exceed 7 days (168 hours)');
+    }
+    
     $productIds   = array_map('intval', (array) ($body['product_ids'] ?? []));
 
-    // Validation
+    // ── VALIDATION ──
     if ($customerName === '') {
         jsonError('assigned_customer_name is required');
     }
     if (!in_array($baseType, ['fob', 'cif'], true)) {
         jsonError('price_base_type must be "fob" or "cif"');
-    }
-    if ($profitPct === null || $profitPct < 0 || $profitPct > 999) {
-        jsonError('profit_percentage must be a number between 0 and 999');
     }
     if ($discountPct !== null && ($discountPct < 0 || $discountPct > 100)) {
         jsonError('discount_percentage must be between 0 and 100');
@@ -227,7 +299,7 @@ function _createAssignment(array $auth, PDO $pdo): void
         jsonError('product_ids array is required and must contain at least one valid product ID');
     }
 
-    // Load and validate products (one query, no N+1)
+    // Load and validate products
     $placeholders = implode(',', array_fill(0, count($productIds), '?'));
     $pSt = $pdo->prepare(
         "SELECT id, product_name, price_fob, price_cif, active
@@ -240,7 +312,6 @@ function _createAssignment(array $auth, PDO $pdo): void
         $productMap[(int) $p['id']] = $p;
     }
 
-    // Validate all requested products exist and have required price
     foreach ($productIds as $pid) {
         if (!isset($productMap[$pid])) {
             jsonError("Product ID {$pid} not found");
@@ -257,20 +328,29 @@ function _createAssignment(array $auth, PDO $pdo): void
         }
     }
 
-    // Generate token
+    // Generate token and calculate expires_at
     $plainToken = bin2hex(random_bytes(32));
     $tokenHash  = hash('sha256', $plainToken);
-    $expiresAt  = date('Y-m-d H:i:s', strtotime('+7 days'));
+    if ($validityUnit === 'hours') {
+        $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validityAmount} hours"));
+    } else {
+        $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validityAmount} days"));
+    }
 
     try {
         $pdo->beginTransaction();
 
-        // Insert master quote record
+        // Insert master quote record with new fee and validity fields
         $qIns = $pdo->prepare(
             'INSERT INTO quote_assignments
              (org_id, assigned_customer_name, company_name, special_conditions,
-              discount_percentage, token_hash, expires_at, created_by_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+              discount_percentage,
+              profit_calculation_type, profit_percentage, profit_fixed_amount,
+              transport_calculation_type, transport_percentage, transport_fixed_amount,
+              tax_calculation_type, tax_percentage, tax_fixed_amount,
+              validity_amount, validity_unit,
+              token_hash, expires_at, created_by_user_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $qIns->execute([
             $auth['org_id'],
@@ -278,6 +358,17 @@ function _createAssignment(array $auth, PDO $pdo): void
             $companyName !== '' ? $companyName : null,
             $conditions  !== '' ? $conditions  : null,
             $discountPct,
+            $profitCalcType,
+            $profitPct,
+            $profitAmount,
+            $transportCalcType,
+            $transportPct,
+            $transportAmount,
+            $taxCalcType,
+            $taxPct,
+            $taxAmount,
+            $validityAmount,
+            $validityUnit,
             $tokenHash,
             $expiresAt,
             $auth['user_id'],
@@ -288,14 +379,25 @@ function _createAssignment(array $auth, PDO $pdo): void
         $iIns = $pdo->prepare(
             'INSERT INTO quote_assignment_items
              (quote_assignment_id, product_id, price_base_type,
-              price_base_amount, profit_percentage, final_unit_price)
-             VALUES (?, ?, ?, ?, ?, ?)'
+              price_base_amount, profit_percentage, profit_calculation_type, profit_fixed_amount, final_unit_price)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         foreach ($productIds as $pid) {
             $p         = $productMap[$pid];
             $baseAmt   = (float) ($baseType === 'fob' ? $p['price_fob'] : $p['price_cif']);
-            $finalPrice = round($baseAmt * (1 + $profitPct / 100), 2);
-            $iIns->execute([$quoteId, $pid, $baseType, $baseAmt, $profitPct, $finalPrice]);
+            
+            // Calculate final price based on profit type
+            $finalPrice = $baseAmt;
+            if ($profitCalcType === 'percentage') {
+                $finalPrice += $baseAmt * ($profitPct / 100);
+            } else {
+                $finalPrice += $profitAmount;
+            }
+            $finalPrice = round($finalPrice, 2);
+            
+            $iIns->execute([
+                $quoteId, $pid, $baseType, $baseAmt, $profitPct, $profitCalcType, $profitAmount, $finalPrice
+            ]);
         }
 
         $pdo->commit();
@@ -370,7 +472,7 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
     // Load parent items
     $iSt = $pdo->prepare(
         'SELECT product_id, price_base_type, price_base_amount,
-                profit_percentage, final_unit_price
+                profit_percentage, profit_calculation_type, profit_fixed_amount, final_unit_price
            FROM quote_assignment_items
           WHERE quote_assignment_id = ?'
     );
@@ -388,9 +490,16 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
         $customerName = $parent['assigned_customer_name'];
     }
 
+    // Generate token and calculate expires_at based on parent's validity settings
     $plainToken = bin2hex(random_bytes(32));
     $tokenHash  = hash('sha256', $plainToken);
-    $expiresAt  = date('Y-m-d H:i:s', strtotime('+7 days'));
+    $validityAmount = (int) ($parent['validity_amount'] ?? 7);
+    $validityUnit   = $parent['validity_unit'] ?? 'days';
+    if ($validityUnit === 'hours') {
+        $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validityAmount} hours"));
+    } else {
+        $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validityAmount} days"));
+    }
 
     try {
         $pdo->beginTransaction();
@@ -398,8 +507,13 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
         $qIns = $pdo->prepare(
             'INSERT INTO quote_assignments
              (org_id, assigned_customer_name, company_name, special_conditions,
-              discount_percentage, token_hash, expires_at, created_by_user_id, parent_quote_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+              discount_percentage,
+              profit_calculation_type, profit_percentage, profit_fixed_amount,
+              transport_calculation_type, transport_percentage, transport_fixed_amount,
+              tax_calculation_type, tax_percentage, tax_fixed_amount,
+              validity_amount, validity_unit,
+              token_hash, expires_at, created_by_user_id, parent_quote_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $qIns->execute([
             $parent['org_id'],
@@ -407,6 +521,17 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
             $parent['company_name'],
             $parent['special_conditions'],
             $parent['discount_percentage'],
+            $parent['profit_calculation_type'],
+            $parent['profit_percentage'],
+            $parent['profit_fixed_amount'],
+            $parent['transport_calculation_type'],
+            $parent['transport_percentage'],
+            $parent['transport_fixed_amount'],
+            $parent['tax_calculation_type'],
+            $parent['tax_percentage'],
+            $parent['tax_fixed_amount'],
+            $parent['validity_amount'],
+            $parent['validity_unit'],
             $tokenHash,
             $expiresAt,
             $auth['user_id'],
@@ -417,8 +542,8 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
         $iIns = $pdo->prepare(
             'INSERT INTO quote_assignment_items
              (quote_assignment_id, product_id, price_base_type,
-              price_base_amount, profit_percentage, final_unit_price)
-             VALUES (?, ?, ?, ?, ?, ?)'
+              price_base_amount, profit_percentage, profit_calculation_type, profit_fixed_amount, final_unit_price)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         foreach ($items as $item) {
             $iIns->execute([
@@ -427,6 +552,8 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
                 $item['price_base_type'],
                 $item['price_base_amount'],
                 $item['profit_percentage'],
+                $item['profit_calculation_type'],
+                $item['profit_fixed_amount'],
                 $item['final_unit_price'],
             ]);
         }
@@ -446,3 +573,4 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
         'expires_at'      => $expiresAt,
     ], 201);
 }
+

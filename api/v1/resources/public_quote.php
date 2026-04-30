@@ -120,7 +120,24 @@ function _getPublicQuote(PDO $pdo): void
         $subtotal    = array_sum(array_column($lineItems, 'final_unit_price'));
         $discountPct = $qa['discount_percentage'] !== null ? (float) $qa['discount_percentage'] : 0.0;
         $discountAmt = round($subtotal * $discountPct / 100, 2);
-        $grandTotal  = round($subtotal - $discountAmt, 2);
+        
+        // ── TRANSPORT ──
+        $transportAmt = 0.0;
+        if ($qa['transport_calculation_type'] === 'percentage') {
+            $transportAmt = round($subtotal * ($qa['transport_percentage'] ?? 0) / 100, 2);
+        } elseif ($qa['transport_calculation_type'] === 'fixed_amount') {
+            $transportAmt = round((float) ($qa['transport_fixed_amount'] ?? 0), 2);
+        }
+        
+        // ── TAX (applied after transport) ──
+        $taxAmt = 0.0;
+        if ($qa['tax_calculation_type'] === 'percentage') {
+            $taxAmt = round(($subtotal + $transportAmt) * ($qa['tax_percentage'] ?? 0) / 100, 2);
+        } elseif ($qa['tax_calculation_type'] === 'fixed_amount') {
+            $taxAmt = round((float) ($qa['tax_fixed_amount'] ?? 0), 2);
+        }
+        
+        $grandTotal  = round($subtotal + $transportAmt + $taxAmt - $discountAmt, 2);
 
         // Track view
         $pdo->prepare(
@@ -148,6 +165,8 @@ function _getPublicQuote(PDO $pdo): void
                 'items'            => $items,
                 'totals' => [
                     'subtotal'         => round($subtotal, 2),
+                    'transport'        => $transportAmt,
+                    'tax'              => $taxAmt,
                     'discount_percent' => $discountPct,
                     'discount_amount'  => $discountAmt,
                     'grand_total'      => $grandTotal,
