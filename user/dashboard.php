@@ -48,9 +48,9 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('user_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=12">
+    <link rel="stylesheet" href="/login/css/style.css?v=13">
 </head>
-<body class="wide-layout">
+<body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
 
     <!-- Top nav -->
     <div class="top-bar">
@@ -138,3 +138,4 @@ $lang     = currentLang();
 
 </body>
 </html>
+

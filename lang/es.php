@@ -809,3 +809,4 @@ return [
     'bu_error_assign_self'         => 'No puede modificar su propia membresía desde este formulario.',
     'bu_error_user_not_found'      => 'Usuario no encontrado o inactivo.',
 ];
+

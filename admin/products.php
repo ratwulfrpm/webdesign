@@ -183,9 +183,9 @@ $filterUrl = function(array $overrides = []): string {
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('all_products_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=12">
+    <link rel="stylesheet" href="/login/css/style.css?v=13">
 </head>
-<body class="wide-layout">
+<body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
 
     <div class="top-bar">
         <div class="top-bar-brand">
@@ -439,3 +439,4 @@ $filterUrl = function(array $overrides = []): string {
 
 </body>
 </html>
+

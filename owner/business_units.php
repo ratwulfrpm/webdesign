@@ -237,7 +237,7 @@ $esc       = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('bu_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=12">
+    <link rel="stylesheet" href="/login/css/style.css?v=13">
     <style>
         .bu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px,1fr)); gap: 20px; margin-top: 20px; }
         .bu-card { background: var(--card-bg, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 20px; }
@@ -260,7 +260,7 @@ $esc       = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 
         .org-badge-pill { background:#ede9fe; color:#5b21b6; padding:2px 8px; border-radius:12px; font-size:0.75rem; font-weight:600; margin-left:6px; }
     </style>
 </head>
-<body class="wide-layout">
+<body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
 
     <!-- Top nav -->
     <div class="top-bar">
@@ -479,3 +479,4 @@ $esc       = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 
 
 </body>
 </html>
+

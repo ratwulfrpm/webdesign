@@ -806,3 +806,4 @@ return [
     'bu_error_assign_self'         => 'You cannot modify your own membership via this form.',
     'bu_error_user_not_found'      => 'User not found or inactive.',
 ];
+

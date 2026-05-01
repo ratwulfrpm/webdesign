@@ -804,3 +804,4 @@ return [
     'bu_error_assign_self'         => '您无法通过此表单修改自己的成员资格。',
     'bu_error_user_not_found'      => '用户不存在或已被禁用。',
 ];
+

@@ -215,3 +215,4 @@ function renderTabs(string $activePage): string
 
     return $html;
 }
+

@@ -24,3 +24,4 @@ if ($_SESSION['role'] === 'admin') {
     header('Location: /login/supplier/summary.php');
 }
 exit;
+

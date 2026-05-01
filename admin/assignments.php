@@ -708,7 +708,7 @@ $statusClass = [
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= $esc(t('asgn_page_title')) ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=12">
+    <link rel="stylesheet" href="/login/css/style.css?v=13">
     <style>
         /* ── Layout ── */
         .asgn-layout { display:flex; gap:24px; align-items:flex-start; }
@@ -1061,7 +1061,7 @@ $statusClass = [
         }
     </style>
 </head>
-<body class="wide-layout">
+<body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
 
     <!-- ── Top bar ───────────────────────────────────────────── -->
     <div class="top-bar">
@@ -2362,3 +2362,4 @@ $statusClass = [
     </script>
 </body>
 </html>
+
