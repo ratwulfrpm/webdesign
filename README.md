@@ -31,6 +31,7 @@ Sistema de autenticación local con diseño inspirado en Apple, construido con P
 8. [Seguridad implementada](#8-seguridad-implementada)
 9. [Diseño responsive](#9-diseño-responsive)
 10. [Pasar a producción](#10-pasar-a-producción)
+11. [UI/UX por rol (theming)](#11-uiux-por-rol-theming)
 
 ---
 
@@ -278,6 +279,37 @@ Hoja de estilos completa sin dependencias externas.
 | `--radius-card` | `20px` | Border-radius de la tarjeta |
 
 **Componentes:**
+
+### UI/UX por rol
+
+Se implementó theming global por rol sin cambiar layout, tipografías ni espaciados.
+
+- Clase global aplicada al `body`: `role-owner`, `role-admin`, `role-supplier`, `role-user`.
+- Fuente del rol: sesión (`$_SESSION['role']`) propagada por `includes/tabs.php`.
+- Mapeo de color primario:
+     - owner: azul (estilo original)
+     - admin: gris/negro profundo
+     - supplier: rojo suave
+     - user (cliente por link): verde suave
+
+Variables CSS centrales usadas:
+
+- `--color-accent`
+- `--color-accent-hover`
+- `--color-accent-deep`
+- `--color-accent-soft`
+- `--color-accent-rgb`
+- `--color-primary`, `--color-primary-dark`, `--color-primary-light`
+
+Accesibilidad:
+
+- Focus visible con `:focus-visible` en tabs, botones, inputs y selects.
+- El tab activo no depende solo de color (también peso tipográfico y sombra).
+
+Navegación por defecto (admin):
+
+- `dashboard.php` redirige a `/login/admin/products.php`.
+- Esto garantiza que al entrar (tras login/selección de business unit) quede activo por defecto el primer tab: **Productos de Proveedores**.
 
 - `.brand` — Logo y nombre de la app
 - `.card` — Contenedor principal (login / dashboard)

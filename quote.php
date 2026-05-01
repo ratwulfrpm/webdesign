@@ -67,7 +67,7 @@ function showExpiredPage(string $lang): void
         . '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
         . '<title>' . $esc($m['title']) . '</title>'
         . '<link rel="stylesheet" href="/login/css/style.css?v=12">'
-        . '</head><body>'
+        . '</head><body class="role-user">'
         . '<div class="page-content" style="max-width:520px;margin:80px auto;text-align:center;">'
         . '<div class="card" style="padding:40px 32px;">'
         . '<svg width="48" height="48" viewBox="0 0 24 24" fill="none" style="margin-bottom:16px;" aria-hidden="true">'
@@ -481,7 +481,7 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
         }
     </style>
 </head>
-<body>
+<body class="role-user">
 
     <header class="quote-header">
         <div class="quote-brand"><?= $esc(t('quote_page_title')) ?></div>

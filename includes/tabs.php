@@ -175,7 +175,11 @@ function renderTabs(string $activePage): string
     }
 
     $navLabel = htmlspecialchars(t('tab_nav_label'), ENT_QUOTES, 'UTF-8');
-    $html     = '<nav class="tab-nav" aria-label="' . $navLabel . '">' . "\n";
+    $safeRole = in_array($role, ['owner', 'admin', 'supplier', 'user'], true) ? $role : '';
+    $roleClass = $safeRole !== '' ? ' tab-nav--role-' . htmlspecialchars($safeRole, ENT_QUOTES, 'UTF-8') : '';
+    $roleAttr  = $safeRole !== '' ? ' data-role="' . htmlspecialchars($safeRole, ENT_QUOTES, 'UTF-8') . '"' : '';
+
+    $html     = '<nav class="tab-nav' . $roleClass . '" aria-label="' . $navLabel . '"' . $roleAttr . '>' . "\n";
 
     foreach ($tabs as $tab) {
         $isActive   = ($tab['id'] === $activePage);
@@ -203,5 +207,11 @@ function renderTabs(string $activePage): string
     }
 
     $html .= '</nav>' . "\n";
+
+    if ($safeRole !== '') {
+        $roleJs = json_encode($safeRole, JSON_UNESCAPED_UNICODE);
+        $html .= '<script>(function(){var r=' . $roleJs . ';if(!r||!document.body)return;document.body.classList.add("role-"+r);document.body.setAttribute("data-role",r);})();</script>' . "\n";
+    }
+
     return $html;
 }
