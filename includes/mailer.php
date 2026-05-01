@@ -1,6 +1,6 @@
 <?php
 /**
- * includes/mailer.php � PHPMailer + Gmail SMTP helper
+ * includes/mailer.php � PHPMailer + Gmail SMTP helper
  *
  * Requires: config/mail.php (credentials)
  *           includes/phpmailer/PHPMailer.php
@@ -288,6 +288,162 @@ function writeInviteLog(string $to, string $subject, string $body, string $link)
         $to,
         $subject,
         $link,
+        $body
+    );
+    return (bool) file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);
+}
+
+// ---------------------------------------------------------------------------
+// ASSIGNMENT QR SHARE EMAIL
+// ---------------------------------------------------------------------------
+
+/**
+ * Send an assignment link email including a QR image.
+ *
+ * @return array{sent: bool, logged: bool, log_path: string|null}
+ */
+function sendAssignmentQrEmail(
+    string $toEmail,
+    string $quoteLink,
+    string $qrImageUrl,
+    string $customerName = '',
+    string $companyName = '',
+    string $lang = 'es'
+): array {
+    $subject  = $lang === 'en'
+        ? 'Your quote link and QR code'
+        : ($lang === 'zh' ? '您的报价链接与二维码' : 'Tu link de cotizacion y codigo QR');
+
+    $bodyText = buildAssignmentQrBodyText($quoteLink, $qrImageUrl, $customerName, $companyName, $lang);
+    $bodyHtml = buildAssignmentQrBodyHtml($quoteLink, $qrImageUrl, $customerName, $companyName, $lang);
+
+    $credPlaceholder = (
+        MAIL_USER === 'TU_CORREO@gmail.com' ||
+        MAIL_PASS === 'xxxx xxxx xxxx xxxx'
+    );
+
+    if ($credPlaceholder) {
+        $logged = writeQuoteShareLog($toEmail, $subject, $bodyText, $quoteLink, $qrImageUrl);
+        return ['sent' => false, 'logged' => $logged, 'log_path' => MAIL_LOG_DIR . '/mail.log'];
+    }
+
+    try {
+        $mail = new PHPMailer(true);
+
+        $mail->isSMTP();
+        $mail->Host       = MAIL_HOST;
+        $mail->Port       = MAIL_PORT;
+        $mail->SMTPSecure = MAIL_ENCRYPT;
+        $mail->SMTPAuth   = true;
+        $mail->Username   = MAIL_USER;
+        $mail->Password   = str_replace(' ', '', MAIL_PASS);
+
+        if (!defined('MAIL_VERIFY_SSL') || !MAIL_VERIFY_SSL) {
+            $mail->SMTPOptions = [
+                'ssl' => [
+                    'verify_peer'       => false,
+                    'verify_peer_name'  => false,
+                    'allow_self_signed' => true,
+                ],
+            ];
+        }
+
+        $mail->CharSet = PHPMailer::CHARSET_UTF8;
+        $mail->setFrom(MAIL_USER, MAIL_FROM_NAME);
+        $mail->addReplyTo(MAIL_REPLY_TO, MAIL_FROM_NAME);
+        $mail->addAddress($toEmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = $subject;
+        $mail->Body    = $bodyHtml;
+        $mail->AltBody = $bodyText;
+
+        $mail->send();
+
+        return ['sent' => true, 'logged' => false, 'log_path' => null];
+    } catch (PHPMailerException $e) {
+        $logged = writeQuoteShareLog($toEmail, $subject, $bodyText, $quoteLink, $qrImageUrl);
+        writeErrorLog($e->getMessage());
+        return ['sent' => false, 'logged' => $logged, 'log_path' => MAIL_LOG_DIR . '/mail.log'];
+    }
+}
+
+function buildAssignmentQrBodyText(
+    string $quoteLink,
+    string $qrImageUrl,
+    string $customerName,
+    string $companyName,
+    string $lang
+): string {
+    if ($lang === 'en') {
+        return "Hello,\n\nHere is your quote link:\n{$quoteLink}\n\nQR code URL:\n{$qrImageUrl}\n\nCustomer: {$customerName}\nCompany: {$companyName}\n\nThank you.";
+    }
+    if ($lang === 'zh') {
+        return "您好，\n\n这是您的报价链接：\n{$quoteLink}\n\n二维码链接：\n{$qrImageUrl}\n\n客户：{$customerName}\n公司：{$companyName}\n\n谢谢。";
+    }
+    return "Hola,\n\nAqui tienes tu link de cotizacion:\n{$quoteLink}\n\nURL del codigo QR:\n{$qrImageUrl}\n\nCliente: {$customerName}\nEmpresa: {$companyName}\n\nGracias.";
+}
+
+function buildAssignmentQrBodyHtml(
+    string $quoteLink,
+    string $qrImageUrl,
+    string $customerName,
+    string $companyName,
+    string $lang
+): string {
+    $esc = fn($v) => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+
+    if ($lang === 'en') {
+        $title = 'Your quote link';
+        $subtitle = 'Use the button or scan the QR code to open your quote.';
+        $btn = 'Open quote';
+    } elseif ($lang === 'zh') {
+        $title = '您的报价链接';
+        $subtitle = '您可以点击按钮或扫描二维码打开报价。';
+        $btn = '打开报价';
+    } else {
+        $title = 'Tu link de cotizacion';
+        $subtitle = 'Puedes usar el boton o escanear el codigo QR para abrir tu cotizacion.';
+        $btn = 'Abrir cotizacion';
+    }
+
+    $meta = '';
+    if ($customerName !== '') {
+        $meta .= '<p style="margin:0 0 6px;font-size:.82rem;color:#4a6480;"><strong>Cliente:</strong> ' . $esc($customerName) . '</p>';
+    }
+    if ($companyName !== '') {
+        $meta .= '<p style="margin:0 0 14px;font-size:.82rem;color:#4a6480;"><strong>Empresa:</strong> ' . $esc($companyName) . '</p>';
+    }
+
+    return '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>' .
+        '<body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f1f6fc;margin:0;padding:30px 14px;">' .
+        '<div style="max-width:500px;margin:0 auto;background:#fff;border-radius:16px;padding:30px 28px;border:1px solid #dbe7f5;box-shadow:0 6px 22px rgba(10,38,70,.08);">' .
+        '<h1 style="margin:0 0 8px;color:#123b69;font-size:1.2rem;">' . $esc($title) . '</h1>' .
+        '<p style="margin:0 0 16px;color:#4a6480;font-size:.9rem;">' . $esc($subtitle) . '</p>' .
+        $meta .
+        '<a href="' . $esc($quoteLink) . '" style="display:inline-block;background:#0071e3;color:#fff;text-decoration:none;font-size:.92rem;font-weight:600;padding:12px 24px;border-radius:12px;margin-bottom:16px;">' . $esc($btn) . '</a>' .
+        '<div style="background:#f8fbff;border:1px solid #dde8f6;border-radius:12px;padding:14px;text-align:center;">' .
+        '<img src="' . $esc($qrImageUrl) . '" alt="QR" style="width:210px;max-width:100%;height:auto;border-radius:8px;border:1px solid #dbe7f5;background:#fff;">' .
+        '</div>' .
+        '<p style="margin:14px 0 0;color:#6d8198;font-size:.78rem;word-break:break-all;">' . $esc($quoteLink) . '</p>' .
+        '</div></body></html>';
+}
+
+function writeQuoteShareLog(string $to, string $subject, string $body, string $link, string $qr): bool
+{
+    $dir = MAIL_LOG_DIR;
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    if (!is_dir($dir)) return false;
+
+    $line = sprintf(
+        "[%s] SHARE TO=%s | SUBJECT=%s | LINK=%s | QR=%s\n---\n%s\n===\n",
+        date('Y-m-d H:i:s'),
+        $to,
+        $subject,
+        $link,
+        $qr,
         $body
     );
     return (bool) file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);

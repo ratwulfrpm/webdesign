@@ -1,11 +1,12 @@
 -- ============================================================
 -- migrate_assignments_fees_validity.sql
--- Enhance quote_assignments with dynamic fees and validity
+-- Enhance quote_assignments with dynamic fees, validity, and visit limits
 -- 
 -- Adds support for:
 --   - Multiple fee types (profit, transport, tax)
 --   - % or fixed amount for each fee
 --   - Dynamic validity (hours/days, up to 7 days)
+--   - Maximum visit limit per link
 --
 -- Backward compatible: existing quotes retain existing behavior
 --
@@ -19,8 +20,10 @@ USE `apple_login`;
 ALTER TABLE `quote_assignments`
 ADD COLUMN `profit_calculation_type` ENUM('percentage', 'fixed_amount') NOT NULL DEFAULT 'percentage'
   COMMENT 'How profit is calculated' AFTER `discount_percentage`,
+ADD COLUMN `profit_percentage` DECIMAL(6,2) NULL DEFAULT NULL
+  COMMENT 'Profit percentage (0-999) when calculation_type = percentage' AFTER `profit_calculation_type`,
 ADD COLUMN `profit_fixed_amount` DECIMAL(12,2) NULL DEFAULT NULL
-  COMMENT 'Fixed profit amount if calculation_type = fixed_amount' AFTER `profit_calculation_type`,
+  COMMENT 'Fixed profit amount if calculation_type = fixed_amount' AFTER `profit_percentage`,
 ADD COLUMN `transport_calculation_type` ENUM('percentage', 'fixed_amount') NULL DEFAULT NULL
   COMMENT 'How transport is calculated (null if not used)' AFTER `profit_fixed_amount`,
 ADD COLUMN `transport_percentage` DECIMAL(6,2) NULL DEFAULT NULL
@@ -36,14 +39,17 @@ ADD COLUMN `tax_fixed_amount` DECIMAL(12,2) NULL DEFAULT NULL
 ADD COLUMN `validity_amount` INT UNSIGNED NOT NULL DEFAULT 7
   COMMENT 'Duration amount (number of hours or days)' AFTER `tax_fixed_amount`,
 ADD COLUMN `validity_unit` ENUM('hours', 'days') NOT NULL DEFAULT 'days'
-  COMMENT 'Unit of validity duration' AFTER `validity_amount`;
+  COMMENT 'Unit of validity duration' AFTER `validity_amount`,
+ADD COLUMN `max_visits` INT UNSIGNED NULL DEFAULT NULL
+  COMMENT 'Maximum number of times the link can be viewed (null = unlimited)' AFTER `validity_unit`;
 
 -- ── 2. Enhance quote_assignment_items for per-item profit type ──
 ALTER TABLE `quote_assignment_items`
 ADD COLUMN `profit_calculation_type` ENUM('percentage', 'fixed_amount') NOT NULL DEFAULT 'percentage'
   COMMENT 'Per-item profit calculation type' AFTER `profit_percentage`,
 ADD COLUMN `profit_fixed_amount` DECIMAL(12,2) NULL DEFAULT NULL
-  COMMENT 'Fixed profit amount for this item' AFTER `profit_calculation_type`;
+  COMMENT 'Fixed profit amount for this item' AFTER `profit_calculation_type`,
+MODIFY COLUMN `profit_percentage` DECIMAL(6,2) NULL DEFAULT NULL;
 
 -- ── 3. Add indexes for new searches ───────────────────────────
 ALTER TABLE `quote_assignments`

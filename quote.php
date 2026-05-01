@@ -107,7 +107,9 @@ $quoteItems  = [];
 
 $stmtNew = $pdo->prepare(
     'SELECT id, assigned_customer_name, company_name, special_conditions,
-            discount_percentage, status, valid_from, expires_at, view_count
+            discount_percentage, status, valid_from, expires_at, view_count,
+            transport_calculation_type, transport_percentage, transport_fixed_amount,
+            tax_calculation_type, tax_percentage, tax_fixed_amount
        FROM quote_assignments
       WHERE token_hash = ?
       LIMIT 1'
@@ -166,7 +168,7 @@ if ($quoteData) {
         }
     }
 
-    // Load images and keywords per product
+    // Load images per product
     $productIds   = array_column($quoteItems, 'product_id');
     $placeholders = implode(',', array_fill(0, count($productIds), '?'));
 
@@ -180,18 +182,6 @@ if ($quoteData) {
     $allImages = [];
     foreach ($allImagesStmt->fetchAll() as $img) {
         $allImages[(int)$img['product_id']][$img['image_slot']] = $img['file_path'];
-    }
-
-    $allKwStmt = $pdo->prepare(
-        "SELECT product_id, keyword
-           FROM product_keywords
-          WHERE product_id IN ({$placeholders})
-          ORDER BY keyword ASC"
-    );
-    $allKwStmt->execute($productIds);
-    $allKeywords = [];
-    foreach ($allKwStmt->fetchAll() as $kw) {
-        $allKeywords[(int)$kw['product_id']][] = $kw['keyword'];
     }
 
     // Record access
@@ -217,7 +207,6 @@ if ($quoteData) {
 // ═════════════════════════════════════════════════════════════
 $legacyAssignment = null;
 $legacyImages     = [];
-$legacyKeywords   = [];
 
 if (!$isNewFormat) {
     $stmtLeg = $pdo->prepare(
@@ -294,11 +283,6 @@ if (!$isNewFormat) {
         $legacyImages[$img['image_slot']] = $img['file_path'];
     }
 
-    $kwStmt = $pdo->prepare(
-        'SELECT keyword FROM product_keywords WHERE product_id = ? ORDER BY keyword ASC'
-    );
-    $kwStmt->execute([$legacyAssignment['product_id']]);
-    $legacyKeywords = $kwStmt->fetchAll(PDO::FETCH_COLUMN);
 }
 
 // ── Slot labels ────────────────────────────────────────────────
@@ -316,16 +300,35 @@ $esc      = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, '
 $fmtDate  = fn($v) => date('d/m/Y', strtotime((string)$v));
 $fmtPrice = fn($v) => '$ ' . number_format((float) $v, 2);
 
+$metaCompany = '';
+$metaConditions = '';
+if ($isNewFormat) {
+    $metaCompany = (string)($quoteData['company_name'] ?? '');
+    $metaConditions = (string)($quoteData['special_conditions'] ?? '');
+}
+
 // ── Compute totals (new format) ───────────────────────────────
-$subtotal    = 0.0;
-$discountPct = 0.0;
-$discountAmt = 0.0;
-$total       = 0.0;
+$subtotal      = 0.0;
+$discountPct   = 0.0;
+$discountAmt   = 0.0;
+$transportAmt  = 0.0;
+$taxAmt        = 0.0;
+$total         = 0.0;
 if ($isNewFormat) {
     foreach ($quoteItems as $item) { $subtotal += (float)$item['final_unit_price']; }
-    $discountPct = $quoteData['discount_percentage'] !== null ? (float)$quoteData['discount_percentage'] : 0.0;
-    $discountAmt = round($subtotal * $discountPct / 100, 2);
-    $total       = round($subtotal - $discountAmt, 2);
+    $discountPct  = $quoteData['discount_percentage'] !== null ? (float)$quoteData['discount_percentage'] : 0.0;
+    $discountAmt  = round($subtotal * $discountPct / 100, 2);
+    if ($quoteData['transport_calculation_type'] === 'percentage') {
+        $transportAmt = round($subtotal * (float)($quoteData['transport_percentage'] ?? 0) / 100, 2);
+    } elseif ($quoteData['transport_calculation_type'] === 'fixed_amount') {
+        $transportAmt = round((float)($quoteData['transport_fixed_amount'] ?? 0), 2);
+    }
+    if ($quoteData['tax_calculation_type'] === 'percentage') {
+        $taxAmt = round(($subtotal + $transportAmt) * (float)($quoteData['tax_percentage'] ?? 0) / 100, 2);
+    } elseif ($quoteData['tax_calculation_type'] === 'fixed_amount') {
+        $taxAmt = round((float)($quoteData['tax_fixed_amount'] ?? 0), 2);
+    }
+    $total = round($subtotal + $transportAmt + $taxAmt - $discountAmt, 2);
 }
 
 $expiresAt    = $isNewFormat ? $quoteData['expires_at'] : $legacyAssignment['expires_at'];
@@ -384,14 +387,30 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
             width:100%; max-height:320px; object-fit:contain;
             border-radius:8px; border:1px solid #e5e5ea; cursor:zoom-in; display:block; margin-bottom:14px;
         }
-        .quote-keyword-tags { display:flex; flex-wrap:wrap; gap:5px; }
-        .quote-keyword-chip { padding:3px 11px; border-radius:18px; background:#f0f0f5; font-size:0.8rem; color:#3a3a4a; }
         .quote-meta-box {
-            margin:0 28px 22px; padding:12px 18px;
-            background:#fafafa; border:1px solid #e5e5ea; border-radius:10px;
-            display:flex; flex-wrap:wrap; gap:18px; font-size:0.86rem; color:#444;
+            margin:0 28px 22px; padding:18px 22px;
+            background:#f8fbff; border:1.5px solid #d7e5f5; border-radius:12px;
+            display:grid; grid-template-columns:repeat(auto-fit, minmax(210px, 1fr));
+            gap:12px; color:#21384f;
         }
-        .quote-meta-box .meta-item strong { display:block; color:#1d1d1f; font-size:0.78rem; margin-bottom:2px; }
+        .quote-meta-box .meta-item {
+            background:#fff;
+            border:1px solid #e3ecf8;
+            border-radius:10px;
+            padding:11px 12px;
+            font-size:1.02rem;
+            font-weight:600;
+            color:#16395f;
+        }
+        .quote-meta-box .meta-item strong {
+            display:block;
+            color:#4c6682;
+            font-size:0.82rem;
+            font-weight:700;
+            text-transform:uppercase;
+            letter-spacing:0.05em;
+            margin-bottom:5px;
+        }
         .quote-footer-note { text-align:center; padding:18px; font-size:0.78rem; color:#aaa; border-top:1px solid #f0f0f3; }
         /* Totals */
         .quote-totals-box {
@@ -430,7 +449,35 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
             .quote-price-box { margin:14px; }
             .quote-section  { padding:14px; }
             .quote-meta-box { margin:0 14px 16px; }
+            .quote-meta-box .meta-item { font-size:0.95rem; }
             .quote-product-name { font-size:1.15rem; }
+        }
+        /* ── Product selection ── */
+        .quote-card { transition:opacity 0.2s, box-shadow 0.2s; }
+        .quote-card.deselected { opacity:0.45; }
+        .product-select-bar {
+            display:flex; align-items:center; gap:12px;
+            padding:12px 28px 14px; border-top:1px solid #f0f0f3;
+            background:#fafafa;
+        }
+        .product-checkbox-wrap {
+            display:flex; align-items:center; gap:8px; cursor:pointer;
+            user-select:none; flex:1;
+        }
+        .product-checkbox-wrap input[type=checkbox] {
+            width:20px; height:20px; accent-color:#0071e3; cursor:pointer; flex-shrink:0;
+        }
+        .product-checkbox-label { font-size:0.88rem; font-weight:500; color:#444; }
+        .product-price-tag {
+            font-size:0.88rem; font-weight:700; color:#0071e3;
+            background:#eaf4ff; padding:4px 12px; border-radius:20px;
+        }
+        /* ── Live totals ── */
+        #liveTotalsBox { transition:background 0.2s; }
+        .live-zero { color:#aaa !important; }
+        .no-selection-note {
+            text-align:center; padding:12px; font-size:0.88rem;
+            color:#999; display:none;
         }
     </style>
 </head>
@@ -448,15 +495,15 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
 
         <!-- ── Client / Company / Conditions card ─────────── -->
         <div class="quote-card" style="margin-bottom:20px;">
-            <div class="quote-meta-box" style="margin:0;border:none;background:transparent;padding:18px 28px;">
+            <div class="quote-meta-box" style="margin:0 28px 22px;">
                 <div class="meta-item">
                     <strong><?= $esc(t('quote_client_label')) ?></strong>
                     <?= $esc($customerName) ?>
                 </div>
-                <?php if ($isNewFormat && !empty($quoteData['company_name'])): ?>
+                <?php if ($metaCompany !== ''): ?>
                 <div class="meta-item">
                     <strong><?= $esc(t('quote_company_label')) ?></strong>
-                    <?= $esc($quoteData['company_name']) ?>
+                    <?= $esc($metaCompany) ?>
                 </div>
                 <?php endif; ?>
                 <div class="meta-item">
@@ -464,13 +511,13 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
                     <?= $esc($fmtDate($expiresAt)) ?>
                 </div>
             </div>
-            <?php if ($isNewFormat && !empty($quoteData['special_conditions'])): ?>
+            <?php if ($metaConditions !== ''): ?>
             <div style="padding:0 28px 18px;">
                 <div style="font-size:0.78rem;font-weight:600;color:#6e6e73;text-transform:uppercase;margin-bottom:6px;">
                     <?= $esc(t('quote_conditions_label')) ?>
                 </div>
                 <div style="font-size:0.9rem;color:#333;line-height:1.6;white-space:pre-line;">
-                    <?= nl2br($esc($quoteData['special_conditions'])) ?>
+                    <?= nl2br($esc($metaConditions)) ?>
                 </div>
             </div>
             <?php endif; ?>
@@ -484,9 +531,9 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
         <?php
             $productId = (int)$item['product_id'];
             $images    = $allImages[$productId] ?? [];
-            $keywords  = $allKeywords[$productId] ?? [];
+            $itemPrice = (float)$item['final_unit_price'];
         ?>
-        <div class="quote-card">
+        <div class="quote-card" data-product-id="<?= $productId ?>" data-price="<?= htmlspecialchars((string)$itemPrice) ?>">
             <div class="quote-card-header">
                 <h2 class="quote-product-name">
                     <span class="item-number-badge"><?= $idx + 1 ?></span>
@@ -537,34 +584,124 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
                 <?php endif; ?>
             </div>
             <?php endif; ?>
-            <?php if (!empty($keywords)): ?>
-            <div class="quote-section">
-                <div class="quote-section-title"><?= $esc(t('quote_keywords_label')) ?></div>
-                <div class="quote-keyword-tags">
-                    <?php foreach ($keywords as $kw): ?>
-                    <span class="quote-keyword-chip"><?= $esc($kw) ?></span>
-                    <?php endforeach; ?>
-                </div>
+            <!-- ── Product selection checkbox ── -->
+            <div class="product-select-bar">
+                <label class="product-checkbox-wrap">
+                    <input type="checkbox" class="product-cb"
+                           data-product-id="<?= $productId ?>"
+                           data-price="<?= htmlspecialchars((string)$itemPrice) ?>"
+                           checked
+                           onchange="recalcTotals()">
+                    <span class="product-checkbox-label"><?= $esc(t('quote_include_in_quote')) ?></span>
+                </label>
+                <span class="product-price-tag"><?= $esc($fmtPrice($item['final_unit_price'])) ?></span>
             </div>
-            <?php endif; ?>
         </div>
         <?php endforeach; ?>
 
-        <!-- ── Totals ── -->
-        <div class="quote-totals-box">
-            <?php if ($discountPct > 0): ?>
-            <div class="quote-total-row">
+        <!-- ── Live totals box ── -->
+        <?php
+        // Build the JS config for dynamic recalculation
+        $jsConfig = [
+            'discountPct'   => (float)($quoteData['discount_percentage'] ?? 0),
+            'transportType' => $quoteData['transport_calculation_type'] ?? null,
+            'transportPct'  => (float)($quoteData['transport_percentage'] ?? 0),
+            'transportAmt'  => (float)($quoteData['transport_fixed_amount'] ?? 0),
+            'taxType'       => $quoteData['tax_calculation_type'] ?? null,
+            'taxPct'        => (float)($quoteData['tax_percentage'] ?? 0),
+            'taxAmt'        => (float)($quoteData['tax_fixed_amount'] ?? 0),
+        ];
+        ?>
+        <script>
+        var quoteConfig = <?= json_encode($jsConfig, JSON_UNESCAPED_UNICODE) ?>;
+
+        function fmtMoney(v) {
+            return '$ ' + v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+        }
+
+        function recalcTotals() {
+            var checked = document.querySelectorAll('.product-cb:checked');
+            var subtotal = 0;
+            checked.forEach(function(cb) { subtotal += parseFloat(cb.dataset.price) || 0; });
+
+            // Transport
+            var transport = 0;
+            if (quoteConfig.transportType === 'percentage') {
+                transport = Math.round(subtotal * quoteConfig.transportPct / 100 * 100) / 100;
+            } else if (quoteConfig.transportType === 'fixed_amount') {
+                transport = quoteConfig.transportAmt;
+            }
+
+            // Tax (base = subtotal + transport)
+            var tax = 0;
+            if (quoteConfig.taxType === 'percentage') {
+                tax = Math.round((subtotal + transport) * quoteConfig.taxPct / 100 * 100) / 100;
+            } else if (quoteConfig.taxType === 'fixed_amount') {
+                tax = quoteConfig.taxAmt;
+            }
+
+            // Discount on subtotal
+            var discountAmt = Math.round(subtotal * quoteConfig.discountPct / 100 * 100) / 100;
+            var total = Math.round((subtotal + transport + tax - discountAmt) * 100) / 100;
+
+            var hasExtras = transport > 0 || tax > 0 || discountAmt > 0;
+
+            function row(id, show, val) {
+                var el = document.getElementById(id);
+                if (!el) return;
+                el.style.display = show ? 'flex' : 'none';
+                var sp = el.querySelector('.live-val');
+                if (sp) sp.textContent = val;
+            }
+
+            row('liveRowSubtotal',  hasExtras, fmtMoney(subtotal));
+            row('liveRowTransport', transport > 0, fmtMoney(transport));
+            row('liveRowTax',       tax > 0,        fmtMoney(tax));
+            row('liveRowDiscount',  discountAmt > 0, '−' + fmtMoney(discountAmt));
+
+            var totalEl = document.getElementById('liveTotal');
+            if (totalEl) totalEl.textContent = fmtMoney(total);
+
+            var noneNote = document.getElementById('noSelectionNote');
+            if (noneNote) noneNote.style.display = checked.length === 0 ? 'block' : 'none';
+
+            // Dim deselected cards
+            document.querySelectorAll('.product-cb').forEach(function(cb) {
+                var card = cb.closest('.quote-card');
+                if (card) {
+                    card.classList.toggle('deselected', !cb.checked);
+                }
+            });
+        }
+
+        // Init on load
+        document.addEventListener('DOMContentLoaded', recalcTotals);
+        </script>
+
+        <div class="quote-totals-box" id="liveTotalsBox">
+            <div class="no-selection-note" id="noSelectionNote"
+                 style="display:none;">
+                <?= $esc(t('quote_no_items_selected')) ?>
+            </div>
+            <div class="quote-total-row" id="liveRowSubtotal" style="display:none;">
                 <span><?= $esc(t('quote_subtotal_label')) ?></span>
-                <span><?= $esc($fmtPrice($subtotal)) ?></span>
+                <span class="live-val"></span>
             </div>
-            <div class="quote-total-row">
+            <div class="quote-total-row" id="liveRowTransport" style="display:none;">
+                <span><?= $esc(t('quote_transport_label')) ?></span>
+                <span class="live-val"></span>
+            </div>
+            <div class="quote-total-row" id="liveRowTax" style="display:none;">
+                <span><?= $esc(t('quote_tax_label')) ?></span>
+                <span class="live-val"></span>
+            </div>
+            <div class="quote-total-row" id="liveRowDiscount" style="display:none;">
                 <span><?= $esc(t('quote_discount_label')) ?> (<?= number_format($discountPct, 1) ?>%)</span>
-                <span class="discount-val">&#8722;<?= $esc($fmtPrice($discountAmt)) ?></span>
+                <span class="live-val discount-val"></span>
             </div>
-            <?php endif; ?>
             <div class="quote-total-row grand-total">
                 <span><?= $esc(t('quote_total_label')) ?></span>
-                <span><?= $esc($fmtPrice($total)) ?></span>
+                <span id="liveTotal"><?= $esc($fmtPrice($total)) ?></span>
             </div>
         </div>
 
@@ -623,16 +760,6 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
                     <?php endforeach; ?>
                 </div>
                 <?php endif; ?>
-            </div>
-            <?php endif; ?>
-            <?php if (!empty($legacyKeywords)): ?>
-            <div class="quote-section">
-                <div class="quote-section-title"><?= $esc(t('quote_keywords_label')) ?></div>
-                <div class="quote-keyword-tags">
-                    <?php foreach ($legacyKeywords as $kw): ?>
-                    <span class="quote-keyword-chip"><?= $esc($kw) ?></span>
-                    <?php endforeach; ?>
-                </div>
             </div>
             <?php endif; ?>
             <div class="quote-footer-note">

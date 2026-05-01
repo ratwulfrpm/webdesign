@@ -74,7 +74,7 @@ function _getPublicQuote(PDO $pdo): void
     $st = $pdo->prepare(
         "SELECT id, assigned_customer_name, company_name, special_conditions,
                 discount_percentage, status, expires_at, valid_from,
-                view_count, org_id
+                view_count, max_visits, org_id
            FROM quote_assignments
           WHERE token_hash = ?"
     );
@@ -92,6 +92,15 @@ function _getPublicQuote(PDO $pdo): void
 
         if ($qa['status'] !== 'active') {
             jsonError('This quote link is no longer available', 410);
+        }
+
+        // ── Check max visits ────────────────────────────────────────
+        if ($qa['max_visits'] !== null && (int) $qa['view_count'] >= (int) $qa['max_visits']) {
+            // Mark as expired since max visits reached
+            $pdo->prepare(
+                "UPDATE quote_assignments SET status = 'expired' WHERE id = ?"
+            )->execute([$qa['id']]);
+            jsonError('This quote link has expired (max visits reached)', 410);
         }
 
         // Load line items — no cost or margin data

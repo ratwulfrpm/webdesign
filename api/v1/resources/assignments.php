@@ -282,6 +282,15 @@ function _createAssignment(array $auth, PDO $pdo): void
         jsonError('Validity cannot exceed 7 days (168 hours)');
     }
     
+    // ── MAX VISITS: optional, positive integer ──
+    $maxVisits = null;
+    if (isset($body['max_visits']) && $body['max_visits'] !== '' && $body['max_visits'] !== null) {
+        $maxVisits = (int) $body['max_visits'];
+        if ($maxVisits <= 0) {
+            jsonError('max_visits must be a positive integer');
+        }
+    }
+    
     $productIds   = array_map('intval', (array) ($body['product_ids'] ?? []));
 
     // ── VALIDATION ──
@@ -348,9 +357,9 @@ function _createAssignment(array $auth, PDO $pdo): void
               profit_calculation_type, profit_percentage, profit_fixed_amount,
               transport_calculation_type, transport_percentage, transport_fixed_amount,
               tax_calculation_type, tax_percentage, tax_fixed_amount,
-              validity_amount, validity_unit,
+              validity_amount, validity_unit, max_visits,
               token_hash, expires_at, created_by_user_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $qIns->execute([
             $auth['org_id'],
@@ -369,6 +378,7 @@ function _createAssignment(array $auth, PDO $pdo): void
             $taxAmount,
             $validityAmount,
             $validityUnit,
+            $maxVisits,
             $tokenHash,
             $expiresAt,
             $auth['user_id'],
@@ -511,9 +521,9 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
               profit_calculation_type, profit_percentage, profit_fixed_amount,
               transport_calculation_type, transport_percentage, transport_fixed_amount,
               tax_calculation_type, tax_percentage, tax_fixed_amount,
-              validity_amount, validity_unit,
+              validity_amount, validity_unit, max_visits,
               token_hash, expires_at, created_by_user_id, parent_quote_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $qIns->execute([
             $parent['org_id'],
@@ -532,6 +542,7 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
             $parent['tax_fixed_amount'],
             $parent['validity_amount'],
             $parent['validity_unit'],
+            $parent['max_visits'],
             $tokenHash,
             $expiresAt,
             $auth['user_id'],

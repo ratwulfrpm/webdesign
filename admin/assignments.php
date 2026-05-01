@@ -35,6 +35,7 @@ require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/audit.php';
+require_once __DIR__ . '/../includes/mailer.php';
 
 requireAuth();
 initLang();
@@ -51,6 +52,13 @@ function buildQuoteLink(string $plainToken): string
     $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
     return $scheme . '://' . $host . '/login/quote.php?t=' . rawurlencode($plainToken);
+}
+
+function buildQuoteQrUrl(string $quoteLink, int $size = 260): string
+{
+    $size = max(120, min(600, $size));
+    return 'https://api.qrserver.com/v1/create-qr-code/?size=' . $size . 'x' . $size
+        . '&data=' . rawurlencode($quoteLink);
 }
 
 // ═════════════════════════════════════════════════════════════
@@ -96,16 +104,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = t('asgn_err_base_invalid');
         }
 
-        // 6. Profit percentage (0–999)
-        $profitRaw = trim($_POST['profit_percentage'] ?? '');
-        $profitPct = 0.0;
-        if (!is_numeric($profitRaw)) {
-            $errors[] = t('asgn_err_profit_invalid');
-        } else {
-            $profitPct = (float) $profitRaw;
-            if ($profitPct < 0 || $profitPct > 999) {
-                $errors[] = t('asgn_err_profit_invalid');
+        // 6. Profit (now with calculation type)
+        $profitType = strtolower(trim($_POST['profit_calculation_type'] ?? ''));
+        $profitPct = null;
+        $profitAmt = null;
+        if ($profitType !== '') {
+            if (!in_array($profitType, ['percentage', 'fixed_amount'], true)) {
+                $errors[] = t('asgn_err_invalid_fee');
+            } elseif ($profitType === 'percentage') {
+                $profitRaw = trim($_POST['profit_percentage'] ?? '');
+                if ($profitRaw !== '' && is_numeric($profitRaw)) {
+                    $profitPct = (float) $profitRaw;
+                    if ($profitPct < 0 || $profitPct > 999) {
+                        $errors[] = t('asgn_err_profit_invalid');
+                    }
+                } else {
+                    $errors[] = t('asgn_err_profit_invalid');
+                }
+            } elseif ($profitType === 'fixed_amount') {
+                $profitRaw = trim($_POST['profit_fixed_amount'] ?? '');
+                if ($profitRaw !== '' && is_numeric($profitRaw)) {
+                    $profitAmt = round((float) $profitRaw, 2);
+                    if ($profitAmt < 0) {
+                        $errors[] = t('asgn_err_invalid_fee');
+                    }
+                } else {
+                    $errors[] = t('asgn_err_invalid_fee');
+                }
             }
+        }
+        if ($profitType === '' || ($profitType === 'percentage' && $profitPct === null) || 
+            ($profitType === 'fixed_amount' && $profitAmt === null)) {
+            $errors[] = t('asgn_err_profit_required');
         }
 
         // 6b. Transport (optional)
@@ -169,6 +199,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $validityHours = $validityUnit === 'hours' ? $validityAmount : ($validityAmount * 24);
         if ($validityHours <= 0 || $validityHours > 168) {
             $errors[] = t('asgn_err_validity_exceeded');
+        }
+
+        // 6e. Max visits (optional, if set must be positive)
+        $maxVisits = null;
+        $maxVisitsRaw = trim($_POST['max_visits'] ?? '');
+        if ($maxVisitsRaw !== '') {
+            if (!is_numeric($maxVisitsRaw)) {
+                $errors[] = t('asgn_err_max_visits_invalid');
+            } else {
+                $maxVisits = (int) $maxVisitsRaw;
+                if ($maxVisits <= 0) {
+                    $errors[] = t('asgn_err_max_visits_invalid');
+                }
+            }
         }
 
         // 7. Product IDs (must be array of positive ints)
@@ -243,11 +287,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'INSERT INTO quote_assignments
                     (org_id, assigned_customer_name, company_name,
                      special_conditions, discount_percentage,
-                     profit_calculation_type, transport_calculation_type, transport_percentage, transport_fixed_amount,
+                     profit_calculation_type, profit_percentage, profit_fixed_amount,
+                     transport_calculation_type, transport_percentage, transport_fixed_amount,
                      tax_calculation_type, tax_percentage, tax_fixed_amount,
-                     validity_amount, validity_unit,
+                     validity_amount, validity_unit, max_visits,
                      token_hash, status, valid_from, expires_at, created_by_user_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "active", ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "active", ?, ?, ?)'
             );
             $insQuote->execute([
                 $orgId,
@@ -255,7 +300,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $companyName !== '' ? $companyName : null,
                 $specialConditions !== '' ? $specialConditions : null,
                 $discountPct,
-                'percentage',
+                $profitType,
+                $profitPct,
+                $profitAmt,
                 $transportType !== '' ? $transportType : null,
                 $transportPct,
                 $transportAmt,
@@ -264,6 +311,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $taxAmt,
                 $validityAmount,
                 $validityUnit,
+                $maxVisits,
                 $tokenHash,
                 $validFrom,
                 $expiresAt,
@@ -274,18 +322,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $insItem = $pdo->prepare(
                 'INSERT INTO quote_assignment_items
                     (quote_assignment_id, product_id, price_base_type,
-                     price_base_amount, profit_percentage, profit_calculation_type, final_unit_price)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
+                     price_base_amount, profit_calculation_type, profit_percentage, profit_fixed_amount, final_unit_price)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             );
 
             $itemSummary = [];
             foreach ($productIds as $pid) {
                 $p          = $validProducts[$pid];
                 $baseAmount = $baseType === 'fob' ? (float)$p['price_fob'] : (float)$p['price_cif'];
-                $finalPrice = round($baseAmount * (1 + $profitPct / 100), 2);
+                
+                // Calculate final price based on profit type
+                if ($profitType === 'percentage' && $profitPct !== null) {
+                    $finalPrice = round($baseAmount * (1 + $profitPct / 100), 2);
+                } elseif ($profitType === 'fixed_amount' && $profitAmt !== null) {
+                    $finalPrice = round($baseAmount + $profitAmt, 2);
+                } else {
+                    $finalPrice = $baseAmount;
+                }
+                
                 $insItem->execute([
                     $quoteId, $pid, $baseType,
-                    $baseAmount, $profitPct, 'percentage', $finalPrice,
+                    $baseAmount, $profitType, $profitPct, $profitAmt, $finalPrice,
                 ]);
                 $itemSummary[] = ['name' => $p['product_name'], 'price' => $finalPrice];
             }
@@ -297,10 +354,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'company'          => $companyName,
                 'product_count'    => count($productIds),
                 'base_type'        => $baseType,
-                'profit_pct'       => $profitPct,
+                'profit_type'      => $profitType,
+                'profit_value'     => $profitType === 'percentage' ? $profitPct : $profitAmt,
                 'transport_type'   => $transportType,
                 'tax_type'         => $taxType,
                 'validity_hours'   => $validityHours,
+                'max_visits'       => $maxVisits,
                 'discount_pct'     => $discountPct,
                 'expires_at'       => $expiresAt,
             ]);
@@ -318,9 +377,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['asgn_new_customer']     = $customerName;
         $_SESSION['asgn_new_company']      = $companyName;
         $_SESSION['asgn_new_items']        = $itemSummary;
+        $_SESSION['asgn_new_items_count']  = count($itemSummary);
+        $_SESSION['asgn_new_items_total']  = array_sum(array_column($itemSummary, 'price'));
         $_SESSION['asgn_new_expires']      = $expiresAt;
         $_SESSION['asgn_feedback']         = t('asgn_success');
         $_SESSION['asgn_feedback_type']    = 'success';
+
+        header('Location: /login/admin/assignments.php');
+        exit;
+
+    // ─────────────────────────────────────────────────────────
+    //  SHARE ASSIGNMENT LINK AS QR (EMAIL)
+    // ─────────────────────────────────────────────────────────
+    } elseif ($action === 'send_assignment_qr') {
+
+        $toEmail   = mb_substr(trim($_POST['share_email'] ?? ''), 0, 190);
+        $shareLink = trim($_POST['share_link'] ?? '');
+        $shareCust = mb_substr(trim($_POST['share_customer'] ?? ''), 0, 200);
+        $shareComp = mb_substr(trim($_POST['share_company'] ?? ''), 0, 200);
+        $shareExp  = trim($_POST['share_expires'] ?? '');
+        $itemCount = (int) ($_POST['share_item_count'] ?? 0);
+        $itemsTot  = (float) ($_POST['share_items_total'] ?? 0);
+
+        if (!filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
+            $_SESSION['asgn_share_feedback'] = t('asgn_link_err_invalid_email');
+            $_SESSION['asgn_share_feedback_type'] = 'error';
+        } elseif ($shareLink === '' || !filter_var($shareLink, FILTER_VALIDATE_URL)) {
+            $_SESSION['asgn_share_feedback'] = t('asgn_link_err_invalid_url');
+            $_SESSION['asgn_share_feedback_type'] = 'error';
+        } else {
+            $qrUrl = buildQuoteQrUrl($shareLink, 300);
+            $sent = sendAssignmentQrEmail(
+                $toEmail,
+                $shareLink,
+                $qrUrl,
+                $shareCust,
+                $shareComp,
+                $lang
+            );
+
+            if (!empty($sent['sent'])) {
+                $_SESSION['asgn_share_feedback'] = t('asgn_link_mail_sent');
+                $_SESSION['asgn_share_feedback_type'] = 'success';
+            } elseif (!empty($sent['logged'])) {
+                $_SESSION['asgn_share_feedback'] = t('asgn_link_mail_logged');
+                $_SESSION['asgn_share_feedback_type'] = 'info';
+            } else {
+                $_SESSION['asgn_share_feedback'] = t('asgn_link_mail_error');
+                $_SESSION['asgn_share_feedback_type'] = 'error';
+            }
+        }
+
+        // Keep the generated-link card visible after share submit (PRG).
+        $_SESSION['asgn_new_link']         = $shareLink;
+        $_SESSION['asgn_new_customer']     = $shareCust;
+        $_SESSION['asgn_new_company']      = $shareComp;
+        $_SESSION['asgn_new_items_count']  = max(0, $itemCount);
+        $_SESSION['asgn_new_items_total']  = max(0, round($itemsTot, 2));
+        $_SESSION['asgn_new_expires']      = $shareExp;
 
         header('Location: /login/admin/assignments.php');
         exit;
@@ -505,6 +619,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['asgn_new_customer']  = $newCustomerName;
             $_SESSION['asgn_new_company']   = $parent['company_name'] ?? '';
             $_SESSION['asgn_new_items']     = $itemSummary;
+            $_SESSION['asgn_new_items_count'] = count($itemSummary);
+            $_SESSION['asgn_new_items_total'] = array_sum(array_column($itemSummary, 'price'));
             $_SESSION['asgn_new_expires']   = $expiresAt;
             $_SESSION['asgn_feedback']      = t('asgn_regen_success');
             $_SESSION['asgn_feedback_type'] = 'success';
@@ -528,13 +644,19 @@ $newLink      = $_SESSION['asgn_new_link']      ?? null;
 $newCustomer  = $_SESSION['asgn_new_customer']  ?? null;
 $newCompany   = $_SESSION['asgn_new_company']   ?? null;
 $newItems     = $_SESSION['asgn_new_items']     ?? [];
+$newItemsCount = $_SESSION['asgn_new_items_count'] ?? null;
+$newItemsTotal = $_SESSION['asgn_new_items_total'] ?? null;
 $newExpires   = $_SESSION['asgn_new_expires']   ?? null;
+$shareFeedback = $_SESSION['asgn_share_feedback'] ?? null;
+$shareFeedbackType = $_SESSION['asgn_share_feedback_type'] ?? 'info';
 unset(
     $_SESSION['asgn_feedback'], $_SESSION['asgn_feedback_type'],
     $_SESSION['asgn_errors'],
     $_SESSION['asgn_new_link'],  $_SESSION['asgn_new_customer'],
     $_SESSION['asgn_new_company'], $_SESSION['asgn_new_items'],
-    $_SESSION['asgn_new_expires']
+    $_SESSION['asgn_new_items_count'], $_SESSION['asgn_new_items_total'],
+    $_SESSION['asgn_new_expires'],
+    $_SESSION['asgn_share_feedback'], $_SESSION['asgn_share_feedback_type']
 );
 
 // ─── Recent assignments (last 30, exclude deleted) ────────────
@@ -591,8 +713,8 @@ $statusClass = [
         /* ── Layout ── */
         .asgn-layout { display:flex; gap:24px; align-items:flex-start; }
         .asgn-col-search { flex:1 1 0; min-width:0; }
-        .asgn-col-form   { width:340px; flex-shrink:0; }
-        @media (max-width:900px) {
+        .asgn-col-form   { flex:1 1 0; min-width:0; }
+        @media (max-width:1100px) {
             .asgn-layout { flex-direction:column; }
             .asgn-col-form { width:100%; }
         }
@@ -698,27 +820,78 @@ $statusClass = [
             font-size:0.95rem; font-weight:700; color:#1d1d1f;
         }
 
-        /* ── Price config ── */
-        .base-btn-group { display:flex; gap:8px; margin-top:4px; }
-        .base-btn {
-            flex:1; padding:8px 10px; border:1.5px solid #d0d0d5;
-            border-radius:8px; background:#fff; cursor:pointer;
-            font-size:0.88rem; font-weight:500; text-align:center;
-            transition:border-color 0.15s, background 0.15s;
+        /* ── Form field styles (matches global input-wrap pattern) ── */
+        .form-label {
+            display:block; font-size:0.8125rem; font-weight:600;
+            color:var(--color-text-muted); margin-bottom:6px; letter-spacing:0.01em;
         }
-        .base-btn:hover { border-color:#0071e3; }
-        .base-btn.selected { background:#0071e3; border-color:#0071e3; color:#fff; }
+        .form-input {
+            width:100%; height:48px; padding:0 16px;
+            font-family:var(--font-system); font-size:0.9375rem; color:var(--color-text);
+            background:#f9f9fb; border:1.5px solid var(--color-border);
+            border-radius:var(--radius-input); outline:none; box-sizing:border-box;
+            transition:border-color var(--transition),background var(--transition),box-shadow var(--transition);
+            -webkit-appearance:none; appearance:none;
+        }
+        .form-input:hover { border-color:#b0b0b8; }
+        .form-input:focus {
+            background:#fff; border-color:var(--color-border-focus);
+            box-shadow:0 0 0 3px rgba(0,113,227,0.15);
+        }
+        textarea.form-input { height:auto; padding:12px 16px; resize:vertical; }
+        select.form-input {
+            background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236e6e73' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+            background-repeat:no-repeat; background-position:right 14px center; cursor:pointer;
+        }
+        .form-help { font-size:0.8rem; color:var(--color-text-muted); margin-top:5px; display:block; }
+        .form-group { margin-bottom:18px; }
+
+        /* ── Form section dividers ── */
+        .asgn-form-section { margin-bottom:24px; padding-bottom:8px; }
+        .asgn-form-section-title {
+            font-size:0.75rem; font-weight:700; text-transform:uppercase;
+            letter-spacing:0.07em; color:#6e6e73;
+            padding-bottom:8px; margin-bottom:16px;
+            border-bottom:1.5px solid #e5e5ea;
+            display:flex; align-items:center; gap:7px;
+        }
+        .asgn-form-section-title svg { flex-shrink:0; opacity:0.6; }
+
+        /* ── Price config ── */
+        .base-btn-group { display:flex; gap:8px; margin-top:6px; }
+        .base-btn {
+            flex:1; height:44px; padding:0 14px;
+            border:1.5px solid var(--color-border);
+            border-radius:var(--radius-input); background:#f9f9fb; cursor:pointer;
+            font-size:0.9rem; font-weight:500; text-align:center;
+            transition:border-color 0.15s, background 0.15s, color 0.15s;
+        }
+        .base-btn:hover { border-color:var(--color-accent); background:#eaf4ff; }
+        .base-btn.selected { background:var(--color-accent); border-color:var(--color-accent); color:#fff; font-weight:600; }
         .profit-grid { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
         .profit-btn {
-            padding:5px 12px; border:1.5px solid #d0d0d5; border-radius:16px;
-            background:#fff; cursor:pointer; font-size:0.85rem;
-            transition:border-color 0.15s, background 0.15s;
+            height:36px; padding:0 16px;
+            border:1.5px solid var(--color-border); border-radius:18px;
+            background:#f9f9fb; cursor:pointer; font-size:0.85rem; font-weight:500;
+            white-space:nowrap;
+            transition:border-color 0.15s, background 0.15s, color 0.15s;
         }
-        .profit-btn:hover { border-color:#0071e3; }
-        .profit-btn.selected { background:#0071e3; border-color:#0071e3; color:#fff; font-weight:600; }
-        .free-profit-row { display:none; align-items:center; gap:6px; margin-top:6px; }
+        .profit-btn:hover { border-color:var(--color-accent); background:#eaf4ff; }
+        .profit-btn.selected { background:var(--color-accent); border-color:var(--color-accent); color:#fff; font-weight:600; }
+        .free-profit-row { display:none; align-items:center; gap:8px; margin-top:8px; }
         .free-profit-row.visible { display:flex; }
-        .free-profit-input { width:80px; padding:5px 9px; border:1.5px solid #d0d0d5; border-radius:6px; font-size:0.9rem; }
+        .free-profit-input {
+            flex:1; height:44px; padding:0 14px;
+            border:1.5px solid var(--color-border); border-radius:var(--radius-input);
+            background:#f9f9fb; font-size:0.9rem; outline:none; box-sizing:border-box;
+            font-family:var(--font-system);
+            transition:border-color var(--transition),background var(--transition);
+        }
+        .free-profit-input:focus {
+            background:#fff; border-color:var(--color-border-focus);
+            box-shadow:0 0 0 3px rgba(0,113,227,0.15);
+        }
+        .fee-unit-label { font-size:0.9rem; font-weight:600; color:#6e6e73; flex-shrink:0; }
 
         /* ── Action buttons on list ── */
         .asgn-actions { display:flex; gap:4px; flex-wrap:wrap; }
@@ -735,20 +908,138 @@ $statusClass = [
         /* ── Result stats bar ── */
         .result-stats { font-size:0.83rem; color:#666; margin-bottom:6px; }
 
-        /* ── Link result box ── */
+        /* ── Link result box (elegant card + QR) ── */
         .link-result-box {
-            background:#f0fff4; border:1.5px solid #68d391;
-            border-radius:10px; padding:16px 20px; margin-bottom:20px;
+            margin-bottom:22px;
+            border-radius:16px;
+            border:1.5px solid #b8d6f5;
+            background:
+                radial-gradient(900px 220px at -10% -40%, rgba(0,113,227,0.17), rgba(0,113,227,0) 55%),
+                linear-gradient(135deg, #f7fbff 0%, #eef6ff 44%, #f9fcff 100%);
+            box-shadow:0 8px 24px rgba(0, 65, 130, 0.09);
+            padding:18px;
         }
-        .link-result-box h3 { margin:0 0 8px; font-size:0.97rem; color:#276749; }
+        .link-result-header {
+            display:flex; align-items:center; justify-content:space-between; gap:14px;
+            margin-bottom:12px;
+        }
+        .link-result-title {
+            margin:0; font-size:1rem; color:#154273; display:flex; align-items:center; gap:8px;
+        }
+        .link-result-sub {
+            margin:2px 0 0; font-size:0.82rem; color:#4d6480;
+        }
+        .link-result-body {
+            display:grid; grid-template-columns:minmax(0, 1fr) 230px;
+            gap:16px;
+        }
+        @media (max-width:960px) {
+            .link-result-body { grid-template-columns:1fr; }
+        }
         .link-copy-row { display:flex; gap:8px; }
         .link-copy-input {
-            flex:1; padding:7px 10px; border:1px solid #b2dfdb;
-            border-radius:6px; font-size:0.83rem; font-family:monospace;
+            flex:1; height:44px; padding:0 14px;
+            border:1.5px solid #c5d9f0;
+            border-radius:10px;
+            font-size:0.85rem; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
             overflow:hidden; text-overflow:ellipsis; white-space:nowrap; background:#fff;
+            color:#0b335f;
         }
-        .link-meta { margin-top:8px; font-size:0.83rem; color:#444; display:flex; flex-wrap:wrap; gap:12px; }
-        .link-meta span strong { margin-right:3px; }
+        .link-meta {
+            margin-top:10px; font-size:0.83rem; color:#264869;
+            display:flex; flex-wrap:wrap; gap:10px;
+        }
+        .link-meta-chip {
+            display:inline-flex; align-items:center; gap:6px;
+            background:#ffffffc7; border:1px solid #d7e6f5;
+            border-radius:999px; padding:6px 12px;
+        }
+        .link-meta-chip strong { color:#153f6f; }
+        .link-share-row {
+            display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;
+        }
+        .link-share-form {
+            margin-top:10px;
+            display:flex; gap:8px; align-items:center;
+            max-width:640px;
+        }
+        .link-share-email {
+            flex:1 1 380px; min-width:300px;
+            height:42px; padding:0 12px;
+            border:1.5px solid #c5d9f0;
+            border-radius:10px;
+            background:#fff;
+            font-size:0.86rem;
+        }
+        .link-share-form .btn-share-email {
+            width:auto;
+            height:42px;
+            margin-top:0;
+            padding:0 12px;
+            font-size:0.8rem;
+            font-weight:700;
+            border-radius:10px;
+            flex-shrink:0;
+            border:none;
+            color:#fff;
+            background:#0071e3;
+            cursor:pointer;
+            white-space:nowrap;
+            letter-spacing:0.01em;
+            transition:background 0.15s, box-shadow 0.15s;
+        }
+        .link-share-form .btn-share-email:hover { background:#0a62be; box-shadow:0 4px 14px rgba(0,113,227,0.28); }
+        .link-share-form .btn-share-email:active { transform:translateY(1px); }
+        .btn-whatsapp-share {
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            gap:8px;
+            height:42px;
+            padding:0 16px;
+            border-radius:10px;
+            border:1px solid #1fa855;
+            background:#25d366;
+            color:#fff;
+            text-decoration:none;
+            font-size:0.84rem;
+            font-weight:700;
+            line-height:1;
+            transition:background 0.15s, box-shadow 0.15s, border-color 0.15s;
+        }
+        .btn-whatsapp-share:hover {
+            background:#1ebe5d;
+            border-color:#179c4b;
+            box-shadow:0 4px 14px rgba(37,211,102,0.35);
+        }
+        @media (max-width:680px) {
+            .link-share-form { flex-direction:column; align-items:stretch; max-width:none; }
+            .link-share-email { min-width:0; width:100%; }
+            .link-share-form .btn-share-email { width:100%; }
+        }
+        .share-badge {
+            margin-top:10px; display:inline-flex; align-items:center;
+            padding:7px 12px; border-radius:999px; font-size:0.82rem;
+            font-weight:600;
+        }
+        .share-badge--success { background:#eaf9ef; color:#256d41; border:1px solid #b8ebc9; }
+        .share-badge--error { background:#ffeef0; color:#a3293d; border:1px solid #ffccd5; }
+        .share-badge--info { background:#eef5ff; color:#1f4f8a; border:1px solid #c9dcf5; }
+
+        .link-qr-card {
+            background:#fff;
+            border:1.5px solid #d4e2f3;
+            border-radius:14px;
+            padding:12px;
+            text-align:center;
+        }
+        .link-qr-img {
+            width:100%; max-width:200px; aspect-ratio:1/1; object-fit:contain;
+            border-radius:10px; border:1px solid #e6effa; background:#fff;
+        }
+        .link-qr-caption {
+            margin-top:8px; font-size:0.8rem; color:#456180;
+        }
 
         /* ── Regen modal ── */
         .asgn-modal-overlay {
@@ -802,32 +1093,96 @@ $statusClass = [
 
         <!-- ── Generated link result (flash) ── -->
         <?php if ($newLink): ?>
+        <?php
+            $itemsCountForCard = $newItemsCount !== null
+                ? (int)$newItemsCount
+                : count($newItems);
+            $itemsTotalForCard = $newItemsTotal !== null
+                ? (float)$newItemsTotal
+                : (float)array_sum(array_column($newItems, 'price'));
+            $qrImageUrl = buildQuoteQrUrl($newLink, 320);
+            $waMessage = sprintf(
+                t('asgn_link_whatsapp_template'),
+                (string)($newCustomer ?: '-'),
+                (string)$newLink,
+                (string)$qrImageUrl
+            );
+            $waShareUrl = 'https://wa.me/?text=' . rawurlencode($waMessage);
+        ?>
         <div class="link-result-box">
-            <h3>&#10004; <?= $esc(t('asgn_link_title')) ?></h3>
-            <div class="link-copy-row">
-                <input type="text" class="link-copy-input" id="generatedLink"
-                       value="<?= $esc($newLink) ?>" readonly onclick="this.select()">
-                <button type="button" class="btn-secondary btn-sm" onclick="copyAssignmentLink()">
-                    <?= $esc(t('asgn_link_copy')) ?>
-                </button>
+            <div class="link-result-header">
+                <div>
+                    <h3 class="link-result-title">&#10004; <?= $esc(t('asgn_link_title')) ?></h3>
+                    <p class="link-result-sub"><?= $esc(t('asgn_link_share_title')) ?></p>
+                </div>
             </div>
-            <div class="link-meta">
-                <span><strong><?= $esc(t('asgn_link_client')) ?></strong><?= $esc($newCustomer) ?></span>
-                <?php if ($newCompany): ?>
-                <span><strong><?= $esc(t('quote_company_label')) ?>:</strong><?= $esc($newCompany) ?></span>
-                <?php endif; ?>
-                <?php if (!empty($newItems)): ?>
-                <span>
-                    <strong><?= $esc(t('asgn_col_items')) ?>:</strong>
-                    <?= count($newItems) ?> —
-                    <?= $esc(t('quote_total_label')) ?>:
-                    <?php
-                    $itemsTotal = array_sum(array_column($newItems, 'price'));
-                    echo $esc($fmtPrice($itemsTotal));
-                    ?>
-                </span>
-                <?php endif; ?>
-                <span><strong><?= $esc(t('asgn_link_expires')) ?></strong><?= $esc(date('d/m/Y H:i', strtotime($newExpires))) ?></span>
+
+            <div class="link-result-body">
+                <div>
+                    <div class="link-copy-row">
+                        <input type="text" class="link-copy-input" id="generatedLink"
+                               value="<?= $esc($newLink) ?>" readonly onclick="this.select()">
+                        <button type="button" class="btn-secondary btn-sm" onclick="copyAssignmentLink()">
+                            <?= $esc(t('asgn_link_copy')) ?>
+                        </button>
+                    </div>
+
+                    <div class="link-meta">
+                        <span class="link-meta-chip"><strong><?= $esc(t('asgn_link_client')) ?></strong><?= $esc($newCustomer) ?></span>
+                        <?php if ($newCompany): ?>
+                        <span class="link-meta-chip"><strong><?= $esc(t('quote_company_label')) ?>:</strong><?= $esc($newCompany) ?></span>
+                        <?php endif; ?>
+                        <?php if ($itemsCountForCard > 0): ?>
+                        <span class="link-meta-chip">
+                            <strong><?= $esc(t('asgn_col_items')) ?>:</strong>
+                            <?= $itemsCountForCard ?> · <?= $esc($fmtPrice($itemsTotalForCard)) ?>
+                        </span>
+                        <?php endif; ?>
+                        <?php if ($newExpires): ?>
+                        <span class="link-meta-chip"><strong><?= $esc(t('asgn_link_expires')) ?></strong><?= $esc(date('d/m/Y H:i', strtotime($newExpires))) ?></span>
+                        <?php endif; ?>
+                    </div>
+
+                    <div class="link-share-row">
+                        <a class="btn-whatsapp-share" href="<?= $esc($waShareUrl) ?>" target="_blank" rel="noopener noreferrer">
+                            <?= $esc(t('asgn_link_send_whatsapp_btn')) ?>
+                        </a>
+                    </div>
+
+                    <form method="POST" action="/login/admin/assignments.php" class="link-share-form">
+                        <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
+                        <input type="hidden" name="action" value="send_assignment_qr">
+                        <input type="hidden" name="share_link" value="<?= $esc($newLink) ?>">
+                        <input type="hidden" name="share_customer" value="<?= $esc($newCustomer) ?>">
+                        <input type="hidden" name="share_company" value="<?= $esc($newCompany) ?>">
+                        <input type="hidden" name="share_expires" value="<?= $esc((string)$newExpires) ?>">
+                        <input type="hidden" name="share_item_count" value="<?= $itemsCountForCard ?>">
+                        <input type="hidden" name="share_items_total" value="<?= $esc((string)round($itemsTotalForCard, 2)) ?>">
+                        <input type="email"
+                               name="share_email"
+                               class="link-share-email"
+                               maxlength="190"
+                               required
+                               placeholder="<?= $esc(t('asgn_link_email_placeholder')) ?>">
+                        <button type="submit" class="btn-share-email" title="<?= $esc(t('asgn_link_send_email_btn')) ?>">
+                            <?= $esc(t('asgn_link_send_email_btn')) ?>
+                        </button>
+                    </form>
+
+                    <?php if ($shareFeedback): ?>
+                    <div class="share-badge share-badge--<?= $esc($shareFeedbackType) ?>">
+                        <?= $esc($shareFeedback) ?>
+                    </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="link-qr-card">
+                    <img class="link-qr-img"
+                         src="<?= $esc($qrImageUrl) ?>"
+                         alt="QR"
+                         loading="lazy">
+                    <div class="link-qr-caption"><?= $esc(t('asgn_link_qr_label')) ?></div>
+                </div>
             </div>
         </div>
         <?php endif; ?>
@@ -860,7 +1215,9 @@ $statusClass = [
                 <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
                 <input type="hidden" name="action" value="create_assignment">
                 <input type="hidden" name="price_base_type" id="price_base_type" value="">
+                <input type="hidden" name="profit_calculation_type" id="profit_calculation_type" value="">
                 <input type="hidden" name="profit_percentage" id="profit_percentage" value="">
+                <input type="hidden" name="profit_fixed_amount" id="profit_fixed_amount" value="">
                 <input type="hidden" name="transport_calculation_type" id="transport_calculation_type" value="">
                 <input type="hidden" name="transport_percentage" id="transport_percentage" value="">
                 <input type="hidden" name="transport_fixed_amount" id="transport_fixed_amount" value="">
@@ -869,6 +1226,7 @@ $statusClass = [
                 <input type="hidden" name="tax_fixed_amount" id="tax_fixed_amount" value="">
                 <input type="hidden" name="validity_amount" id="validity_amount" value="7">
                 <input type="hidden" name="validity_unit" id="validity_unit" value="days">
+                <input type="hidden" name="max_visits" id="max_visits" value="">
                 <!-- product_ids[] populated by JS before submit -->
 
                 <div class="asgn-layout">
@@ -955,171 +1313,211 @@ $statusClass = [
                             <div id="selectedList"></div>
                         </div>
 
-                        <!-- Price configuration -->
-                        <div class="form-group">
-                            <label class="form-label"><?= $esc(t('asgn_price_config_title')) ?></label>
-                            <div class="base-btn-group">
-                                <button type="button" class="base-btn" id="btn-fob"
-                                        onclick="selectBase('fob')">
-                                    <?= $esc(t('asgn_btn_fob')) ?>
-                                </button>
-                                <button type="button" class="base-btn" id="btn-cif"
-                                        onclick="selectBase('cif')">
-                                    <?= $esc(t('asgn_btn_cif')) ?>
-                                </button>
+                        <!-- ── SECCIÓN: Precio base y ganancia ── -->
+                        <div class="asgn-form-section">
+                            <div class="asgn-form-section-title">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><path d="M12 6v6l4 2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                <?= $esc(t('asgn_price_config_title')) ?>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label"><?= $esc(t('asgn_price_config_title')) ?></label>
+                                <div class="base-btn-group">
+                                    <button type="button" class="base-btn" id="btn-fob"
+                                            onclick="selectBase('fob')">
+                                        <?= $esc(t('asgn_btn_fob')) ?>
+                                    </button>
+                                    <button type="button" class="base-btn" id="btn-cif"
+                                            onclick="selectBase('cif')">
+                                        <?= $esc(t('asgn_btn_cif')) ?>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label"><?= $esc(t('asgn_profit_label')) ?></label>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                    <button type="button" class="profit-btn" id="btn-profit-none"
+                                            onclick="selectProfit('none')">
+                                        <?= $esc(t('asgn_calc_type_none')) ?>
+                                    </button>
+                                    <button type="button" class="profit-btn" id="btn-profit-pct"
+                                            onclick="selectProfit('percentage')">
+                                        <?= $esc(t('asgn_calc_type_percentage')) ?>
+                                    </button>
+                                    <button type="button" class="profit-btn" id="btn-profit-amt"
+                                            onclick="selectProfit('fixed_amount')">
+                                        <?= $esc(t('asgn_calc_type_specific')) ?>
+                                    </button>
+                                </div>
+                                <div class="free-profit-row" id="profitPctRow">
+                                    <input type="number" class="free-profit-input" id="profitPctInput"
+                                           min="0" max="999" step="0.01" placeholder="0"
+                                           oninput="onProfitChange('percentage')">
+                                    <span class="fee-unit-label">%</span>
+                                </div>
+                                <div class="free-profit-row" id="profitAmtRow">
+                                    <span class="fee-unit-label">$</span>
+                                    <input type="number" class="free-profit-input" id="profitAmtInput"
+                                           min="0" max="999999" step="0.01" placeholder="0.00"
+                                           oninput="onProfitChange('fixed_amount')">
+                                </div>
                             </div>
                         </div>
 
-                        <div class="form-group">
-                            <label class="form-label"><?= $esc(t('asgn_profit_label')) ?></label>
-                            <div class="profit-grid">
-                                <?php foreach ([5, 10, 15, 20, 30] as $pct): ?>
-                                <button type="button" class="profit-btn" data-pct="<?= $pct ?>"
-                                        onclick="selectProfit(<?= $pct ?>)">
-                                    <?= $pct ?>%
-                                </button>
-                                <?php endforeach; ?>
-                                <button type="button" class="profit-btn" id="btn-free-profit"
-                                        onclick="selectFreeProfit()">
-                                    <?= $esc(t('asgn_btn_free_profit')) ?>
-                                </button>
+                        <!-- ── SECCIÓN: Cargos adicionales ── -->
+                        <div class="asgn-form-section">
+                            <div class="asgn-form-section-title">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 17l4-8 4 4 4-6 4 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                                <?= $esc(t('asgn_section_transport')) ?> &amp; <?= $esc(t('asgn_section_tax')) ?>
                             </div>
-                            <div class="free-profit-row" id="freeProfitRow">
-                                <input type="number" class="free-profit-input" id="freeProfitInput"
-                                       min="0" max="999" step="1" placeholder="0"
-                                       oninput="onFreeProfitChange(this)">
-                                <span style="font-size:0.85rem;color:#555;">%</span>
+
+                            <div class="form-group">
+                                <label class="form-label"><?= $esc(t('asgn_section_transport')) ?></label>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                    <button type="button" class="profit-btn" id="btn-transport-none"
+                                            onclick="selectTransport('none')">
+                                        <?= $esc(t('asgn_calc_type_none')) ?>
+                                    </button>
+                                    <button type="button" class="profit-btn" id="btn-transport-pct"
+                                            onclick="selectTransport('percentage')">
+                                        <?= $esc(t('asgn_calc_type_percentage')) ?>
+                                    </button>
+                                    <button type="button" class="profit-btn" id="btn-transport-amt"
+                                            onclick="selectTransport('fixed_amount')">
+                                        <?= $esc(t('asgn_calc_type_specific')) ?>
+                                    </button>
+                                </div>
+                                <div class="free-profit-row" id="transportPctRow">
+                                    <input type="number" class="free-profit-input" id="transportPctInput"
+                                           min="0" max="100" step="0.01" placeholder="0"
+                                           oninput="onTransportChange('percentage')">
+                                    <span class="fee-unit-label">%</span>
+                                </div>
+                                <div class="free-profit-row" id="transportAmtRow">
+                                    <span class="fee-unit-label">$</span>
+                                    <input type="number" class="free-profit-input" id="transportAmtInput"
+                                           min="0" max="999999" step="0.01" placeholder="0.00"
+                                           oninput="onTransportChange('fixed_amount')">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label class="form-label"><?= $esc(t('asgn_section_tax')) ?></label>
+                                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                                    <button type="button" class="profit-btn" id="btn-tax-none"
+                                            onclick="selectTax('none')">
+                                        <?= $esc(t('asgn_calc_type_none')) ?>
+                                    </button>
+                                    <button type="button" class="profit-btn" id="btn-tax-pct"
+                                            onclick="selectTax('percentage')">
+                                        <?= $esc(t('asgn_calc_type_percentage')) ?>
+                                    </button>
+                                    <button type="button" class="profit-btn" id="btn-tax-amt"
+                                            onclick="selectTax('fixed_amount')">
+                                        <?= $esc(t('asgn_calc_type_specific')) ?>
+                                    </button>
+                                </div>
+                                <div class="free-profit-row" id="taxPctRow">
+                                    <input type="number" class="free-profit-input" id="taxPctInput"
+                                           min="0" max="100" step="0.01" placeholder="0"
+                                           oninput="onTaxChange('percentage')">
+                                    <span class="fee-unit-label">%</span>
+                                </div>
+                                <div class="free-profit-row" id="taxAmtRow">
+                                    <span class="fee-unit-label">$</span>
+                                    <input type="number" class="free-profit-input" id="taxAmtInput"
+                                           min="0" max="999999" step="0.01" placeholder="0.00"
+                                           oninput="onTaxChange('fixed_amount')">
+                                </div>
                             </div>
                         </div>
 
-                        <!-- TRANSPORT SECTION -->
-                        <div class="form-group">
-                            <label class="form-label"><?= $esc(t('asgn_section_transport')) ?></label>
-                            <div style="display:flex;gap:8px;margin-top:6px;">
-                                <button type="button" class="profit-btn" id="btn-transport-none" 
-                                        onclick="selectTransport('none')">
-                                    <?= $esc(t('asgn_calc_type_none')) ?>
-                                </button>
-                                <button type="button" class="profit-btn" id="btn-transport-pct"
-                                        onclick="selectTransport('percentage')">
-                                    <?= $esc(t('asgn_calc_type_percentage')) ?>
-                                </button>
-                                <button type="button" class="profit-btn" id="btn-transport-amt"
-                                        onclick="selectTransport('fixed_amount')">
-                                    <?= $esc(t('asgn_calc_type_specific')) ?>
-                                </button>
+                        <!-- ── SECCIÓN: Vigencia y límites ── -->
+                        <div class="asgn-form-section">
+                            <div class="asgn-form-section-title">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="18" rx="2" stroke="currentColor" stroke-width="2"/><path d="M16 2v4M8 2v4M3 10h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                <?= $esc(t('asgn_section_validity')) ?>
                             </div>
-                            <div class="free-profit-row" id="transportPctRow" style="display:none;margin-top:8px;">
-                                <input type="number" class="free-profit-input" id="transportPctInput"
-                                       min="0" max="100" step="0.01" placeholder="0"
-                                       oninput="onTransportChange('percentage')">
-                                <span style="font-size:0.85rem;color:#555;">%</span>
-                            </div>
-                            <div class="free-profit-row" id="transportAmtRow" style="display:none;margin-top:8px;">
-                                <span style="font-size:0.85rem;color:#555;">$</span>
-                                <input type="number" class="free-profit-input" id="transportAmtInput"
-                                       min="0" max="999999" step="0.01" placeholder="0.00"
-                                       oninput="onTransportChange('fixed_amount')"
-                                       style="flex:1;margin:0 6px;">
-                            </div>
-                        </div>
 
-                        <!-- TAX SECTION -->
-                        <div class="form-group">
-                            <label class="form-label"><?= $esc(t('asgn_section_tax')) ?></label>
-                            <div style="display:flex;gap:8px;margin-top:6px;">
-                                <button type="button" class="profit-btn" id="btn-tax-none"
-                                        onclick="selectTax('none')">
-                                    <?= $esc(t('asgn_calc_type_none')) ?>
-                                </button>
-                                <button type="button" class="profit-btn" id="btn-tax-pct"
-                                        onclick="selectTax('percentage')">
-                                    <?= $esc(t('asgn_calc_type_percentage')) ?>
-                                </button>
-                                <button type="button" class="profit-btn" id="btn-tax-amt"
-                                        onclick="selectTax('fixed_amount')">
-                                    <?= $esc(t('asgn_calc_type_specific')) ?>
-                                </button>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <?= $esc(t('asgn_section_validity')) ?>
+                                </label>
+                                <div style="display:flex;gap:10px;">
+                                    <input type="number" id="validityAmount" name="validity_amount"
+                                           class="form-input" min="1" max="168" value="7" step="1"
+                                           oninput="onValidityChange()" style="width:90px;text-align:center;">
+                                    <select id="validityUnit" name="validity_unit"
+                                            class="form-input" style="flex:1;" onchange="onValidityChange()">
+                                        <option value="hours"><?= $esc(t('asgn_validity_unit_hours')) ?></option>
+                                        <option value="days" selected><?= $esc(t('asgn_validity_unit_days')) ?></option>
+                                    </select>
+                                </div>
+                                <span class="form-help"><?= $esc(t('asgn_validity_help')) ?></span>
+                                <div id="validityPreview" style="margin-top:5px;font-size:0.82rem;color:#0071e3;font-weight:500;"></div>
                             </div>
-                            <div class="free-profit-row" id="taxPctRow" style="display:none;margin-top:8px;">
-                                <input type="number" class="free-profit-input" id="taxPctInput"
-                                       min="0" max="100" step="0.01" placeholder="0"
-                                       oninput="onTaxChange('percentage')">
-                                <span style="font-size:0.85rem;color:#555;">%</span>
-                            </div>
-                            <div class="free-profit-row" id="taxAmtRow" style="display:none;margin-top:8px;">
-                                <span style="font-size:0.85rem;color:#555;">$</span>
-                                <input type="number" class="free-profit-input" id="taxAmtInput"
-                                       min="0" max="999999" step="0.01" placeholder="0.00"
-                                       oninput="onTaxChange('fixed_amount')"
-                                       style="flex:1;margin:0 6px;">
+
+                            <div class="form-group">
+                                <label class="form-label" for="maxVisitsInput">
+                                    <?= $esc(t('asgn_max_visits_label')) ?>
+                                </label>
+                                <input type="number" id="maxVisitsInput" class="form-input"
+                                       min="1" max="999999"
+                                       placeholder="<?= $esc(t('asgn_max_visits_ph')) ?>"
+                                       oninput="onMaxVisitsChange()">
+                                <span class="form-help"><?= $esc(t('asgn_max_visits_help')) ?></span>
                             </div>
                         </div>
 
-                        <!-- VALIDITY SECTION -->
-                        <div class="form-group">
-                            <label class="form-label"><?= $esc(t('asgn_section_validity')) ?></label>
-                            <div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px;">
-                                <input type="number" id="validityAmount" name="validity_amount"
-                                       class="form-input" min="1" max="168" value="7" step="1"
-                                       style="width:70px;padding:6px 8px;"
-                                       oninput="onValidityChange()">
-                                <select id="validityUnit" name="validity_unit"
-                                        class="form-input" style="flex:1;padding:6px 8px;"
-                                        onchange="onValidityChange()">
-                                    <option value="hours"><?= $esc(t('asgn_validity_unit_hours')) ?></option>
-                                    <option value="days" selected><?= $esc(t('asgn_validity_unit_days')) ?></option>
-                                </select>
+                        <!-- ── SECCIÓN: Información del cliente ── -->
+                        <div class="asgn-form-section">
+                            <div class="asgn-form-section-title">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="4" stroke="currentColor" stroke-width="2"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+                                <?= $esc(t('asgn_customer_label')) ?>
                             </div>
-                            <span class="form-help"><?= $esc(t('asgn_validity_help')) ?></span>
-                            <div id="validityPreview" style="margin-top:6px;font-size:0.85rem;color:#666;"></div>
-                        </div>
 
-                        <!-- Customer name -->
-                        <div class="form-group">
-                            <label class="form-label" for="customer_name">
-                                <?= $esc(t('asgn_customer_label')) ?> <span style="color:#e74c3c;">*</span>
-                            </label>
-                            <input type="text" id="customer_name" name="customer_name"
-                                   class="form-input" maxlength="200" required
-                                   placeholder="<?= $esc(t('asgn_customer_ph')) ?>">
-                        </div>
+                            <div class="form-group">
+                                <label class="form-label" for="customer_name">
+                                    <?= $esc(t('asgn_customer_label')) ?> <span style="color:#e74c3c;">*</span>
+                                </label>
+                                <input type="text" id="customer_name" name="customer_name"
+                                       class="form-input" maxlength="200" required
+                                       placeholder="<?= $esc(t('asgn_customer_ph')) ?>">
+                            </div>
 
-                        <!-- Company (optional) -->
-                        <div class="form-group">
-                            <label class="form-label" for="company_name">
-                                <?= $esc(t('asgn_field_company')) ?>
-                            </label>
-                            <input type="text" id="company_name" name="company_name"
-                                   class="form-input" maxlength="200"
-                                   placeholder="<?= $esc(t('asgn_field_company_ph')) ?>">
-                        </div>
+                            <div class="form-group">
+                                <label class="form-label" for="company_name">
+                                    <?= $esc(t('asgn_field_company')) ?>
+                                </label>
+                                <input type="text" id="company_name" name="company_name"
+                                       class="form-input" maxlength="200"
+                                       placeholder="<?= $esc(t('asgn_field_company_ph')) ?>">
+                            </div>
 
-                        <!-- Special conditions (optional) -->
-                        <div class="form-group">
-                            <label class="form-label" for="special_conditions">
-                                <?= $esc(t('asgn_field_conditions')) ?>
-                            </label>
-                            <textarea id="special_conditions" name="special_conditions"
-                                      class="form-input" rows="3" maxlength="2000"
-                                      placeholder="<?= $esc(t('asgn_field_conditions_ph')) ?>"
-                                      style="resize:vertical;min-height:60px;"></textarea>
-                        </div>
+                            <div class="form-group">
+                                <label class="form-label" for="special_conditions">
+                                    <?= $esc(t('asgn_field_conditions')) ?>
+                                </label>
+                                <textarea id="special_conditions" name="special_conditions"
+                                          class="form-input" rows="3" maxlength="2000"
+                                          placeholder="<?= $esc(t('asgn_field_conditions_ph')) ?>"></textarea>
+                            </div>
 
-                        <!-- Discount (optional) -->
-                        <div class="form-group">
-                            <label class="form-label" for="discount_percentage">
-                                <?= $esc(t('asgn_field_discount')) ?>
-                            </label>
-                            <input type="number" id="discount_percentage" name="discount_percentage"
-                                   class="form-input" min="0" max="100" step="0.01"
-                                   placeholder="<?= $esc(t('asgn_field_discount_ph')) ?>"
-                                   oninput="updateSelectedPanel()">
-                            <span class="form-help"><?= $esc(t('asgn_field_discount_hint')) ?></span>
+                            <div class="form-group">
+                                <label class="form-label" for="discount_percentage">
+                                    <?= $esc(t('asgn_field_discount')) ?>
+                                </label>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <input type="number" id="discount_percentage" name="discount_percentage"
+                                           class="form-input" min="0" max="100" step="0.01"
+                                           placeholder="<?= $esc(t('asgn_field_discount_ph')) ?>"
+                                           oninput="updateSelectedPanel()">
+                                    <span class="fee-unit-label">%</span>
+                                </div>
+                                <span class="form-help"><?= $esc(t('asgn_field_discount_hint')) ?></span>
+                            </div>
                         </div>
-
-                        <!-- Validity -->
-                        <!-- Now handled above with dynamic selector -->
 
                         <div class="form-actions">
                             <button type="submit" class="btn-primary" id="submitBtn">
@@ -1598,14 +1996,25 @@ $statusClass = [
         }
         panel.style.display = 'block';
 
+        // Read profit from DOM
+        var profitType = document.getElementById('profit_calculation_type').value || '';
+        var profitPct = parseFloat(document.getElementById('profit_percentage').value) || 0;
+        var profitAmt = parseFloat(document.getElementById('profit_fixed_amount').value) || 0;
+
         var subtotal = 0;
         var html     = '';
         ids.forEach(function(id) {
             var p     = selectedProducts[id];
             var base  = selectedBase === 'fob' ? p.price_fob : (selectedBase === 'cif' ? p.price_cif : null);
-            var price = (base !== null && selectedProfit !== null)
-                        ? Math.round(base * (1 + selectedProfit / 100) * 100) / 100
-                        : null;
+            var price = null;
+            
+            if (base !== null && profitType) {
+                if (profitType === 'percentage') {
+                    price = Math.round(base * (1 + profitPct / 100) * 100) / 100;
+                } else if (profitType === 'fixed_amount') {
+                    price = Math.round((base + profitAmt) * 100) / 100;
+                }
+            }
             subtotal += price !== null ? price : 0;
 
             html += '<div class="selected-item">';
@@ -1649,45 +2058,44 @@ $statusClass = [
         updateSelectedPanel();
     }
 
-    function selectProfit(pct) {
-        selectedProfit = pct;
-        document.getElementById('profit_percentage').value = pct;
-        document.querySelectorAll('.profit-btn').forEach(function(b) {
-            b.classList.toggle('selected', b.dataset.pct == pct);
-        });
-        document.getElementById('btn-free-profit').classList.remove('selected');
-        document.getElementById('freeProfitRow').classList.remove('visible');
-        updateSelectedPanel();
-    }
-
-    function selectFreeProfit() {
-        document.querySelectorAll('.profit-btn').forEach(function(b) { b.classList.remove('selected'); });
-        document.getElementById('btn-free-profit').classList.add('selected');
-        document.getElementById('freeProfitRow').classList.add('visible');
-        var inp = document.getElementById('freeProfitInput');
-        inp.focus(); inp.select();
-        var val = parseFloat(inp.value);
-        if (!isNaN(val) && val >= 0 && val <= 999) {
-            selectedProfit = val;
-            document.getElementById('profit_percentage').value = val;
-        } else {
-            selectedProfit = null;
-            document.getElementById('profit_percentage').value = '';
+    function selectProfit(type) {
+        document.getElementById('profit_calculation_type').value = type !== 'none' ? type : '';
+        document.getElementById('profit_percentage').value = '';
+        document.getElementById('profit_fixed_amount').value = '';
+        
+        // Hide both rows
+        document.getElementById('profitPctRow').style.display = 'none';
+        document.getElementById('profitAmtRow').style.display = 'none';
+        
+        // Update button states
+        document.getElementById('btn-profit-none').classList.toggle('selected', type === 'none');
+        document.getElementById('btn-profit-pct').classList.toggle('selected', type === 'percentage');
+        document.getElementById('btn-profit-amt').classList.toggle('selected', type === 'fixed_amount');
+        
+        // Show appropriate input
+        if (type === 'percentage') {
+            document.getElementById('profitPctRow').style.display = 'flex';
+            document.getElementById('profitPctInput').focus();
+        } else if (type === 'fixed_amount') {
+            document.getElementById('profitAmtRow').style.display = 'flex';
+            document.getElementById('profitAmtInput').focus();
         }
         updateSelectedPanel();
     }
 
-    function onFreeProfitChange(input) {
-        var val = input.value.replace(/[^0-9]/g, '');
-        if (val.length > 3) val = val.substring(0, 3);
-        input.value = val;
-        var num = parseInt(val, 10);
-        if (!isNaN(num) && num >= 0 && num <= 999) {
-            selectedProfit = num;
-            document.getElementById('profit_percentage').value = num;
-        } else {
-            selectedProfit = null;
-            document.getElementById('profit_percentage').value = '';
+    function onProfitChange(type) {
+        if (type === 'percentage') {
+            var val = parseFloat(document.getElementById('profitPctInput').value) || 0;
+            if (val >= 0 && val <= 999) {
+                document.getElementById('profit_percentage').value = val;
+                document.getElementById('profit_fixed_amount').value = '';
+            }
+        } else if (type === 'fixed_amount') {
+            var val = parseFloat(document.getElementById('profitAmtInput').value) || 0;
+            if (val >= 0) {
+                document.getElementById('profit_fixed_amount').value = val.toFixed(2);
+                document.getElementById('profit_percentage').value = '';
+            }
         }
         updateSelectedPanel();
     }
@@ -1809,6 +2217,21 @@ $statusClass = [
     }
 
     // ═══════════════════════════════════════════════════════════
+    //  MAX VISITS CONFIG
+    // ═══════════════════════════════════════════════════════════
+    function onMaxVisitsChange() {
+        var val = document.getElementById('maxVisitsInput').value.trim();
+        if (val === '') {
+            document.getElementById('max_visits').value = '';
+        } else if (isNaN(val) || parseInt(val) <= 0) {
+            document.getElementById('maxVisitsInput').value = '';
+            document.getElementById('max_visits').value = '';
+        } else {
+            document.getElementById('max_visits').value = parseInt(val);
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════
     //  FORM SUBMIT
     // ═══════════════════════════════════════════════════════════
     function prepareFormSubmit() {
@@ -1827,7 +2250,16 @@ $statusClass = [
             alert(<?= json_encode(t('asgn_err_base_invalid')) ?>);
             return false;
         }
-        if (selectedProfit === null) {
+        var profitType = document.getElementById('profit_calculation_type').value;
+        if (!profitType) {
+            alert(<?= json_encode(t('asgn_err_profit_required')) ?>);
+            return false;
+        }
+        if (profitType === 'percentage' && !document.getElementById('profit_percentage').value) {
+            alert(<?= json_encode(t('asgn_err_profit_invalid')) ?>);
+            return false;
+        }
+        if (profitType === 'fixed_amount' && !document.getElementById('profit_fixed_amount').value) {
             alert(<?= json_encode(t('asgn_err_profit_invalid')) ?>);
             return false;
         }
