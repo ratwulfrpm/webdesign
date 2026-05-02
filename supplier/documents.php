@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * /login/supplier/documents.php — Documentos del proveedor
  *
@@ -209,7 +209,7 @@ $initial  = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('tab_documents') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=13">
+    <link rel="stylesheet" href="/login/css/style.css?v=14">
 </head>
 <body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
 
@@ -383,7 +383,7 @@ $initial  = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
                                     <?= $csrfField ?>
                                     <input type="hidden" name="action" value="mark_primary_contract">
                                     <input type="hidden" name="contract_id" value="<?= (int) $c['id'] ?>">
-                                    <button type="submit" class="btn-tbl btn-primary">
+                                    <button type="submit" class="btn-tbl btn-accent">
                                         <?= $esc(t('btn_mark_primary')) ?>
                                     </button>
                                 </form>

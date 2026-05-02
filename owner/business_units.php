@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * /owner/business_units.php — Business Units management for Owner
  *
@@ -237,7 +237,7 @@ $esc       = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('bu_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=13">
+    <link rel="stylesheet" href="/login/css/style.css?v=14">
     <style>
         .bu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px,1fr)); gap: 20px; margin-top: 20px; }
         .bu-card { background: var(--card-bg, #fff); border: 1px solid var(--border, #e5e7eb); border-radius: 10px; padding: 20px; }

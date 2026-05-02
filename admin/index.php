@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 /**
  * /login/admin/index.php — System administration panel
  *
@@ -135,7 +135,7 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('admin_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=13">
+    <link rel="stylesheet" href="/login/css/style.css?v=14">
 </head>
 <body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
 

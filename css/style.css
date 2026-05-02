@@ -857,8 +857,22 @@ html {
 }
 .btn-tbl.btn-secondary:hover { background: #e2e2ea; }
 
+.btn-tbl.btn-accent {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-accent-text);
+}
+.btn-tbl.btn-accent:hover {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+    opacity: 1;
+}
+
 /* ── Small secondary button ─────────────────────────────────── */
 .btn-sm {
+    display: inline-flex;
+    align-items: center;
+    width: auto;
     height: auto;
     padding: 7px 16px;
     font-size: 0.85rem;
