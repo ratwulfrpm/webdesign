@@ -1,6 +1,6 @@
 <?php
 /**
- * includes/auth.php — Authentication & multi-org RBAC helpers.
+ * includes/auth.php ï¿½ Authentication & multi-org RBAC helpers.
  *
  * Supported features:
  *  - Login with email or username + bcrypt password
@@ -37,7 +37,7 @@ define('ROLE_HIERARCHY', [
 
 define('ROLE_HOME', [
     'owner'    => '/login/owner/index.php',
-    'admin'    => '/login/admin/index.php',
+    'admin'    => '/login/admin/products.php',
     'supplier' => '/login/supplier/summary.php',
     'user'     => '/login/user/dashboard.php',
 ]);
@@ -138,7 +138,7 @@ function getUserOrgs(int $userId): array
 // ---------------------------------------------------------------
 
 /**
- * Phase 1 — pending session: user authenticated, org not yet chosen.
+ * Phase 1 ï¿½ pending session: user authenticated, org not yet chosen.
  * Used when user belongs to > 1 organization.
  */
 function createPendingSession(array $user, array $orgs): void
@@ -201,7 +201,7 @@ function selectOrg(int $orgId): bool
 }
 
 /**
- * Phase 2 — full session: user authenticated AND org already chosen.
+ * Phase 2 ï¿½ full session: user authenticated AND org already chosen.
  * Used when user belongs to exactly 1 organization (skip picker).
  */
 function createSession(array $user, array $org): void
