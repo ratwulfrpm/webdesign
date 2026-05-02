@@ -262,15 +262,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Generate a unique internal product code before inserting.
                 $internalCode = generateInternalProductCode($pdo);
 
+                $orgId = (int) ($_SESSION['org_id'] ?? 0);
+
                 $pdo->prepare(
                     'INSERT INTO supplier_products
-                        (supplier_id, supplier_product_code, admin_product_code,
+                        (supplier_id, org_id, supplier_product_code, admin_product_code,
                          internal_product_code,
                          product_name, technical_description,
                          price_fob, price_cif, active, created_by)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)'
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)'
                 )->execute([
                     $supplierId,
+                    $orgId,
                     $fv['supplier_product_code'],
                     $adminCodeClean,
                     $internalCode,
