@@ -66,10 +66,11 @@ $contracts = loadContracts($pdo, $uid);
 
 // ── Helpers ───────────────────────────────────────────────────
 $errors    = [];
-$flash     = '';
-$flashType = 'success';
+// Pick up flash from session (PRG pattern)
+$flash     = (string) ($_SESSION['_doc_flash']      ?? '');
+$flashType = (string) ($_SESSION['_doc_flash_type'] ?? 'success');
+unset($_SESSION['_doc_flash'], $_SESSION['_doc_flash_type']);
 $esc       = fn($v): string => htmlspecialchars((string) ($v ?? ''), ENT_QUOTES, 'UTF-8');
-$csrfField = csrfField();
 
 // ── POST handler ──────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -139,8 +140,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
 
                 // TODO: audit_log — contract upload
-                $flash      = t('contract_saved');
-                $flashType  = 'success';
+                $_SESSION['_doc_flash']      = t('contract_saved');
+                $_SESSION['_doc_flash_type'] = 'success';
+                header('Location: /login/supplier/documents.php');
+                exit;
 
             } catch (Throwable $e) {
                 if ($fileMoved && is_file($finalPath)) {
@@ -148,8 +151,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
                 $errors['contract_file'] = t('err_contract_save');
             }
-
-            $contracts = loadContracts($pdo, $uid);
         }
 
     // ─── Action: mark_primary_contract ──────────────────────
@@ -173,16 +174,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     )->execute([$contractId]);
                     $pdo->commit();
                     // TODO: audit_log — mark-primary event
-                    $flash     = t('contract_mark_primary_ok');
-                    $flashType = 'success';
+                    $_SESSION['_doc_flash']      = t('contract_mark_primary_ok');
+                    $_SESSION['_doc_flash_type'] = 'success';
+                    header('Location: /login/supplier/documents.php');
+                    exit;
                 } catch (Throwable $e) {
                     if ($pdo->inTransaction()) $pdo->rollBack();
                 }
             }
         }
-
-        $contracts = loadContracts($pdo, $uid);
     }
+}
+
+// Reload contracts if we stayed on the page (validation errors on POST)
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $contracts = loadContracts($pdo, $uid);
 }
 
 // ── Separate primary from history ─────────────────────────────
@@ -195,6 +201,9 @@ foreach ($contracts as $ctc) {
         $historyContracts[] = $ctc;
     }
 }
+
+// Generate CSRF field AFTER any POST handling so token is always fresh
+$csrfField = csrfField();
 
 $uploadPanelOpen = isset($errors['contract_file']);
 
