@@ -16,7 +16,7 @@ require_once __DIR__ . '/includes/auth.php';
 
 requireAuth();
 
-if ($_SESSION['role'] === 'admin') {
+if ($_SESSION['role'] === 'admin' || $_SESSION['role'] === 'owner') {
     header('Location: /login/admin/products.php');
 } elseif ((int) ($_SESSION['first_login'] ?? 1) === 1) {
     header('Location: /login/supplier/profile.php');

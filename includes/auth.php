@@ -36,7 +36,7 @@ define('ROLE_HIERARCHY', [
 ]);
 
 define('ROLE_HOME', [
-    'owner'    => '/login/owner/index.php',
+    'owner'    => '/login/admin/products.php',
     'admin'    => '/login/admin/products.php',
     'supplier' => '/login/supplier/summary.php',
     'user'     => '/login/user/dashboard.php',
