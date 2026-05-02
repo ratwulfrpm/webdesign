@@ -234,12 +234,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // 5. Insert contract record (first contract → is_primary = 1)
                 $pdo->prepare(
                     'INSERT INTO supplier_contracts
-                        (supplier_id, storage_path, original_filename, mime_type, file_size,
+                        (supplier_id, org_id, storage_path, original_filename, mime_type, file_size,
                          file_hash, signed_date, effective_start_date, effective_end_date,
                          notes, is_primary, uploaded_by_user_id)
-                     VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 1, ?)'
+                     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 1, ?)'
                 )->execute([
                     $newUserId,
+                    $inv['org_id'],
                     $storagePath,
                     mb_substr((string) ($_FILES['contract_file']['name'] ?? ''), 0, 255),
                     $contractResult['mime'],
