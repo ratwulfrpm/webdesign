@@ -2,11 +2,11 @@
 /**
  * /login/invitations.php — Supplier invitation management
  *
- * Access: admin or owner only.
+ * Access: admin, owner or support.
  * Features:
- *  - Generate a new invitation link (token stored as SHA-256 hash only)
+ *  - Generate a new invitation link (owner/admin only)
  *  - Optionally send the link by email immediately (if invited_email provided)
- *  - Revoke a pending invitation
+ *  - Revoke a pending invitation (owner/admin only)
  *  - List invitation history for all organizations the current user manages
  *
  * Token design:
@@ -45,7 +45,7 @@ require_once __DIR__ . '/includes/org_scope.php';
 
 requireAuth();
 initLang();
-requireRole(['admin', 'owner']);
+requireRole(['admin', 'owner', 'support']);
 
 $pdo     = getDB();
 $userId  = (int) $_SESSION['user_id'];
@@ -55,6 +55,14 @@ $role    = $_SESSION['role'] ?? '';
 $lang    = currentLang();
 $accessibleOrgs = loadAccessibleOrganizations($pdo, $userId, $role);
 $accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
+
+if ($role === 'support') {
+    $accessibleOrgs = array_values(array_filter(
+        $accessibleOrgs,
+        fn($row) => (int) ($row['id'] ?? 0) === $orgId
+    ));
+    $accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
+}
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -72,6 +80,14 @@ function buildEnrollLink(string $plainToken): string
 // ── POST handler ──────────────────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrfValidate();
+
+    if ($role === 'support') {
+        $_SESSION['inv_feedback']      = t('error_unsupported_role');
+        $_SESSION['inv_feedback_type'] = 'error';
+        header('Location: /login/invitations.php');
+        exit;
+    }
+
     $action = $_POST['action'] ?? '';
 
     // ── Generate invitation ───────────────────────────────────
@@ -354,6 +370,7 @@ $initial  = strtoupper(substr($username, 0, 1));
         <?php endif; ?>
 
         <!-- ── Generate invitation form ──────────────────────── -->
+        <?php if ($role !== 'support'): ?>
         <section class="panel-section">
             <h2 class="section-title"><?= t('inv_form_title') ?></h2>
 
@@ -430,6 +447,7 @@ $initial  = strtoupper(substr($username, 0, 1));
                 </button>
             </form>
         </section>
+        <?php endif; ?>
 
         <!-- ── Invitation history ─────────────────────────────── -->
         <section class="panel-section" style="margin-top:36px;">
@@ -525,7 +543,7 @@ $initial  = strtoupper(substr($username, 0, 1));
                                 <?= htmlspecialchars($inv['created_at'], ENT_QUOTES, 'UTF-8') ?>
                             </td>
                             <td class="actions-cell">
-                                <?php if ($inv['status'] === 'pending'): ?>
+                                <?php if ($role !== 'support' && $inv['status'] === 'pending'): ?>
                                 <form method="POST" action="/login/invitations.php" style="display:inline">
                                     <?= csrfField() ?>
                                     <input type="hidden" name="action"  value="revoke_invitation">

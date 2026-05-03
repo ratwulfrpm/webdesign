@@ -35,6 +35,18 @@ Multi-business-unit scope:
 - `support`: returns both `assigned_business_units` and `active_business_unit`.
 - `supplier`: returns both `assigned_business_units` and `active_business_unit`.
 
+Support active BU endpoint:
+- `POST /api/v1/support/active-business`
+- Role required: `support`
+- Body: `{ "business_unit_id": <int> }`
+- Validates the target business unit against support memberships before switching session context.
+
+Login/support error expectations:
+- Invalid credentials return generic login failure (`error_invalid`) on web login.
+- Locked users return lockout message (`LOCKED:<minutes>` branch).
+- Inactive users return inactive message (`error_inactive`).
+- Support users without valid active business unit are redirected to reselect or reauthenticate.
+
 ---
 
 ## Endpoint Reference
@@ -189,6 +201,7 @@ Scope notes:
 - `admin` can only list/create/revoke invitations inside assigned business units.
 - `admin` can invite `support`/`supplier`; only `owner` can invite `admin`.
 - Invitation responses include `business_unit_name` and `business_unit`.
+- Support can view invitations in the web UI (read-only) but has no invitations API permissions.
 
 **POST /invitations body:**
 ```json

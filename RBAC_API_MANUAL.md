@@ -20,7 +20,7 @@ This document consolidates the role behavior, API contract changes, and rollout 
 - Strict active business unit scope.
 - Requires active BU context in session.
 - If multiple assigned BUs, must select/switch active BU.
-- Cannot access invitations UI/API.
+- Can access Invitations UI in read-only mode (no create/revoke).
 
 ### supplier
 - Own supplier scope (existing behavior preserved).
@@ -34,6 +34,8 @@ Updated login/session behavior:
   - 1 BU assigned: auto-select BU and login.
   - >1 BUs assigned: pending session then BU picker.
 - Support mid-session switch is restricted to support memberships only.
+- Support session revalidates active BU against live `org_members` on each authenticated request.
+- If support active BU becomes invalid, session falls back to a valid assigned BU.
 
 Security outcomes:
 - Authorization is validated server-side by role and org scope.
@@ -69,7 +71,7 @@ Security outcomes:
 
 ## 4) UI Behavior Changes
 
-- support tabs no longer include invitations.
+- support tabs include invitations in read-only mode.
 - support-only BU switcher appears when support has >1 assigned BUs.
 - owner/admin pages avoid showing empty org badge for global session.
 

@@ -325,7 +325,7 @@ Comportamiento por rol (sesión y scope):
 - `owner`: login sin selector de BU, alcance global en vistas y API.
 - `admin`: login sin selector de BU, vistas consolidadas sobre sus BU asignadas en `org_members`.
 - `support`: requiere BU activa (auto-selección si tiene 1, selector si tiene varias), y todo acceso queda restringido a esa BU activa.
-- `support` no puede gestionar invitaciones (UI/API); esa gestión queda para `admin` y `owner`.
+- `support` puede ver invitaciones solo en modo lectura (sin crear ni revocar), siempre dentro de su BU activa.
 
 ### Flujo de vigencia de contratos (supplier/admin/owner)
 

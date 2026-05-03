@@ -226,10 +226,11 @@ function selectOrg(int $orgId): bool
         return false;
     }
 
-    $userId     = (int) $_SESSION['pending_user_id'];
-    $username   = $_SESSION['pending_username'];
-    $firstLogin = (int) ($_SESSION['pending_first_login'] ?? 1);
-    $lang       = $_SESSION['lang'] ?? 'es';
+    $userId      = (int) $_SESSION['pending_user_id'];
+    $username    = $_SESSION['pending_username'];
+    $firstLogin  = (int) ($_SESSION['pending_first_login'] ?? 1);
+    $lang        = $_SESSION['lang'] ?? 'es';
+    $supportOrgs = is_array($_SESSION['pending_orgs'] ?? null) ? $_SESSION['pending_orgs'] : [];
 
     session_regenerate_id(true);
     $_SESSION = [];
@@ -241,7 +242,7 @@ function selectOrg(int $orgId): bool
     $_SESSION['org_id']        = (int) $found['id'];
     $_SESSION['org_slug']      = $found['slug'];
     $_SESSION['org_name']      = $found['name'];
-    $_SESSION['support_orgs']  = $_SESSION['pending_orgs'];
+    $_SESSION['support_orgs']  = $supportOrgs;
     $_SESSION['first_login']   = $firstLogin;
     $_SESSION['lang']          = $lang;
     $_SESSION['last_activity'] = time();
@@ -340,6 +341,45 @@ function requireAuth(): void
             destroySession();
             header('Location: /login/index.php?reason=deactivated');
             exit;
+        }
+
+        if ((string) ($_SESSION['role'] ?? '') === 'support') {
+            $orgStmt = $pdo->prepare(
+                'SELECT o.id, o.slug, o.name, om.role
+                   FROM org_members om
+                   JOIN organizations o ON o.id = om.org_id
+                  WHERE om.user_id = ?
+                    AND om.is_active = 1
+                    AND om.role = "support"
+                    AND o.is_active = 1
+                  ORDER BY o.name ASC'
+            );
+            $orgStmt->execute([(int) $_SESSION['user_id']]);
+            $supportOrgs = $orgStmt->fetchAll() ?: [];
+
+            if (empty($supportOrgs)) {
+                destroySession();
+                header('Location: /login/index.php?reason=unsupported_role');
+                exit;
+            }
+
+            $_SESSION['support_orgs'] = $supportOrgs;
+
+            $activeOrgId = (int) ($_SESSION['org_id'] ?? 0);
+            $isValidActiveOrg = false;
+            foreach ($supportOrgs as $supportOrg) {
+                if ((int) ($supportOrg['id'] ?? 0) === $activeOrgId) {
+                    $isValidActiveOrg = true;
+                    break;
+                }
+            }
+
+            if (!$isValidActiveOrg) {
+                $fallbackOrg = $supportOrgs[0];
+                $_SESSION['org_id']   = (int) $fallbackOrg['id'];
+                $_SESSION['org_slug'] = (string) $fallbackOrg['slug'];
+                $_SESSION['org_name'] = (string) $fallbackOrg['name'];
+            }
         }
     } catch (PDOException $e) {
         error_log('requireAuth DB check failed: ' . $e->getMessage());
