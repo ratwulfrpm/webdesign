@@ -23,6 +23,7 @@ return [
     'error_locked'         => '账户因多次登录失败被锁定。请在 %s 分钟后重试。',
     'error_timeout'        => '您的会话因超时（30分钟）已被关闭。请重新登录。',
     'error_deactivated'    => '您的账户已被停用。请联系管理员。',
+    'error_unsupported_role' => '该账户类型已不支持登录。请使用分配链接查看客户报价。',
 
     // ── Forgot password ───────────────────────────────────────
     'forgot_page_title'    => '找回密码 — 本地应用',

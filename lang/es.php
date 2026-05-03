@@ -23,6 +23,7 @@ return [
     'error_locked'         => 'Cuenta bloqueada por intentos fallidos. Puede intentarlo de nuevo en %s minuto(s).',
     'error_timeout'        => 'Su sesión fue cerrada por inactividad (30 minutos). Ingrese nuevamente.',
     'error_deactivated'    => 'Su cuenta fue desactivada. Contacte al administrador.',
+    'error_unsupported_role' => 'Este tipo de cuenta ya no tiene acceso por login. Use el enlace de asignación para ver cotizaciones de cliente.',
 
     // ── Forgot password ───────────────────────────────────────
     'forgot_page_title'    => 'Solicitar clave — Local App',

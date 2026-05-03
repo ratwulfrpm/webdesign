@@ -32,14 +32,12 @@ define('ROLE_HIERARCHY', [
     'owner'    => 4,
     'admin'    => 3,
     'supplier' => 2,
-    'user'     => 1,
 ]);
 
 define('ROLE_HOME', [
     'owner'    => '/login/admin/products.php',
     'admin'    => '/login/admin/products.php',
     'supplier' => '/login/supplier/summary.php',
-    'user'     => '/login/user/dashboard.php',
 ]);
 
 // ---------------------------------------------------------------
@@ -98,6 +96,11 @@ function attemptLogin(string $identifier, string $password): array|string
         return AUTH_INACTIVE;
     }
 
+    // Legacy end-customer role is deprecated: access is now token-only via quote link.
+    if (($user['role'] ?? '') === 'user') {
+        return AUTH_INVALID;
+    }
+
     $pdo->prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')
         ->execute([$user['id']]);
 
@@ -126,6 +129,7 @@ function getUserOrgs(int $userId): array
            JOIN organizations o ON o.id = om.org_id
           WHERE om.user_id  = ?
             AND om.is_active = 1
+                        AND om.role IN ("owner", "admin", "supplier")
             AND o.is_active  = 1
           ORDER BY o.name ASC'
     );
@@ -320,8 +324,14 @@ function destroySession(): void
  */
 function redirectToHome(): void
 {
-    $role       = $_SESSION['role']        ?? 'user';
+    $role       = $_SESSION['role']        ?? '';
     $firstLogin = (int) ($_SESSION['first_login'] ?? 0);
+
+    if (!in_array($role, ['owner', 'admin', 'supplier'], true)) {
+        destroySession();
+        header('Location: /login/index.php?reason=unsupported_role');
+        exit;
+    }
 
     if ($role === 'supplier' && $firstLogin === 1) {
         header('Location: /login/supplier/profile.php');

@@ -284,13 +284,14 @@ Hoja de estilos completa sin dependencias externas.
 
 Se implementó theming global por rol sin cambiar layout, tipografías ni espaciados.
 
-- Clase global aplicada al `body`: `role-owner`, `role-admin`, `role-supplier`, `role-user`.
+- Clase global aplicada al `body`: `role-owner`, `role-admin`, `role-supplier`.
+- La vista pública de cotización por link usa clase `role-user` solo como tema visual (no como rol autenticado).
 - Fuente del rol: sesión (`$_SESSION['role']`) propagada por `includes/tabs.php`.
 - Mapeo de color primario:
      - owner: azul (estilo original)
      - admin: gris/negro profundo
      - supplier: rojo suave
-     - user (cliente por link): verde suave
+     - cliente por link público (solo tema visual): verde suave
 
 Variables CSS centrales usadas:
 

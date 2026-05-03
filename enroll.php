@@ -86,6 +86,11 @@ function loadInvitation(PDO $pdo, string $plainToken): array|string
         return 'enroll_token_invalid';
     }
 
+    // Legacy end-customer invitation role is deprecated.
+    if (($inv['role'] ?? '') === 'user') {
+        return 'enroll_token_invalid';
+    }
+
     // Lazily expire if past expiry
     if ($inv['status'] === 'pending' && strtotime($inv['expires_at']) < time()) {
         $pdo->prepare('UPDATE supplier_invitations SET status = "expired" WHERE id = ?')

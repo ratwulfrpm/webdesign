@@ -143,7 +143,6 @@ if ($quoteData) {
     $itemStmt = $pdo->prepare(
         'SELECT qi.final_unit_price,
                 p.product_name,
-                p.internal_product_code,
                 p.technical_description,
                 p.active AS product_active,
                 p.id     AS product_id
@@ -220,7 +219,6 @@ if (!$isNewFormat) {
                 a.view_count,
                 p.product_name,
                 p.technical_description,
-                p.internal_product_code,
                 p.active AS product_active
            FROM product_assignments a
            JOIN supplier_products p ON p.id = a.product_id
@@ -539,11 +537,6 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
                     <span class="item-number-badge"><?= $idx + 1 ?></span>
                     <?= $esc($item['product_name']) ?>
                 </h2>
-                <?php if (!empty($item['internal_product_code'])): ?>
-                <div class="quote-product-code">
-                    <?= $esc(t('quote_item_code_label')) ?>: <?= $esc($item['internal_product_code']) ?>
-                </div>
-                <?php endif; ?>
             </div>
             <div class="quote-price-box">
                 <span class="quote-price-label"><?= $esc(t('quote_item_price_label')) ?></span>
@@ -716,12 +709,6 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
         <div class="quote-card">
             <div class="quote-card-header">
                 <h1 class="quote-product-name"><?= $esc($legacyAssignment['product_name']) ?></h1>
-                <?php if (!empty($legacyAssignment['internal_product_code'])): ?>
-                <div class="quote-product-code">
-                    <?= $esc(t('quote_product_code_label')) ?>:
-                    <?= $esc($legacyAssignment['internal_product_code']) ?>
-                </div>
-                <?php endif; ?>
             </div>
             <div class="quote-price-box">
                 <span class="quote-price-label"><?= $esc(t('quote_price_label')) ?></span>

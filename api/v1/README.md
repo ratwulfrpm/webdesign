@@ -15,10 +15,12 @@ Tokens are 64-char hex strings — SHA-256 hash stored in DB, plain token return
 | `owner` | 4 | Full access |
 | `admin` | 3 | Full access |
 | `supplier` | 2 | Own products only |
-| `user` | 1 | No API access |
 
 Session cookie required for all private endpoints.  
 `/public/quote` is the only unauthenticated endpoint.
+
+End-customer access is token-only via assignment/public quote links.
+There is no authenticated `user` actor in API v1.
 
 ---
 
@@ -114,7 +116,7 @@ is_primary            1 | 0
 ```json
 {
   "org_id": 1,
-  "role": "supplier",
+  "role": "supplier | admin",
   "invited_email": "optional@example.com",
   "valid_days": 7
 }
@@ -263,7 +265,6 @@ Rate limit: **20 requests / 10 min per IP**.
     "items": [
       {
         "product_name": "Producto A",
-        "internal_product_code": "IPC-001",
         "technical_description": "…",
         "unit_price": 150.00,
         "front_img_path": "uploads/products/…"
@@ -281,7 +282,7 @@ Rate limit: **20 requests / 10 min per IP**.
 }
 ```
 
-> **Never exposes:** `price_fob`, `price_cif`, `price_base_amount`, `profit_percentage`, `product_id`, `supplier_product_code`.  
+> **Never exposes:** `price_fob`, `price_cif`, `price_base_amount`, `profit_percentage`, `product_id`, `internal_product_code`, `supplier_product_code`.  
 > Supports legacy single-product format (backward compatible).
 
 ---

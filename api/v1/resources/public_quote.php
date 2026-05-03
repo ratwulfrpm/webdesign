@@ -13,6 +13,7 @@
  *   - price_fob / price_cif (cost prices)
  *   - price_base_amount / profit_percentage (margin data)
  *   - product_id
+ *   - internal_product_code
  *   - supplier_product_code
  *   - internal admin notes
  *
@@ -105,7 +106,7 @@ function _getPublicQuote(PDO $pdo): void
 
         // Load line items — no cost or margin data
         $iSt = $pdo->prepare(
-            "SELECT sp.product_name, sp.internal_product_code,
+            "SELECT sp.product_name,
                     sp.technical_description,
                     qai.final_unit_price,
                     spi.file_path AS front_img_path
@@ -159,7 +160,6 @@ function _getPublicQuote(PDO $pdo): void
 
         $items = array_map(fn($r) => [
             'product_name'          => (string) $r['product_name'],
-            'internal_product_code' => (string) ($r['internal_product_code'] ?? ''),
             'technical_description' => (string) ($r['technical_description'] ?? ''),
             'unit_price'            => (float)  $r['final_unit_price'],
             'front_img_path'        => $r['front_img_path'] ? (string) $r['front_img_path'] : null,
@@ -188,7 +188,7 @@ function _getPublicQuote(PDO $pdo): void
     $legacy = $pdo->prepare(
         "SELECT pa.id, pa.assigned_customer_name, pa.final_price,
                 pa.status, pa.expires_at,
-                sp.product_name, sp.internal_product_code, sp.technical_description,
+                sp.product_name, sp.technical_description,
                 spi.file_path AS front_img_path
            FROM product_assignments pa
            JOIN supplier_products sp ON sp.id = pa.product_id
@@ -227,7 +227,6 @@ function _getPublicQuote(PDO $pdo): void
             'expires_at'            => $row['expires_at'],
             'items' => [[
                 'product_name'          => (string) $row['product_name'],
-                'internal_product_code' => (string) ($row['internal_product_code'] ?? ''),
                 'technical_description' => (string) ($row['technical_description'] ?? ''),
                 'unit_price'            => (float)  $row['final_price'],
                 'front_img_path'        => $row['front_img_path'] ? (string) $row['front_img_path'] : null,

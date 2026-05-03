@@ -4,8 +4,8 @@
  *
  * Access: role = 'admin' only.
  * Features:
- *  - User list (supplier + user roles only — admin cannot manage owner or other admins)
- *  - Activate / deactivate / unlock / change_role actions
+ *  - User list (supplier role only — admin cannot manage owner/admin)
+ *  - Activate / deactivate / unlock actions
  *  - Password-request queue with resolve action
  *  - Language selector
  *  - 30-min idle timeout enforced by requireAuth()
@@ -82,18 +82,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             break;
 
-        case 'change_role':
-            // Admin may only reassign between supplier ↔ user (not owner or admin)
-            $newRole = $_POST['new_role'] ?? '';
-            if ($uid > 0 && in_array($newRole, ['supplier', 'user'], true) && $uid !== (int) $_SESSION['user_id']) {
-                $pdo->prepare(
-                    'UPDATE org_members SET role = ?
-                      WHERE user_id = ? AND org_id = ?
-                        AND role IN ("supplier","user")'
-                )->execute([$newRole, $uid, $orgId]);
-                $feedback = t('feedback_role_changed');
-            }
-            break;
     }
 
     // PRG — prevent re-submit on refresh
@@ -102,15 +90,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ── Fetch data ────────────────────────────────────────────────
-// Admin sees only supplier + user roles within the current org
+// Admin sees only supplier users within the current org
 $uStmt = $pdo->prepare(
     'SELECT u.id, u.username, u.email, u.is_active,
             u.first_login, u.failed_attempts, u.locked_until,
             om.role
        FROM users u
        JOIN org_members om ON u.id = om.user_id
-      WHERE om.org_id = ?
-        AND om.role IN ("supplier","user")
+            WHERE om.org_id = ?
+                AND om.role = "supplier"
         AND om.is_active = 1
       ORDER BY om.role ASC, u.username ASC'
 );
@@ -214,7 +202,7 @@ $lang     = currentLang();
                             <td><?= htmlspecialchars($u['username'], ENT_QUOTES, 'UTF-8') ?></td>
                             <td><?= htmlspecialchars($u['email'], ENT_QUOTES, 'UTF-8') ?></td>
                             <td>
-                                <span class="badge <?= $u['role'] === 'supplier' ? 'badge-supplier' : 'badge-user' ?>">
+                                <span class="badge badge-supplier">
                                     <?= htmlspecialchars(t('role_' . $u['role']), ENT_QUOTES, 'UTF-8') ?>
                                 </span>
                             </td>
@@ -263,18 +251,6 @@ $lang     = currentLang();
                                         </form>
                                         <?php endif; ?>
                                     </div>
-                                    <!-- Row 2: role change -->
-                                    <form method="POST" action="/login/admin/index.php" class="user-actions-row">
-                                        <input type="hidden" name="csrf_token"
-                                               value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
-                                        <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
-                                        <input type="hidden" name="action" value="change_role">
-                                        <select name="new_role" class="role-select">
-                                            <option value="supplier" <?= $u['role'] === 'supplier' ? 'selected' : '' ?>><?= t('role_supplier') ?></option>
-                                            <option value="user"     <?= $u['role'] === 'user'     ? 'selected' : '' ?>><?= t('role_user') ?></option>
-                                        </select>
-                                        <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_set_role') ?></button>
-                                    </form>
                                 </div>
                                 <?php endif; ?>
                             </td>

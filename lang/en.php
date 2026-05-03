@@ -23,6 +23,7 @@ return [
     'error_locked'         => 'Account locked due to failed attempts. Try again in %s minute(s).',
     'error_timeout'        => 'Your session was closed due to inactivity (30 minutes). Please sign in again.',
     'error_deactivated'    => 'Your account has been deactivated. Contact the administrator.',
+    'error_unsupported_role' => 'This account type is no longer supported for login. Use the assignment link to view customer quotes.',
 
     // ── Forgot password ───────────────────────────────────────
     'forgot_page_title'    => 'Request password — Local App',

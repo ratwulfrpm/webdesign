@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         // Validate role
-        $allowedRoles = ['owner', 'admin', 'supplier', 'user'];
+        $allowedRoles = ['owner', 'admin', 'supplier'];
         if (!in_array($invRole, $allowedRoles, true)) {
             $invRole = 'supplier';
         }
@@ -328,7 +328,6 @@ $initial  = strtoupper(substr($username, 0, 1));
                         <label for="inv-role"><?= t('inv_role_label') ?></label>
                         <select id="inv-role" name="inv_role" class="input-select">
                             <option value="supplier" selected><?= t('role_supplier') ?></option>
-                            <option value="user"><?= t('role_user') ?></option>
                             <?php if ($role === 'owner'): ?>
                             <option value="admin"><?= t('role_admin') ?></option>
                             <?php endif; ?>

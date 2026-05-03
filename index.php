@@ -9,11 +9,10 @@
  *  - Idle-timeout / deactivation messages from query params
  *  - Language selector (ES / EN) via GET ?set_lang=xx
  *  - Role-based post-login redirect:
- *      owner            → /login/owner/index.php
- *      admin            → /login/admin/index.php
+ *      owner/admin      → /login/admin/products.php
  *      supplier + first → /login/supplier/profile.php
  *      supplier         → /login/supplier/summary.php
- *      user             → /login/user/dashboard.php
+ *      end-customer     → access only via public assignment quote link (no login)
  */
 
 // ── Security headers ─────────────────────────────────────────
@@ -59,6 +58,8 @@ if ($reason === 'timeout') {
     $info = t('error_timeout');
 } elseif ($reason === 'deactivated') {
     $info = t('error_deactivated');
+} elseif ($reason === 'unsupported_role') {
+    $info = t('error_unsupported_role');
 }
 
 // Enrollment success flash (set by enroll.php on successful registration)

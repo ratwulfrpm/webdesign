@@ -149,9 +149,9 @@ function _createInvitation(array $auth, PDO $pdo): void
     $email = strField($body['invited_email'] ?? '', 254);
     $days  = max(1, min(30, (int) ($body['valid_days'] ?? 7)));
 
-    if (!in_array($role, ['admin', 'supplier', 'user'], true)) {
+    if (!in_array($role, ['admin', 'supplier'], true)) {
         // Owner role is not grantable via invitation for security reasons
-        jsonError('Invalid role. Allowed: admin, supplier, user');
+        jsonError('Invalid role. Allowed: admin, supplier');
     }
 
     // Verify org is active (should always be since session is set, but double-check)

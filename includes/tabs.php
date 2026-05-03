@@ -11,7 +11,6 @@
  *   supplier : profile | summary | documents* | orders*
  *   admin    : users   | reports* | settings*
  *   owner    : users   | reports* | settings*
- *   user     : dashboard | history*
  *   (* = always disabled until implemented)
  *
  * Supplier first-login rule: tabs other than 'profile' are
@@ -137,21 +136,6 @@ function getTabsForRole(string $role): array
                 ],
             ];
 
-        case 'user':
-            return [
-                [
-                    'id'    => 'dashboard',
-                    'label' => t('tab_dashboard'),
-                    'url'   => '/login/user/dashboard.php',
-                ],
-                [
-                    'id'       => 'history',
-                    'label'    => t('tab_history'),
-                    'url'      => '#',
-                    'disabled' => true,
-                ],
-            ];
-
         default:
             return [];
     }
@@ -175,7 +159,7 @@ function renderTabs(string $activePage): string
     }
 
     $navLabel = htmlspecialchars(t('tab_nav_label'), ENT_QUOTES, 'UTF-8');
-    $safeRole = in_array($role, ['owner', 'admin', 'supplier', 'user'], true) ? $role : '';
+    $safeRole = in_array($role, ['owner', 'admin', 'supplier'], true) ? $role : '';
     $roleClass = $safeRole !== '' ? ' tab-nav--role-' . htmlspecialchars($safeRole, ENT_QUOTES, 'UTF-8') : '';
     $roleAttr  = $safeRole !== '' ? ' data-role="' . htmlspecialchars($safeRole, ENT_QUOTES, 'UTF-8') . '"' : '';
 
