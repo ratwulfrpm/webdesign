@@ -312,6 +312,35 @@ Navegación por defecto (admin):
 - `dashboard.php` redirige a `/login/admin/products.php`.
 - Esto garantiza que al entrar (tras login/selección de business unit) quede activo por defecto el primer tab: **Productos de Proveedores**.
 
+### Flujo de vigencia de contratos (supplier/admin/owner)
+
+Regla funcional nueva:
+
+- El supplier solo puede marcar como vigente directamente el contrato mas recientemente cargado (desempate por `id` mas alto).
+- Si intenta marcar un contrato historico, el sistema bloquea el cambio directo y crea una solicitud de revision.
+- Si el contrato historico esta vencido, tambien se bloquea el cambio directo y se mantiene el flujo de solicitud.
+- El contrato vigente actual no cambia hasta que admin/owner aprueben.
+
+Aprobacion administrativa:
+
+- Admin revisa solicitudes solo de su unidad de negocio (`org_id` de sesion).
+- Owner puede revisar solicitudes de todas las unidades de negocio.
+- Al aprobar, el cambio de vigencia ocurre en transaccion:
+     1. `is_primary = 0` para contratos del supplier en esa unidad.
+     2. Contrato solicitado pasa a `is_primary = 1`.
+     3. Solicitud cambia a `approved` con `reviewed_by_user_id` y `reviewed_at`.
+
+Seguridad y RBAC:
+
+- Validacion de ownership por supplier (`supplier_id`) y aislamiento por negocio (`org_id`).
+- Bloqueo de duplicados pendientes para mismo supplier + contrato.
+- Supplier no puede aprobar/rechazar solicitudes.
+- Se registran eventos en auditoria para solicitudes, bloqueos y decisiones de revision.
+
+Migracion SQL del workflow:
+
+- `setup/migrate_contract_validity_requests.sql`
+
 - `.brand` — Logo y nombre de la app
 - `.card` — Contenedor principal (login / dashboard)
 - `.input-wrap` — Etiqueta + input + botón toggle password

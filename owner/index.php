@@ -33,6 +33,8 @@ require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
+require_once __DIR__ . '/../includes/contract_validity_admin.php';
+require_once __DIR__ . '/../includes/audit.php';
 
 // Auth + RBAC checks
 requireAuth();
@@ -48,6 +50,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action']     ?? '';
     $uid    = (int) ($_POST['user_id']    ?? 0);
     $rid    = (int) ($_POST['request_id'] ?? 0);
+    $vrid   = (int) ($_POST['validity_request_id'] ?? 0);
+    $reviewComment = trim((string) ($_POST['review_comment'] ?? ''));
 
     switch ($action) {
         case 'activate':
@@ -96,6 +100,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $feedback = t('feedback_request_resolved');
             }
             break;
+
+        case 'approve_contract_validity_request':
+            if ($vrid > 0) {
+                $ok = cvrApproveRequest($pdo, $vrid, (int) $_SESSION['user_id'], null);
+                if ($ok) {
+                    $feedback = t('contract_review_approved');
+                    auditLog('owner_contract_validity_request_approved', 'info', null, (int) $_SESSION['user_id'], [
+                        'request_id' => $vrid,
+                    ]);
+                    auditLog('contract_primary_changed_by_review', 'info', null, (int) $_SESSION['user_id'], [
+                        'request_id' => $vrid,
+                    ]);
+                } else {
+                    $feedback = t('contract_review_action_failed');
+                }
+            }
+            break;
+
+        case 'reject_contract_validity_request':
+            if ($vrid > 0) {
+                $ok = cvrRejectRequest(
+                    $pdo,
+                    $vrid,
+                    (int) $_SESSION['user_id'],
+                    null,
+                    $reviewComment !== '' ? $reviewComment : null
+                );
+                if ($ok) {
+                    $feedback = t('contract_review_rejected');
+                    auditLog('owner_contract_validity_request_rejected', 'warning', null, (int) $_SESSION['user_id'], [
+                        'request_id' => $vrid,
+                    ]);
+                } else {
+                    $feedback = t('contract_review_action_failed');
+                }
+            }
+            break;
     }
 
     // PRG — prevent re-submit on refresh
@@ -123,6 +164,8 @@ $requests = $pdo->query(
        FROM password_requests
       ORDER BY status ASC, requested_at DESC'
 )->fetchAll();
+
+$validityRequests = cvrListValidityRequests($pdo, null);
 
 $username = htmlspecialchars($_SESSION['username'] ?? 'Owner', ENT_QUOTES, 'UTF-8');
 $initial  = strtoupper(substr($username, 0, 1));
@@ -339,6 +382,80 @@ $lang     = currentLang();
                                     <input type="hidden" name="action" value="resolve_request">
                                     <button type="submit" class="btn-tbl btn-success"><?= t('btn_resolve') ?></button>
                                 </form>
+                                <?php else: ?>
+                                <span class="text-muted small">—</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                    <?php endforeach; ?>
+                    </tbody>
+                </table>
+            </div>
+            <?php endif; ?>
+        </section>
+
+        <!-- ── Contract validity requests ──────────────────── -->
+        <section class="panel-section" style="margin-top:36px;">
+            <h2 class="section-title"><?= t('contract_review_requests_title') ?></h2>
+
+            <?php if (empty($validityRequests)): ?>
+                <p class="text-muted"><?= t('contract_review_no_requests') ?></p>
+            <?php else: ?>
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th><?= t('col_supplier') ?></th>
+                            <th><?= t('contract_review_business_unit') ?></th>
+                            <th><?= t('contract_review_requested_contract') ?></th>
+                            <th><?= t('contract_review_current_contract') ?></th>
+                            <th><?= t('col_contract_signed_date') ?></th>
+                            <th><?= t('col_contract_start') ?></th>
+                            <th><?= t('col_contract_end') ?></th>
+                            <th><?= t('col_contract_uploaded_at') ?></th>
+                            <th><?= t('contract_review_requested_by') ?></th>
+                            <th><?= t('contract_review_requested_at') ?></th>
+                            <th><?= t('req_status') ?></th>
+                            <th><?= t('col_actions') ?></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    <?php foreach ($validityRequests as $vr): ?>
+                        <tr>
+                            <td><?= (int) $vr['id'] ?></td>
+                            <td><?= htmlspecialchars((string) $vr['supplier_username'], ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars((string) $vr['org_name'], ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars((string) $vr['requested_contract_file'], ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars((string) ($vr['current_contract_file'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars((string) ($vr['requested_signed_date'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars((string) ($vr['requested_start_date'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars((string) ($vr['requested_end_date'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars(substr((string) $vr['requested_uploaded_at'], 0, 10), ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars((string) ($vr['requested_by_username'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
+                            <td><?= htmlspecialchars((string) $vr['requested_at'], ENT_QUOTES, 'UTF-8') ?></td>
+                            <td>
+                                <span class="badge <?= $vr['status'] === 'pending' ? 'badge-pending' : 'badge-done' ?>">
+                                    <?= htmlspecialchars(t('contract_review_status_' . $vr['status']), ENT_QUOTES, 'UTF-8') ?>
+                                </span>
+                            </td>
+                            <td>
+                                <?php if ($vr['status'] === 'pending'): ?>
+                                <div class="user-actions-row" style="display:flex;gap:6px;flex-wrap:wrap;">
+                                    <form method="POST" action="/login/owner/index.php" style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+                                        <input type="hidden" name="action" value="approve_contract_validity_request">
+                                        <input type="hidden" name="validity_request_id" value="<?= (int) $vr['id'] ?>">
+                                        <button type="submit" class="btn-tbl btn-success"><?= t('btn_approve') ?></button>
+                                    </form>
+                                    <form method="POST" action="/login/owner/index.php" style="display:inline;">
+                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+                                        <input type="hidden" name="action" value="reject_contract_validity_request">
+                                        <input type="hidden" name="validity_request_id" value="<?= (int) $vr['id'] ?>">
+                                        <input type="text" name="review_comment" maxlength="1000" placeholder="<?= htmlspecialchars(t('contract_review_comment_optional'), ENT_QUOTES, 'UTF-8') ?>" style="max-width:180px;">
+                                        <button type="submit" class="btn-tbl btn-danger"><?= t('btn_reject') ?></button>
+                                    </form>
+                                </div>
                                 <?php else: ?>
                                 <span class="text-muted small">—</span>
                                 <?php endif; ?>

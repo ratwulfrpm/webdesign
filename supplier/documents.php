@@ -6,6 +6,7 @@
  * POST actions:
  *   add_contract          — carga un nuevo contrato (PDF/JPG/PNG ≤10 MB)
  *   mark_primary_contract — designa un contrato como el vigente
+ *   request_contract_validity_review — solicita revision admin para contrato historico
  */
 
 // ── Security headers ─────────────────────────────────────────
@@ -31,6 +32,8 @@ require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/image_validate.php';
+require_once __DIR__ . '/../includes/contract_validity.php';
+require_once __DIR__ . '/../includes/audit.php';
 
 requireAuth();
 initLang();
@@ -47,7 +50,7 @@ $lang = currentLang();
 $uid  = (int) $_SESSION['user_id'];
 
 // ── Load all contracts — most recent first ────────────────────
-function loadContracts(PDO $pdo, int $uid): array
+function loadContracts(PDO $pdo, int $uid, int $orgId): array
 {
     $s = $pdo->prepare(
         'SELECT sc.id, sc.storage_path, sc.original_filename, sc.mime_type,
@@ -56,13 +59,15 @@ function loadContracts(PDO $pdo, int $uid): array
                 u.username AS uploader_username
            FROM supplier_contracts sc
            JOIN users u ON u.id = sc.uploaded_by_user_id
-          WHERE sc.supplier_id = ?
-          ORDER BY sc.created_at DESC'
+                    WHERE sc.supplier_id = ?
+                        AND sc.org_id = ?
+                    ORDER BY sc.created_at DESC, sc.id DESC'
     );
-    $s->execute([$uid]);
+        $s->execute([$uid, $orgId]);
     return $s->fetchAll(PDO::FETCH_ASSOC);
 }
-$contracts = loadContracts($pdo, $uid);
+$orgId = (int) ($_SESSION['org_id'] ?? 0);
+$contracts = loadContracts($pdo, $uid, $orgId);
 
 // ── Helpers ───────────────────────────────────────────────────
 $errors    = [];
@@ -159,28 +164,118 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $contractId = (int) ($_POST['contract_id'] ?? 0);
 
         if ($contractId > 0) {
-            $chkStmt = $pdo->prepare(
-                'SELECT id FROM supplier_contracts WHERE id = ? AND supplier_id = ? LIMIT 1'
-            );
-            $chkStmt->execute([$contractId, $uid]);
-            if ($chkStmt->fetch()) {
+            $target = cvrLoadSupplierContract($pdo, $contractId, $uid, $orgId);
+            $latest = cvrLoadLatestSupplierContract($pdo, $uid, $orgId);
+
+            if ($target && $latest) {
+                $isLatest           = (int) $target['id'] === (int) $latest['id'];
+                $isHistorical       = !$isLatest;
+                $historicalExpired  = $isHistorical && cvrIsContractExpired($target['effective_end_date'] ?? null);
+
+                if ($isHistorical) {
+                    $currentPrimaryId = cvrLoadCurrentPrimaryContractId($pdo, $uid, $orgId);
+                    $req = cvrCreateRequest(
+                        $pdo,
+                        $uid,
+                        $orgId,
+                        (int) $target['id'],
+                        $currentPrimaryId,
+                        $uid
+                    );
+
+                    auditLog('supplier_contract_mark_primary_blocked', 'warning', null, $uid, [
+                        'supplier_id' => $uid,
+                        'org_id' => $orgId,
+                        'requested_contract_id' => (int) $target['id'],
+                        'latest_contract_id' => (int) $latest['id'],
+                        'historical_expired' => $historicalExpired ? 1 : 0,
+                    ]);
+
+                    if ($req['created']) {
+                        auditLog('supplier_contract_validity_review_requested', 'info', null, $uid, [
+                            'request_id' => $req['id'],
+                            'supplier_id' => $uid,
+                            'org_id' => $orgId,
+                            'requested_contract_id' => (int) $target['id'],
+                            'current_primary_contract_id' => $currentPrimaryId,
+                            'historical_expired' => $historicalExpired ? 1 : 0,
+                        ]);
+                    }
+
+                    $_SESSION['_doc_flash'] = $req['created']
+                        ? t('contract_review_request_sent')
+                        : t('contract_review_request_pending_exists');
+                    $_SESSION['_doc_flash_type'] = 'success';
+                    header('Location: /login/supplier/documents.php');
+                    exit;
+                }
+
                 try {
                     $pdo->beginTransaction();
                     $pdo->prepare(
-                        'UPDATE supplier_contracts SET is_primary = 0 WHERE supplier_id = ?'
-                    )->execute([$uid]);
+                        'UPDATE supplier_contracts SET is_primary = 0 WHERE supplier_id = ? AND org_id = ?'
+                    )->execute([$uid, $orgId]);
                     $pdo->prepare(
-                        'UPDATE supplier_contracts SET is_primary = 1 WHERE id = ?'
-                    )->execute([$contractId]);
+                        'UPDATE supplier_contracts SET is_primary = 1 WHERE id = ? AND supplier_id = ? AND org_id = ?'
+                    )->execute([$contractId, $uid, $orgId]);
                     $pdo->commit();
-                    // TODO: audit_log — mark-primary event
+                    auditLog('supplier_contract_mark_primary_direct', 'info', null, $uid, [
+                        'supplier_id' => $uid,
+                        'org_id' => $orgId,
+                        'contract_id' => $contractId,
+                    ]);
                     $_SESSION['_doc_flash']      = t('contract_mark_primary_ok');
                     $_SESSION['_doc_flash_type'] = 'success';
                     header('Location: /login/supplier/documents.php');
                     exit;
                 } catch (Throwable $e) {
-                    if ($pdo->inTransaction()) $pdo->rollBack();
+                    if ($pdo->inTransaction()) {
+                        $pdo->rollBack();
+                    }
                 }
+            }
+        }
+
+    // ─── Action: request_contract_validity_review ───────────
+    } elseif ($action === 'request_contract_validity_review') {
+
+        $contractId = (int) ($_POST['contract_id'] ?? 0);
+        if ($contractId > 0) {
+            $target = cvrLoadSupplierContract($pdo, $contractId, $uid, $orgId);
+            $latest = cvrLoadLatestSupplierContract($pdo, $uid, $orgId);
+
+            if ($target && $latest) {
+                $isLatest = (int) $target['id'] === (int) $latest['id'];
+                if ($isLatest) {
+                    $_SESSION['_doc_flash'] = t('contract_review_request_latest_not_needed');
+                    $_SESSION['_doc_flash_type'] = 'success';
+                } else {
+                    $currentPrimaryId = cvrLoadCurrentPrimaryContractId($pdo, $uid, $orgId);
+                    $req = cvrCreateRequest(
+                        $pdo,
+                        $uid,
+                        $orgId,
+                        (int) $target['id'],
+                        $currentPrimaryId,
+                        $uid
+                    );
+                    if ($req['created']) {
+                        auditLog('supplier_contract_validity_review_requested', 'info', null, $uid, [
+                            'request_id' => $req['id'],
+                            'supplier_id' => $uid,
+                            'org_id' => $orgId,
+                            'requested_contract_id' => (int) $target['id'],
+                            'current_primary_contract_id' => $currentPrimaryId,
+                            'historical_expired' => cvrIsContractExpired($target['effective_end_date'] ?? null) ? 1 : 0,
+                        ]);
+                    }
+                    $_SESSION['_doc_flash'] = $req['created']
+                        ? t('contract_review_request_sent')
+                        : t('contract_review_request_pending_exists');
+                    $_SESSION['_doc_flash_type'] = 'success';
+                }
+                header('Location: /login/supplier/documents.php');
+                exit;
             }
         }
     }
@@ -188,7 +283,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // Reload contracts if we stayed on the page (validation errors on POST)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $contracts = loadContracts($pdo, $uid);
+    $contracts = loadContracts($pdo, $uid, $orgId);
+}
+
+$latestContractId = null;
+if (!empty($contracts)) {
+    $latestContractId = (int) $contracts[0]['id'];
 }
 
 // ── Separate primary from history ─────────────────────────────
@@ -360,6 +460,10 @@ $initial  = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
                     </thead>
                     <tbody>
                     <?php foreach ($contracts as $c): ?>
+                        <?php
+                            $isLatestRow = false;
+                            $isExpiredRow = false;
+                        ?>
                         <tr<?= (int) $c['is_primary'] === 1 ? ' style="background:var(--color-bg-card);"' : '' ?>>
                             <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"
                                 title="<?= $esc($c['original_filename']) ?>">
@@ -387,6 +491,11 @@ $initial  = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
                                     <?= $esc(t('btn_view_contract')) ?>
                                 </a>
                                 <?php if ((int) $c['is_primary'] === 0): ?>
+                                <?php
+                                    $isLatestRow = $latestContractId !== null && (int) $c['id'] === $latestContractId;
+                                    $isExpiredRow = cvrIsContractExpired($c['effective_end_date'] ?? null);
+                                ?>
+                                <?php if ($isLatestRow): ?>
                                 <form method="POST" action="/login/supplier/documents.php"
                                       style="display:inline;">
                                     <?= $csrfField ?>
@@ -396,6 +505,27 @@ $initial  = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
                                         <?= $esc(t('btn_mark_primary')) ?>
                                     </button>
                                 </form>
+                                <?php else: ?>
+                                <form method="POST" action="/login/supplier/documents.php"
+                                      style="display:inline;">
+                                    <?= $csrfField ?>
+                                    <input type="hidden" name="action" value="request_contract_validity_review">
+                                    <input type="hidden" name="contract_id" value="<?= (int) $c['id'] ?>">
+                                    <button type="submit" class="btn-tbl btn-secondary">
+                                        <?= $esc(t('btn_request_contract_review')) ?>
+                                    </button>
+                                </form>
+                                <?php endif; ?>
+                                <?php endif; ?>
+                                <?php if ((int) $c['is_primary'] === 0 && !$isLatestRow): ?>
+                                <div class="small text-muted" style="margin-top:8px;max-width:280px;line-height:1.3;">
+                                    <?= $esc(t('contract_history_requires_review')) ?>
+                                </div>
+                                <?php if ($isExpiredRow): ?>
+                                <div class="small" style="margin-top:5px;color:#b54708;max-width:280px;line-height:1.3;">
+                                    <?= $esc(t('contract_history_expired_warning')) ?>
+                                </div>
+                                <?php endif; ?>
                                 <?php endif; ?>
                             </td>
                         </tr>

@@ -90,6 +90,10 @@ There is no authenticated `user` actor in API v1.
 Contracts are **immutable** — no PATCH or DELETE. Max file size: 10 MB.  
 Allowed MIME types: `application/pdf`, `image/jpeg`, `image/png`.
 
+Validity rule (supplier workflow):
+- Only the **most recently uploaded** contract can be set as current directly.
+- Historical contracts require an admin/owner review request before changing current validity.
+
 **POST /contracts form fields:**
 ```
 supplier_id           (required)
@@ -100,6 +104,41 @@ effective_end_date    YYYY-MM-DD
 notes                 string
 is_primary            1 | 0
 ```
+
+---
+
+### Contract Validity Review Requests
+
+| Endpoint | Method | Description | Auth |
+|---|---|---|---|
+| `/api/v1/supplier/contracts/:id/request-validity-review` | POST | Supplier requests review to set a historical contract as current | supplier |
+| `/api/v1/admin/contract-validity-requests` | GET | List validity review requests (`?status=` optional) | admin/owner |
+| `/api/v1/admin/contract-validity-requests/:id/approve` | POST | Approve request and switch current contract transactionally | admin/owner |
+| `/api/v1/admin/contract-validity-requests/:id/reject` | POST | Reject request (optional review comment) | admin/owner |
+
+Supplier request behavior:
+- If target contract is latest upload: endpoint returns validation error (no review needed).
+- If target contract is historical: creates pending request unless one already exists.
+- Current contract does not change until approval.
+
+Reject body example:
+```json
+{
+  "review_comment": "Optional reason"
+}
+```
+
+Approval behavior:
+- Transactional update:
+  1. `is_primary = 0` for all supplier contracts in business unit.
+  2. Requested contract set to `is_primary = 1`.
+  3. Request status updated to `approved`, with reviewer and timestamp.
+
+Security checks:
+- Server-side ownership and object checks on every request.
+- `org_id` scope enforced for admin; owner can review cross-business-unit requests.
+- Pending duplicate requests for same supplier/contract are blocked.
+- Supplier cannot approve/reject requests.
 
 ---
 
@@ -292,7 +331,7 @@ Rate limit: **20 requests / 10 min per IP**.
 | Threat | Mitigation |
 |---|---|
 | SQL Injection | 100% PDO prepared statements — zero user input concatenated into SQL |
-| IDOR | `supplier_id` check for supplier role; `org_id` scoping for assignments |
+| IDOR | Ownership checks on contract/request IDs + `org_id` scoping for admin endpoints |
 | XSS | Pure JSON API — zero HTML output surface |
 | Token brute-force | Rate limit 20 req/10min per IP on `/public/quote` |
 | Token leakage | SHA-256 stored in DB; plain token returned **once** on create/clone |
@@ -314,6 +353,7 @@ api/v1/
     ├── products.php           — products + images + keywords
     ├── suppliers.php          — suppliers list & detail
     ├── contracts.php          — contracts list, upload & detail
+    ├── contract_validity_requests.php — supplier review requests + admin/owner approve/reject
     ├── invitations.php        — invitations CRUD + revoke
     ├── search.php             — paginated full-text product search
     ├── assignments.php        — quotes CRUD + revoke + clone

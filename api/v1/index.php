@@ -11,6 +11,8 @@
  *   invitations   GET|POST  + action: revoke
  *   search        GET /search/products
  *   assignments   GET|POST|DELETE + action: revoke, clone
+ *   supplier      POST /supplier/contracts/{id}/request-validity-review
+ *   admin         GET/POST /admin/contract-validity-requests...
  *   public        GET /public/quote?t=TOKEN  (no auth)
  *
  * Security:
@@ -119,6 +121,16 @@ switch ($resource) {
         // /public/quote?t=TOKEN  — no auth required
         require_once __DIR__ . '/resources/public_quote.php';
         handlePublicQuote($method, $sub);
+        break;
+
+    case 'supplier':
+        require_once __DIR__ . '/resources/contract_validity_requests.php';
+        handleSupplierContractValidityRoutes($method, $segments);
+        break;
+
+    case 'admin':
+        require_once __DIR__ . '/resources/contract_validity_requests.php';
+        handleAdminContractValidityRoutes($method, $segments);
         break;
 
     case '':
