@@ -40,6 +40,8 @@ require_once __DIR__ . '/includes/lang.php';
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/tabs.php';
 require_once __DIR__ . '/includes/mailer.php';
+require_once __DIR__ . '/includes/audit.php';
+require_once __DIR__ . '/includes/org_scope.php';
 
 requireAuth();
 initLang();
@@ -51,6 +53,8 @@ $orgId   = (int) $_SESSION['org_id'];
 $orgName = htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8');
 $role    = $_SESSION['role'] ?? '';
 $lang    = currentLang();
+$accessibleOrgs = loadAccessibleOrganizations($pdo, $userId, $role);
+$accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -77,18 +81,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $invEmail    = trim($_POST['invited_email'] ?? '');
         $sendEmail   = $invEmail !== ''; // always send if email provided
 
-        // Validate target org is an active org
-        $orgRow = $pdo->prepare('SELECT id, name FROM organizations WHERE id = ? AND is_active = 1');
-        $orgRow->execute([$targetOrgId]);
-        if (!$orgRow->fetch()) {
+        if (!orgScopeContainsOrgId($accessibleOrgIds, $targetOrgId)) {
             $_SESSION['inv_feedback']      = null;
             $_SESSION['inv_feedback_type'] = 'error';
-            // Silently fall back to current org (should not normally happen)
-            $targetOrgId = $orgId;
+            $_SESSION['inv_feedback']      = t('error_no_org');
+            header('Location: /login/invitations.php');
+            exit;
+        }
+
+        $orgLookup = [];
+        foreach ($accessibleOrgs as $org) {
+            $orgLookup[(int) $org['id']] = (string) $org['name'];
         }
 
         // Validate role
-        $allowedRoles = ['owner', 'admin', 'supplier'];
+        $allowedRoles = $role === 'owner'
+            ? ['admin', 'supplier']
+            : ['supplier'];
         if (!in_array($invRole, $allowedRoles, true)) {
             $invRole = 'supplier';
         }
@@ -122,7 +131,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $userId,
         ]);
 
-        // TODO: if audit_log table exists, log invitation creation here.
+        auditLog('invitation_created', 'info', (int) $pdo->lastInsertId(), $userId, [
+            'org_id' => $targetOrgId,
+            'org_name' => $orgLookup[$targetOrgId] ?? null,
+            'role' => $invRole,
+            'invited_email' => $invEmail !== '' ? $invEmail : null,
+        ]);
 
         // Optionally send email immediately
         $emailResult = null;
@@ -145,17 +159,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'revoke_invitation') {
         $invId = (int) ($_POST['inv_id'] ?? 0);
         if ($invId > 0) {
-            // Only revoke pending invitations belonging to any active org
-            // (admin/owner manage all orgs; additional org scope can be added here)
-            $stmt = $pdo->prepare(
-                'UPDATE supplier_invitations
-                    SET status = "revoked", revoked_at = NOW()
-                  WHERE id = ?
-                    AND status = "pending"'
-            );
-            $stmt->execute([$invId]);
+            if (!empty($accessibleOrgIds)) {
+                $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+                $params = array_merge([$invId], $accessibleOrgIds);
+                $stmt = $pdo->prepare(
+                    "UPDATE supplier_invitations
+                        SET status = 'revoked', revoked_at = NOW()
+                      WHERE id = ?
+                        AND org_id IN ({$placeholders})
+                        AND status = 'pending'"
+                );
+                $stmt->execute($params);
 
-            // TODO: if audit_log table exists, log revocation here.
+                if ($stmt->rowCount() > 0) {
+                    auditLog('invitation_revoked', 'info', $invId, $userId);
+                }
+            }
         }
         $_SESSION['inv_feedback']      = t('inv_revoked_success');
         $_SESSION['inv_feedback_type'] = 'success';
@@ -170,25 +189,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ── Fetch data ────────────────────────────────────────────────
 
-// All active organizations (for the create-invitation form select)
-$orgs = $pdo->query(
-    'SELECT id, name FROM organizations WHERE is_active = 1 ORDER BY name ASC'
-)->fetchAll();
+// Active organizations the current user may manage.
+$orgs = $accessibleOrgs;
 
-// Invitation history — all invitations with creator/user info joined
-$invitations = $pdo->query(
-    'SELECT si.id, si.org_id, o.name AS org_name,
-            si.role, si.invited_email, si.status,
-            si.expires_at, si.created_at, si.used_at, si.revoked_at,
-            cb.username AS created_by_username,
-            ub.username AS used_by_username
-       FROM supplier_invitations si
-       JOIN organizations o  ON o.id  = si.org_id
-       JOIN users cb         ON cb.id = si.created_by_user_id
-       LEFT JOIN users ub    ON ub.id = si.used_by_user_id
-      ORDER BY si.created_at DESC
-      LIMIT 200'
-)->fetchAll();
+$invitations = [];
+if (!empty($accessibleOrgIds)) {
+    $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+    $stmt = $pdo->prepare(
+        "SELECT si.id, si.org_id, o.name AS org_name,
+                si.role, si.invited_email, si.status,
+                si.expires_at, si.created_at, si.used_at, si.revoked_at,
+                cb.username AS created_by_username,
+                ub.username AS used_by_username
+           FROM supplier_invitations si
+           JOIN organizations o  ON o.id  = si.org_id
+           JOIN users cb         ON cb.id = si.created_by_user_id
+           LEFT JOIN users ub    ON ub.id = si.used_by_user_id
+          WHERE si.org_id IN ({$placeholders})
+          ORDER BY si.created_at DESC
+          LIMIT 200"
+    );
+    $stmt->execute($accessibleOrgIds);
+    $invitations = $stmt->fetchAll();
+}
 
 // ── Consume one-time session vars ─────────────────────────────
 $feedback      = $_SESSION['inv_feedback']      ?? '';
@@ -219,7 +242,8 @@ $initial  = strtoupper(substr($username, 0, 1));
     <title><?= t('inv_page_title') ?></title>
     <link rel="stylesheet" href="/login/css/style.css?v=15">
 </head>
-<body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
+<body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>"
+    data-inv-link-copied-label="<?= htmlspecialchars(t('inv_link_copied'), ENT_QUOTES, 'UTF-8') ?>">
 
     <!-- Top nav -->
     <div class="top-bar">
@@ -394,6 +418,9 @@ $initial  = strtoupper(substr($username, 0, 1));
 
                         $statusKey   = 'inv_status_' . $inv['status'];
                         $statusLabel = t($statusKey);
+                        $revokeConfirm = $lang === 'en'
+                            ? 'Revoke this invitation?'
+                            : '¿Revocar esta invitación?';
                         $statusClass = match($inv['status']) {
                             'pending'  => 'badge-pending',
                             'used'     => 'badge-done',
@@ -439,10 +466,8 @@ $initial  = strtoupper(substr($username, 0, 1));
                                     <input type="hidden" name="action"  value="revoke_invitation">
                                     <input type="hidden" name="inv_id"  value="<?= (int) $inv['id'] ?>">
                                     <button type="submit" class="btn-tbl btn-danger"
-                                            onclick="return confirm('<?= htmlspecialchars(
-                                                $lang === 'en' ? 'Revoke this invitation?' : '¿Revocar esta invitación?',
-                                                ENT_QUOTES, 'UTF-8'
-                                            ) ?>')">
+                                            data-confirm="<?= htmlspecialchars($revokeConfirm, ENT_QUOTES, 'UTF-8') ?>"
+                                            onclick="return confirm(this.getAttribute('data-confirm'))">
                                         <?= t('btn_revoke') ?>
                                     </button>
                                 </form>
@@ -465,11 +490,12 @@ $initial  = strtoupper(substr($username, 0, 1));
 function copyInvLink() {
     var input = document.getElementById('inv-link-input');
     var btn   = document.getElementById('inv-copy-btn');
+    var copiedLabel = document.body.getAttribute('data-inv-link-copied-label') || 'Copied';
     if (!input || !btn) return;
 
     navigator.clipboard.writeText(input.value).then(function () {
         var original = btn.textContent;
-        btn.textContent = '<?= t('inv_link_copied') ?>';
+        btn.textContent = copiedLabel;
         btn.disabled = true;
         setTimeout(function () {
             btn.textContent = original;

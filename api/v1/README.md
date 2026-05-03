@@ -22,9 +22,34 @@ Session cookie required for all private endpoints.
 End-customer access is token-only via assignment/public quote links.
 There is no authenticated `user` actor in API v1.
 
+Multi-business-unit scope:
+- `admin` only receives data from business units assigned through `org_members`.
+- `owner` can operate across all active business units.
+- Requests that target an `org_id` outside the caller scope are rejected server-side.
+
 ---
 
 ## Endpoint Reference
+
+### Users
+
+| Endpoint | Method | Description | Auth |
+|---|---|---|---|
+| `/api/v1/users` | GET | List accessible users. Filters: `?status=active\|inactive`, `?org_id=`, `?role=` | admin/owner |
+| `/api/v1/users/:id` | GET | Accessible user detail + visible business units | admin/owner |
+| `/api/v1/users/:id` | PATCH | Action-based update: `activate`, `deactivate`, `unlock` | admin/owner |
+
+Notes:
+- `admin` only sees supplier users inside assigned business units.
+- `owner` can list users across all active business units.
+- Responses include `business_unit_name` and `business_units`.
+
+**PATCH /users/:id body:**
+```json
+{
+  "action": "activate | deactivate | unlock"
+}
+```
 
 ### Products
 
@@ -146,10 +171,14 @@ Security checks:
 
 | Endpoint | Method | Description | Auth |
 |---|---|---|---|
-| `/api/v1/invitations` | GET | List invitations. Filter: `?status=pending\|used\|expired\|revoked` | admin/owner |
+| `/api/v1/invitations` | GET | List invitations. Filter: `?status=pending\|used\|expired\|revoked`, `?org_id=` | admin/owner |
 | `/api/v1/invitations` | POST | Create invitation — returns plain token + enroll URL (once only) | admin/owner |
 | `/api/v1/invitations/:id` | GET | Invitation detail (no token returned) | admin/owner |
 | `/api/v1/invitations/:id/revoke` | POST | Revoke pending invitation | admin/owner |
+
+Scope notes:
+- `admin` can only list/create/revoke invitations inside assigned business units.
+- Invitation responses include `business_unit_name` and `business_unit`.
 
 **POST /invitations body:**
 ```json
@@ -218,16 +247,22 @@ Security checks:
 
 | Endpoint | Method | Description | Auth |
 |---|---|---|---|
-| `/api/v1/assignments` | GET | List quotes (excl. deleted). Filter: `?status=`, `?page=` | admin/owner |
+| `/api/v1/assignments` | GET | List quotes (excl. deleted). Filter: `?status=`, `?page=`, `?org_id=` | admin/owner |
 | `/api/v1/assignments` | POST | Create multi-product quote — returns plain token + URL (once only) | admin/owner |
 | `/api/v1/assignments/:id` | GET | Quote detail + line items + totals | admin/owner |
 | `/api/v1/assignments/:id` | DELETE | Soft-delete quote | admin/owner |
 | `/api/v1/assignments/:id/revoke` | POST | Revoke active quote (token stops working) | admin/owner |
 | `/api/v1/assignments/:id/clone` | POST | Clone quote with new token (regen link) | admin/owner |
 
+Scope notes:
+- `admin` can only list/create/revoke/delete/clone assignments inside assigned business units.
+- `org_id` in create requests is validated server-side against the caller scope.
+- Assignment responses include `business_unit_name` and `business_unit`.
+
 **POST /assignments body:**
 ```json
 {
+  "org_id": 1,
   "assigned_customer_name": "Juan Pérez (required)",
   "company_name": "optional",
   "special_conditions": "optional",
@@ -351,6 +386,7 @@ api/v1/
 ├── README.md                  — this file
 └── resources/
     ├── products.php           — products + images + keywords
+  ├── users.php              — scoped user listing + state actions
     ├── suppliers.php          — suppliers list & detail
     ├── contracts.php          — contracts list, upload & detail
     ├── contract_validity_requests.php — supplier review requests + admin/owner approve/reject

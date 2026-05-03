@@ -27,6 +27,7 @@ session_start();
 
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/../../includes/org_scope.php';
 
 // ── RBAC ────────────────────────────────────────────────────
 if (empty($_SESSION['user_id'])) {
@@ -49,6 +50,15 @@ if ($productId <= 0) {
 }
 
 $pdo = getDB();
+$allowedOrgIds = loadAccessibleOrgIds($pdo, (int) $_SESSION['user_id'], (string) ($_SESSION['role'] ?? ''));
+
+if (empty($allowedOrgIds)) {
+    http_response_code(404);
+    echo json_encode(['success' => false, 'error' => 'Product not found']);
+    exit;
+}
+
+$orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
 
 // ── Load product ─────────────────────────────────────────────
 $stmt = $pdo->prepare(
@@ -61,18 +71,14 @@ $stmt = $pdo->prepare(
             p.active,
             u.username     AS supplier_username,
             u.company_name AS supplier_company,
-            MAX(o.name)    AS org_name
+            o.name         AS org_name
        FROM supplier_products p
        JOIN users u ON u.id = p.supplier_id
-       LEFT JOIN org_members om  ON om.user_id = u.id AND om.is_active = 1
-       LEFT JOIN organizations o ON o.id = om.org_id
-      WHERE p.id = ? AND p.active = 1
-      GROUP BY p.id, p.product_name, p.internal_product_code,
-               p.technical_description, p.price_fob, p.price_cif,
-               p.active, u.username, u.company_name
+         LEFT JOIN organizations o ON o.id = p.org_id
+        WHERE p.id = ? AND p.active = 1 AND p.org_id IN (' . $orgPlaceholders . ')
       LIMIT 1'
 );
-$stmt->execute([$productId]);
+    $stmt->execute(array_merge([$productId], $allowedOrgIds));
 $product = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$product) {

@@ -6,6 +6,7 @@
  *
  * Supported resources:
  *   products      GET|POST|PATCH|DELETE  + sub: images, keywords
+ *   users         GET|PATCH
  *   suppliers     GET
  *   contracts     GET|POST
  *   invitations   GET|POST  + action: revoke
@@ -84,6 +85,11 @@ switch ($resource) {
     case 'products':
         require_once __DIR__ . '/resources/products.php';
         handleProducts($method, $id, $sub, $subId);
+        break;
+
+    case 'users':
+        require_once __DIR__ . '/resources/users.php';
+        handleUsers($method, $id);
         break;
 
     case 'suppliers':

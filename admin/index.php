@@ -35,6 +35,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/contract_validity_admin.php';
 require_once __DIR__ . '/../includes/audit.php';
+require_once __DIR__ . '/../includes/org_scope.php';
 
 // Auth checks
 requireAuth();
@@ -43,6 +44,10 @@ requireRole(['admin']);
 
 $pdo      = getDB();
 $feedback = '';$orgId    = (int) $_SESSION['org_id'];
+$userId   = (int) $_SESSION['user_id'];
+$role     = (string) ($_SESSION['role'] ?? '');
+$accessibleOrgs = loadAccessibleOrganizations($pdo, $userId, $role);
+$accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
 $orgName  = htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8');
 // ── Handle admin POST actions ─────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -55,7 +60,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     switch ($action) {
         case 'activate':
-            if ($uid > 0) {
+            if (orgScopeUserAccessible($pdo, $uid, $accessibleOrgIds, ['supplier'])) {
                 $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = ?')->execute([$uid]);
                 $feedback = t('feedback_activated');
             }
@@ -63,14 +68,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         case 'deactivate':
             // Prevent admin from deactivating themselves
-            if ($uid > 0 && $uid !== (int) $_SESSION['user_id']) {
+            if ($uid > 0
+                && $uid !== $userId
+                && orgScopeUserAccessible($pdo, $uid, $accessibleOrgIds, ['supplier'])) {
                 $pdo->prepare('UPDATE users SET is_active = 0 WHERE id = ?')->execute([$uid]);
                 $feedback = t('feedback_deactivated');
             }
             break;
 
         case 'unlock':
-            if ($uid > 0) {
+            if (orgScopeUserAccessible($pdo, $uid, $accessibleOrgIds, ['supplier'])) {
                 $pdo->prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')
                     ->execute([$uid]);
                 $feedback = t('feedback_unlocked');
@@ -134,20 +141,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ── Fetch data ────────────────────────────────────────────────
-// Admin sees only supplier users within the current org
-$uStmt = $pdo->prepare(
-    'SELECT u.id, u.username, u.email, u.is_active,
-            u.first_login, u.failed_attempts, u.locked_until,
-            om.role
-       FROM users u
-       JOIN org_members om ON u.id = om.user_id
-            WHERE om.org_id = ?
-                AND om.role = "supplier"
-        AND om.is_active = 1
-      ORDER BY om.role ASC, u.username ASC'
-);
-$uStmt->execute([$orgId]);
-$users = $uStmt->fetchAll();
+// Admin sees supplier users across every business unit they manage.
+$users = [];
+if (!empty($accessibleOrgIds)) {
+        $orgPlaceholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+        $uStmt = $pdo->prepare(
+                "SELECT u.id, u.username, u.email, u.is_active,
+                                u.first_login, u.failed_attempts, u.locked_until,
+                                u.created_at, 'supplier' AS role,
+                                GROUP_CONCAT(DISTINCT o.name ORDER BY o.name SEPARATOR ', ') AS org_names
+                     FROM users u
+                     JOIN org_members om ON u.id = om.user_id
+                     JOIN organizations o ON o.id = om.org_id
+                    WHERE om.org_id IN ({$orgPlaceholders})
+                        AND om.role = 'supplier'
+                        AND om.is_active = 1
+                    GROUP BY u.id, u.username, u.email, u.is_active,
+                                     u.first_login, u.failed_attempts, u.locked_until, u.created_at
+                    ORDER BY u.username ASC"
+        );
+        $uStmt->execute($accessibleOrgIds);
+        $users = $uStmt->fetchAll();
+}
 
 $requests = $pdo->query(
     'SELECT id, company_name, email, username, notes, status, requested_at
@@ -230,8 +245,10 @@ $lang     = currentLang();
                             <th><?= t('col_username') ?></th>
                             <th><?= t('col_email') ?></th>
                             <th><?= t('col_role') ?></th>
+                            <th><?= t('col_org') ?></th>
                             <th><?= t('col_status') ?></th>
                             <th><?= t('col_first_login') ?></th>
+                            <th><?= t('col_created_at') ?></th>
                             <th><?= t('col_attempts') ?></th>
                             <th><?= t('col_locked_until') ?></th>
                             <th><?= t('col_actions') ?></th>
@@ -252,6 +269,9 @@ $lang     = currentLang();
                                     <?= htmlspecialchars(t('role_' . $u['role']), ENT_QUOTES, 'UTF-8') ?>
                                 </span>
                             </td>
+                            <td class="text-muted small">
+                                <?= htmlspecialchars((string) ($u['org_names'] ?? '—'), ENT_QUOTES, 'UTF-8') ?>
+                            </td>
                             <td>
                                 <span class="badge <?= (int) $u['is_active'] ? 'badge-active' : 'badge-inactive' ?>">
                                     <?= (int) $u['is_active'] ? t('status_active') : t('status_inactive') ?>
@@ -261,6 +281,9 @@ $lang     = currentLang();
                                 <span class="badge <?= (int) $u['first_login'] ? 'badge-pending' : 'badge-done' ?>">
                                     <?= (int) $u['first_login'] ? t('first_login_yes') : t('first_login_no') ?>
                                 </span>
+                            </td>
+                            <td class="text-muted small">
+                                <?= htmlspecialchars(substr((string) ($u['created_at'] ?? ''), 0, 10) ?: '—', ENT_QUOTES, 'UTF-8') ?>
                             </td>
                             <td><?= (int) $u['failed_attempts'] ?></td>
                             <td class="text-muted small">

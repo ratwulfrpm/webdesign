@@ -36,6 +36,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/mailer.php';
+require_once __DIR__ . '/../includes/org_scope.php';
 
 requireAuth();
 initLang();
@@ -44,7 +45,13 @@ requireRole(['admin', 'owner']);
 $pdo    = getDB();
 $userId = (int) $_SESSION['user_id'];
 $orgId  = (int) ($_SESSION['org_id'] ?? 0);
+$role   = (string) ($_SESSION['role'] ?? '');
 $lang   = currentLang();
+$accessibleOrgs = loadAccessibleOrganizations($pdo, $userId, $role);
+$accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
+$assignmentOrgId = orgScopeContainsOrgId($accessibleOrgIds, $orgId)
+    ? $orgId
+    : (int) ($accessibleOrgIds[0] ?? 0);
 
 // ── Helper: build public quote URL ───────────────────────────
 function buildQuoteLink(string $plainToken): string
@@ -74,6 +81,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create_assignment') {
 
         $errors = [];
+        $targetOrgId = (int) ($_POST['org_id'] ?? $assignmentOrgId);
+
+        if (!orgScopeContainsOrgId($accessibleOrgIds, $targetOrgId)) {
+            $errors[] = t('error_no_org');
+        }
 
         // 1. Customer name (required)
         $customerName = mb_substr(trim($_POST['customer_name'] ?? ''), 0, 200);
@@ -240,9 +252,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $prodStmt     = $pdo->prepare(
             "SELECT id, product_name, price_fob, price_cif, active
                FROM supplier_products
-              WHERE id IN ({$placeholders}) AND active = 1"
+              WHERE org_id = ? AND id IN ({$placeholders}) AND active = 1"
         );
-        $prodStmt->execute($productIds);
+          $prodStmt->execute(array_merge([$targetOrgId], $productIds));
         $validProducts = [];
         foreach ($prodStmt->fetchAll() as $p) {
             $validProducts[(int)$p['id']] = $p;
@@ -295,7 +307,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "active", ?, ?, ?)'
             );
             $insQuote->execute([
-                $orgId,
+                $targetOrgId,
                 $customerName,
                 $companyName !== '' ? $companyName : null,
                 $specialConditions !== '' ? $specialConditions : null,
@@ -350,6 +362,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $pdo->commit();
 
             auditLog('assignment_created', 'info', $quoteId, $userId, [
+                'org_id'           => $targetOrgId,
                 'customer'         => $customerName,
                 'company'          => $companyName,
                 'product_count'    => count($productIds),
@@ -452,13 +465,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         try {
+            if (empty($accessibleOrgIds)) {
+                throw new \PDOException('No accessible organizations for revoke');
+            }
+            $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
             $upd = $pdo->prepare(
                 "UPDATE quote_assignments
                     SET status = 'revoked', revoked_at = NOW(),
                         revoked_by_user_id = ?, updated_at = NOW()
-                  WHERE id = ? AND status = 'active'"
+                  WHERE id = ?
+                    AND org_id IN ({$placeholders})
+                    AND status = 'active'"
             );
-            $upd->execute([$userId, $quoteId]);
+            $upd->execute(array_merge([$userId, $quoteId], $accessibleOrgIds));
             if ($upd->rowCount() > 0) {
                 auditLog('assignment_revoked', 'info', $quoteId, $userId);
                 $_SESSION['asgn_feedback']      = t('asgn_revoked_success');
@@ -488,13 +507,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         try {
+            if (empty($accessibleOrgIds)) {
+                throw new \PDOException('No accessible organizations for delete');
+            }
+            $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
             $upd = $pdo->prepare(
                 "UPDATE quote_assignments
                     SET status = 'deleted', deleted_at = NOW(),
                         deleted_by_user_id = ?, updated_at = NOW()
-                  WHERE id = ? AND status IN ('active','expired','revoked')"
+                  WHERE id = ?
+                    AND org_id IN ({$placeholders})
+                    AND status IN ('active','expired','revoked')"
             );
-            $upd->execute([$userId, $quoteId]);
+            $upd->execute(array_merge([$userId, $quoteId], $accessibleOrgIds));
             if ($upd->rowCount() > 0) {
                 auditLog('assignment_deleted', 'info', $quoteId, $userId);
                 $_SESSION['asgn_feedback']      = t('asgn_deleted_success');
@@ -534,13 +559,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             // Load parent (must not be deleted)
+            if (empty($accessibleOrgIds)) {
+                $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
+                $_SESSION['asgn_feedback_type'] = 'error';
+                header('Location: /login/admin/assignments.php');
+                exit;
+            }
+            $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
             $sel = $pdo->prepare(
                 "SELECT id, org_id, company_name, special_conditions, discount_percentage
                    FROM quote_assignments
-                  WHERE id = ? AND status != 'deleted'
+                  WHERE id = ?
+                    AND org_id IN ({$placeholders})
+                    AND status != 'deleted'
                   LIMIT 1"
             );
-            $sel->execute([$parentId]);
+            $sel->execute(array_merge([$parentId], $accessibleOrgIds));
             $parent = $sel->fetch();
 
             if (!$parent) {
@@ -660,29 +694,38 @@ unset(
 );
 
 // ─── Recent assignments (last 30, exclude deleted) ────────────
-$recentAssignments = $pdo->query(
-    "SELECT qa.id,
-            qa.assigned_customer_name,
-            qa.company_name,
-            qa.discount_percentage,
-            qa.status,
-            qa.expires_at,
-            qa.view_count,
-            qa.created_at,
-            qa.revoked_at,
-            u.username AS creator_username,
-            COUNT(qi.id) AS item_count,
-            SUM(qi.final_unit_price) AS subtotal
-       FROM quote_assignments qa
-       JOIN users u ON u.id = qa.created_by_user_id
-       LEFT JOIN quote_assignment_items qi ON qi.quote_assignment_id = qa.id
-      WHERE qa.status != 'deleted'
-      GROUP BY qa.id, qa.assigned_customer_name, qa.company_name,
-               qa.discount_percentage, qa.status, qa.expires_at,
-               qa.view_count, qa.created_at, qa.revoked_at, u.username
-      ORDER BY qa.created_at DESC
-      LIMIT 30"
-)->fetchAll();
+$recentAssignments = [];
+if (!empty($accessibleOrgIds)) {
+        $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+        $recentStmt = $pdo->prepare(
+                "SELECT qa.id,
+                                qa.assigned_customer_name,
+                                qa.company_name,
+                                qa.discount_percentage,
+                                qa.status,
+                                qa.expires_at,
+                                qa.view_count,
+                                qa.created_at,
+                                qa.revoked_at,
+                                u.username AS creator_username,
+                                o.name AS org_name,
+                                COUNT(qi.id) AS item_count,
+                                SUM(qi.final_unit_price) AS subtotal
+                     FROM quote_assignments qa
+                     JOIN users u ON u.id = qa.created_by_user_id
+                     JOIN organizations o ON o.id = qa.org_id
+                     LEFT JOIN quote_assignment_items qi ON qi.quote_assignment_id = qa.id
+                    WHERE qa.status != 'deleted'
+                        AND qa.org_id IN ({$placeholders})
+                    GROUP BY qa.id, qa.assigned_customer_name, qa.company_name,
+                                     qa.discount_percentage, qa.status, qa.expires_at,
+                                     qa.view_count, qa.created_at, qa.revoked_at, u.username, o.name
+                    ORDER BY qa.created_at DESC
+                    LIMIT 30"
+        );
+        $recentStmt->execute($accessibleOrgIds);
+        $recentAssignments = $recentStmt->fetchAll();
+}
 
 // ─── View helpers ─────────────────────────────────────────────
 $esc      = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
@@ -1239,6 +1282,19 @@ $statusClass = [
                             <h2 class="card-title" style="font-size:1rem;margin-bottom:10px;">
                                 <?= $esc(t('asgn_search_title')) ?>
                             </h2>
+                            <div class="form-group">
+                                <label class="form-label" for="assignment_org_id">
+                                    <?= $esc(t('filter_org_label')) ?>
+                                </label>
+                                <select id="assignment_org_id" name="org_id" class="form-input" onchange="onAssignmentOrgChange()">
+                                    <?php foreach ($accessibleOrgs as $accessibleOrg): ?>
+                                    <option value="<?= (int) $accessibleOrg['id'] ?>"
+                                        <?= (int) $accessibleOrg['id'] === $assignmentOrgId ? 'selected' : '' ?>>
+                                        <?= $esc($accessibleOrg['name']) ?>
+                                    </option>
+                                    <?php endforeach; ?>
+                                </select>
+                            </div>
                             <div class="search-filter-grid">
                                 <div>
                                     <label class="form-label" style="font-size:0.82rem;">
@@ -1543,6 +1599,7 @@ $statusClass = [
                 <table class="data-table" style="min-width:820px;">
                     <thead>
                         <tr>
+                            <th><?= $esc(t('col_org')) ?></th>
                             <th><?= $esc(t('asgn_col_customer')) ?></th>
                             <th><?= $esc(t('asgn_col_items')) ?></th>
                             <th><?= $esc(t('quote_total_label')) ?></th>
@@ -1566,6 +1623,9 @@ $statusClass = [
                             $total       = $subtotal * (1 - $discPct / 100);
                         ?>
                         <tr>
+                            <td class="text-muted" style="font-size:0.83rem;">
+                                <?= $esc($a['org_name']) ?>
+                            </td>
                             <td>
                                 <div style="font-weight:600;"><?= $esc($a['assigned_customer_name']) ?></div>
                                 <?php if ($a['company_name']): ?>
@@ -1704,11 +1764,13 @@ $statusClass = [
     function doSearch(page) {
         page = page || 1;
         lastSearchPage = page;
+        var selectedOrg = document.getElementById('assignment_org_id');
         var params = new URLSearchParams({
             q:           document.getElementById('filter_keyword').value.trim(),
             supplier:    document.getElementById('filter_supplier').value.trim(),
             name:        document.getElementById('filter_name').value.trim(),
             description: document.getElementById('filter_description').value.trim(),
+            org:         selectedOrg ? selectedOrg.value : '',
             page:        page,
         });
 
@@ -1739,6 +1801,14 @@ $statusClass = [
         document.getElementById('resultsPanel').style.display = 'none';
         document.getElementById('detailPanel').style.display  = 'none';
         lastSearchData = null;
+    }
+
+    function onAssignmentOrgChange() {
+        selectedProducts = {};
+        updateSelectedPanel();
+        if (document.getElementById('resultsPanel').style.display === 'block') {
+            doSearch(1);
+        }
     }
 
     // ─── Enter key on filter fields triggers search ──────────

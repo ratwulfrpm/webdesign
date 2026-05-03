@@ -32,6 +32,7 @@ session_start();
 
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../config/db.php';
+require_once __DIR__ . '/../../includes/org_scope.php';
 
 // ── RBAC ────────────────────────────────────────────────────
 if (empty($_SESSION['user_id'])) {
@@ -57,10 +58,37 @@ define('PER_PAGE', 25);
 $offset = ($page - 1) * PER_PAGE;
 
 $pdo = getDB();
+$role = (string) ($_SESSION['role'] ?? '');
+$allowedOrgIds = loadAccessibleOrgIds($pdo, (int) $_SESSION['user_id'], $role);
+$filterOrgId = (int) ($_GET['org'] ?? 0);
+
+if (empty($allowedOrgIds)) {
+    echo json_encode([
+        'success' => true,
+        'total' => 0,
+        'page' => $page,
+        'pages' => 0,
+        'per_page' => PER_PAGE,
+        'items' => [],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($filterOrgId > 0 && !orgScopeContainsOrgId($allowedOrgIds, $filterOrgId)) {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Business unit not accessible']);
+    exit;
+}
 
 // ── Build WHERE clause ───────────────────────────────────────
-$where      = ['p.active = 1'];
-$bindParams = [];
+$orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
+$where      = ['p.active = 1', "p.org_id IN ({$orgPlaceholders})"];
+$bindParams = $allowedOrgIds;
+
+if ($filterOrgId > 0) {
+    $where[] = 'p.org_id = ?';
+    $bindParams[] = $filterOrgId;
+}
 
 if ($q !== '') {
     $like  = '%' . $q . '%';
@@ -127,21 +155,17 @@ $sql = "SELECT
             p.price_cif,
             u.username     AS supplier_username,
             u.company_name AS supplier_company,
-            MAX(o.name)    AS org_name,
+         o.name         AS org_name,
             spi.file_path  AS front_img_path,
             (SELECT GROUP_CONCAT(DISTINCT pk.keyword ORDER BY pk.keyword SEPARATOR ', ')
                FROM product_keywords pk
               WHERE pk.product_id = p.id) AS keywords_csv
         FROM supplier_products p
         JOIN users u ON u.id = p.supplier_id
-        LEFT JOIN org_members om  ON om.user_id = u.id AND om.is_active = 1
-        LEFT JOIN organizations o ON o.id = om.org_id
+     LEFT JOIN organizations o ON o.id = p.org_id
         LEFT JOIN supplier_product_images spi
                ON spi.product_id = p.id AND spi.image_slot = 'front'
         WHERE {$whereSQL}
-        GROUP BY p.id, p.product_name, p.internal_product_code,
-                 p.price_fob, p.price_cif,
-                 u.username, u.company_name, spi.file_path
         ORDER BY p.product_name ASC
         LIMIT " . PER_PAGE . " OFFSET " . $offset;
 

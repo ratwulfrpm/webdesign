@@ -21,6 +21,8 @@
  *   - SQL injection: all params bound via PDO prepared statements.
  */
 
+require_once __DIR__ . '/../../../includes/org_scope.php';
+
 function handleAssignments(string $method, ?int $id, string $action): void
 {
     $auth = requireAuth(['admin', 'owner']);
@@ -60,8 +62,31 @@ function _listAssignments(array $auth, PDO $pdo): void
 
     // Optional status filter
     $status = strField($_GET['status'] ?? '', 20);
-    $where  = ["qa.status != 'deleted'", 'qa.org_id = ?'];
-    $params = [$auth['org_id']];
+    $filterOrgId = (int) ($_GET['org_id'] ?? 0);
+    $allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+
+    if (empty($allowedOrgIds)) {
+        jsonOk([
+            'items' => [],
+            'total' => 0,
+            'page' => $page,
+            'pages' => 0,
+            'per_page' => $perPage,
+        ]);
+    }
+
+    if ($filterOrgId > 0 && !orgScopeContainsOrgId($allowedOrgIds, $filterOrgId)) {
+        jsonError('Business unit not accessible', 403);
+    }
+
+    $orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
+    $where  = ["qa.status != 'deleted'", "qa.org_id IN ({$orgPlaceholders})"];
+    $params = $allowedOrgIds;
+
+    if ($filterOrgId > 0) {
+        $where[] = 'qa.org_id = ?';
+        $params[] = $filterOrgId;
+    }
 
     if (in_array($status, ['active', 'expired', 'revoked'], true)) {
         $where[]  = 'qa.status = ?';
@@ -78,14 +103,17 @@ function _listAssignments(array $auth, PDO $pdo): void
         "SELECT qa.id, qa.assigned_customer_name, qa.company_name, qa.status,
                 qa.expires_at, qa.view_count, qa.created_at,
                 qa.discount_percentage,
+                 qa.org_id,
+                 o.name                              AS org_name,
                 COUNT(DISTINCT qai.product_id)       AS item_count,
                 SUM(qai.final_unit_price)            AS items_total,
                 uc.username                          AS created_by_username
            FROM quote_assignments qa
            LEFT JOIN quote_assignment_items qai ON qai.quote_assignment_id = qa.id
            LEFT JOIN users uc ON uc.id = qa.created_by_user_id
+             LEFT JOIN organizations o ON o.id = qa.org_id
           WHERE {$wSql}
-          GROUP BY qa.id
+            GROUP BY qa.id, qa.org_id, o.name
           ORDER BY qa.created_at DESC
           LIMIT {$perPage} OFFSET {$offset}"
     );
@@ -94,6 +122,13 @@ function _listAssignments(array $auth, PDO $pdo): void
 
     $items = array_map(fn($r) => [
         'id'                    => (int)    $r['id'],
+        'org_id'                => (int)    $r['org_id'],
+        'org_name'              => (string) ($r['org_name'] ?? ''),
+        'business_unit_name'    => (string) ($r['org_name'] ?? ''),
+        'business_unit'         => [
+            'id' => (int) $r['org_id'],
+            'name' => (string) ($r['org_name'] ?? ''),
+        ],
         'assigned_customer_name'=> (string) $r['assigned_customer_name'],
         'company_name'          => (string) ($r['company_name'] ?? ''),
         'status'                => (string) $r['status'],
@@ -119,17 +154,25 @@ function _listAssignments(array $auth, PDO $pdo): void
 
 function _getAssignment(int $id, array $auth, PDO $pdo): void
 {
+    $allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+    if (empty($allowedOrgIds)) {
+        jsonError('Assignment not found', 404);
+    }
+
+    $orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
     $st = $pdo->prepare(
         "SELECT qa.id, qa.org_id, qa.assigned_customer_name, qa.company_name,
                 qa.special_conditions, qa.discount_percentage, qa.status,
                 qa.valid_from, qa.expires_at, qa.view_count, qa.viewed_at,
                 qa.last_viewed_at, qa.created_at, qa.parent_quote_id,
-                uc.username AS created_by_username
+                uc.username AS created_by_username,
+                o.name AS org_name
            FROM quote_assignments qa
            LEFT JOIN users uc ON uc.id = qa.created_by_user_id
-          WHERE qa.id = ? AND qa.org_id = ?"
+           LEFT JOIN organizations o ON o.id = qa.org_id
+          WHERE qa.id = ? AND qa.org_id IN ({$orgPlaceholders})"
     );
-    $st->execute([$id, $auth['org_id']]);
+    $st->execute(array_merge([$id], $allowedOrgIds));
     $qa = $st->fetch();
 
     if (!$qa) {
@@ -170,6 +213,12 @@ function _getAssignment(int $id, array $auth, PDO $pdo): void
         'assignment' => [
             'id'                    => (int)    $qa['id'],
             'org_id'                => (int)    $qa['org_id'],
+            'org_name'              => (string) ($qa['org_name'] ?? ''),
+            'business_unit_name'    => (string) ($qa['org_name'] ?? ''),
+            'business_unit'         => [
+                'id' => (int) $qa['org_id'],
+                'name' => (string) ($qa['org_name'] ?? ''),
+            ],
             'assigned_customer_name'=> (string) $qa['assigned_customer_name'],
             'company_name'          => (string) ($qa['company_name'] ?? ''),
             'special_conditions'    => (string) ($qa['special_conditions'] ?? ''),
@@ -199,6 +248,12 @@ function _getAssignment(int $id, array $auth, PDO $pdo): void
 function _createAssignment(array $auth, PDO $pdo): void
 {
     $body = parseBody();
+    $allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+    $targetOrgId = intParam($body['org_id'] ?? $auth['org_id'], 'org_id');
+
+    if (!orgScopeContainsOrgId($allowedOrgIds, $targetOrgId)) {
+        jsonError('Business unit not accessible', 403);
+    }
 
     // Customer & company info
     $customerName = strField($body['assigned_customer_name'] ?? '', 200);
@@ -313,9 +368,9 @@ function _createAssignment(array $auth, PDO $pdo): void
     $pSt = $pdo->prepare(
         "SELECT id, product_name, price_fob, price_cif, active
            FROM supplier_products
-          WHERE id IN ({$placeholders})"
+            WHERE org_id = ? AND id IN ({$placeholders})"
     );
-    $pSt->execute($productIds);
+        $pSt->execute(array_merge([$targetOrgId], $productIds));
     $productMap = [];
     foreach ($pSt->fetchAll() as $p) {
         $productMap[(int) $p['id']] = $p;
@@ -346,6 +401,13 @@ function _createAssignment(array $auth, PDO $pdo): void
         $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validityAmount} days"));
     }
 
+    $orgSt = $pdo->prepare('SELECT id, name FROM organizations WHERE id = ? AND is_active = 1');
+    $orgSt->execute([$targetOrgId]);
+    $orgRow = $orgSt->fetch();
+    if (!$orgRow) {
+        jsonError('Current business unit is inactive', 422);
+    }
+
     try {
         $pdo->beginTransaction();
 
@@ -362,7 +424,7 @@ function _createAssignment(array $auth, PDO $pdo): void
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $qIns->execute([
-            $auth['org_id'],
+            $targetOrgId,
             $customerName,
             $companyName !== '' ? $companyName : null,
             $conditions  !== '' ? $conditions  : null,
@@ -422,6 +484,13 @@ function _createAssignment(array $auth, PDO $pdo): void
         'token'      => $plainToken,          // returned ONCE
         'quote_url'  => _buildQuoteUrl($plainToken),
         'expires_at' => $expiresAt,
+        'org_id'     => $targetOrgId,
+        'org_name'   => (string) ($orgRow['name'] ?? ''),
+        'business_unit_name' => (string) ($orgRow['name'] ?? ''),
+        'business_unit' => [
+            'id' => $targetOrgId,
+            'name' => (string) ($orgRow['name'] ?? ''),
+        ],
     ], 201);
 }
 
@@ -429,14 +498,20 @@ function _createAssignment(array $auth, PDO $pdo): void
 
 function _revokeAssignment(int $id, array $auth, PDO $pdo): void
 {
+    $allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+    if (empty($allowedOrgIds)) {
+        jsonError('Assignment not found, not in this org, or not active', 404);
+    }
+
+    $orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
     $st = $pdo->prepare(
         "UPDATE quote_assignments
             SET status = 'revoked',
                 revoked_at = NOW(),
                 revoked_by_user_id = ?
-          WHERE id = ? AND org_id = ? AND status = 'active'"
+          WHERE id = ? AND org_id IN ({$orgPlaceholders}) AND status = 'active'"
     );
-    $st->execute([$auth['user_id'], $id, $auth['org_id']]);
+    $st->execute(array_merge([$auth['user_id'], $id], $allowedOrgIds));
 
     if ($st->rowCount() === 0) {
         jsonError('Assignment not found, not in this org, or not active', 404);
@@ -449,14 +524,20 @@ function _revokeAssignment(int $id, array $auth, PDO $pdo): void
 
 function _deleteAssignment(int $id, array $auth, PDO $pdo): void
 {
+    $allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+    if (empty($allowedOrgIds)) {
+        jsonError('Assignment not found, not in this org, or already deleted', 404);
+    }
+
+    $orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
     $st = $pdo->prepare(
         "UPDATE quote_assignments
             SET status = 'deleted',
                 deleted_at = NOW(),
                 deleted_by_user_id = ?
-          WHERE id = ? AND org_id = ? AND status IN ('active','expired','revoked')"
+          WHERE id = ? AND org_id IN ({$orgPlaceholders}) AND status IN ('active','expired','revoked')"
     );
-    $st->execute([$auth['user_id'], $id, $auth['org_id']]);
+    $st->execute(array_merge([$auth['user_id'], $id], $allowedOrgIds));
 
     if ($st->rowCount() === 0) {
         jsonError('Assignment not found, not in this org, or already deleted', 404);
@@ -469,11 +550,18 @@ function _deleteAssignment(int $id, array $auth, PDO $pdo): void
 
 function _cloneAssignment(int $id, array $auth, PDO $pdo): void
 {
+    $allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+    if (empty($allowedOrgIds)) {
+        jsonError('Assignment not found or already deleted', 404);
+    }
+
+    $orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
     // Load parent
     $st = $pdo->prepare(
-        "SELECT * FROM quote_assignments WHERE id = ? AND org_id = ? AND status != 'deleted'"
+        "SELECT * FROM quote_assignments
+          WHERE id = ? AND org_id IN ({$orgPlaceholders}) AND status != 'deleted'"
     );
-    $st->execute([$id, $auth['org_id']]);
+    $st->execute(array_merge([$id], $allowedOrgIds));
     $parent = $st->fetch();
     if (!$parent) {
         jsonError('Assignment not found or already deleted', 404);

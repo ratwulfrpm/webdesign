@@ -312,6 +312,13 @@ Navegación por defecto (admin):
 - `dashboard.php` redirige a `/login/admin/products.php`.
 - Esto garantiza que al entrar (tras login/selección de business unit) quede activo por defecto el primer tab: **Productos de Proveedores**.
 
+Vistas admin multi-business unit:
+
+- `Productos de Proveedores`, `Usuarios`, `Invitaciones` y `Asignaciones` consolidan información de todas las business units asignadas al admin en `org_members`.
+- El scope se aplica server-side en listados, filtros, creación y acciones (`activate`, `deactivate`, `unlock`, `revoke`, `delete`, `clone`).
+- El admin nunca recibe datos de business units fuera de su asignación, aunque intente forzar `org_id` o IDs de objetos en la petición.
+- `owner` mantiene vista global activa donde ya existía comportamiento global.
+
 ### Flujo de vigencia de contratos (supplier/admin/owner)
 
 Regla funcional nueva:
