@@ -28,6 +28,7 @@ require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/config/db.php';
 
 requireAuth();
+requireRole(['support']);
 csrfValidate();
 
 $targetOrgId = (int) ($_POST['org_id'] ?? 0);
@@ -52,6 +53,7 @@ $stmt = $pdo->prepare(
        FROM org_members om
        JOIN organizations o ON o.id = om.org_id
       WHERE om.user_id = ? AND om.org_id = ? AND om.is_active = 1 AND o.is_active = 1
+    AND om.role = "support"
       LIMIT 1'
 );
 $stmt->execute([$userId, $targetOrgId]);

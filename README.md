@@ -284,12 +284,13 @@ Hoja de estilos completa sin dependencias externas.
 
 Se implementó theming global por rol sin cambiar layout, tipografías ni espaciados.
 
-- Clase global aplicada al `body`: `role-owner`, `role-admin`, `role-supplier`.
+- Clase global aplicada al `body`: `role-owner`, `role-admin`, `role-support`, `role-supplier`.
 - La vista pública de cotización por link usa clase `role-user` solo como tema visual (no como rol autenticado).
 - Fuente del rol: sesión (`$_SESSION['role']`) propagada por `includes/tabs.php`.
 - Mapeo de color primario:
      - owner: azul (estilo original)
      - admin: gris/negro profundo
+     - support: naranja suave
      - supplier: rojo suave
      - cliente por link público (solo tema visual): verde suave
 
@@ -318,6 +319,13 @@ Vistas admin multi-business unit:
 - El scope se aplica server-side en listados, filtros, creación y acciones (`activate`, `deactivate`, `unlock`, `revoke`, `delete`, `clone`).
 - El admin nunca recibe datos de business units fuera de su asignación, aunque intente forzar `org_id` o IDs de objetos en la petición.
 - `owner` mantiene vista global activa donde ya existía comportamiento global.
+
+Comportamiento por rol (sesión y scope):
+
+- `owner`: login sin selector de BU, alcance global en vistas y API.
+- `admin`: login sin selector de BU, vistas consolidadas sobre sus BU asignadas en `org_members`.
+- `support`: requiere BU activa (auto-selección si tiene 1, selector si tiene varias), y todo acceso queda restringido a esa BU activa.
+- `support` no puede gestionar invitaciones (UI/API); esa gestión queda para `admin` y `owner`.
 
 ### Flujo de vigencia de contratos (supplier/admin/owner)
 

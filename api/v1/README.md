@@ -14,7 +14,8 @@ Tokens are 64-char hex strings — SHA-256 hash stored in DB, plain token return
 |---|---|---|
 | `owner` | 4 | Full access |
 | `admin` | 3 | Full access |
-| `supplier` | 2 | Own products only |
+| `support` | 2 | Read/operate inside active business unit |
+| `supplier` | 1 | Own products only |
 
 Session cookie required for all private endpoints.  
 `/public/quote` is the only unauthenticated endpoint.
@@ -24,8 +25,15 @@ There is no authenticated `user` actor in API v1.
 
 Multi-business-unit scope:
 - `admin` only receives data from business units assigned through `org_members`.
+- `support` is always restricted to the currently active business unit in session.
 - `owner` can operate across all active business units.
 - Requests that target an `org_id` outside the caller scope are rejected server-side.
+
+`GET /api/v1/me` contract:
+- `owner`: returns `assigned_business_units`; does not include `active_business_unit`.
+- `admin`: returns `assigned_business_units`; does not include `active_business_unit`.
+- `support`: returns both `assigned_business_units` and `active_business_unit`.
+- `supplier`: returns both `assigned_business_units` and `active_business_unit`.
 
 ---
 
@@ -35,12 +43,13 @@ Multi-business-unit scope:
 
 | Endpoint | Method | Description | Auth |
 |---|---|---|---|
-| `/api/v1/users` | GET | List accessible users. Filters: `?status=active\|inactive`, `?org_id=`, `?role=` | admin/owner |
-| `/api/v1/users/:id` | GET | Accessible user detail + visible business units | admin/owner |
-| `/api/v1/users/:id` | PATCH | Action-based update: `activate`, `deactivate`, `unlock` | admin/owner |
+| `/api/v1/users` | GET | List accessible users. Filters: `?status=active\|inactive`, `?org_id=`, `?role=` | admin/owner/support |
+| `/api/v1/users/:id` | GET | Accessible user detail + visible business units | admin/owner/support |
+| `/api/v1/users/:id` | PATCH | Action-based update: `activate`, `deactivate`, `unlock` | admin/owner/support |
 
 Notes:
 - `admin` only sees supplier users inside assigned business units.
+- `support` only sees supplier users in the active business unit.
 - `owner` can list users across all active business units.
 - Responses include `business_unit_name` and `business_units`.
 
@@ -178,13 +187,14 @@ Security checks:
 
 Scope notes:
 - `admin` can only list/create/revoke invitations inside assigned business units.
+- `admin` can invite `support`/`supplier`; only `owner` can invite `admin`.
 - Invitation responses include `business_unit_name` and `business_unit`.
 
 **POST /invitations body:**
 ```json
 {
   "org_id": 1,
-  "role": "supplier | admin",
+  "role": "supplier | support | admin",
   "invited_email": "optional@example.com",
   "valid_days": 7
 }

@@ -108,11 +108,6 @@ function getTabsForRole(string $role): array
                     'url'   => '/login/admin/index.php',
                 ],
                 [
-                    'id'    => 'invitations',
-                    'label' => t('tab_invitations'),
-                    'url'   => '/login/invitations.php',
-                ],
-                [
                     'id'    => 'assignments',
                     'label' => t('tab_assignments'),
                     'url'   => '/login/admin/assignments.php',
@@ -215,6 +210,34 @@ function renderTabs(string $activePage): string
     }
 
     $html .= '</nav>' . "\n";
+
+    // Support-only BU selector (displayed only if support has >1 assigned BU).
+    if ($safeRole === 'support') {
+        $supportOrgs = $_SESSION['support_orgs'] ?? [];
+        if (is_array($supportOrgs) && count($supportOrgs) > 1) {
+            $currentOrgId = (int) ($_SESSION['org_id'] ?? 0);
+            $html .= '<div class="support-org-switch" style="margin:10px 0 0;display:flex;align-items:center;gap:8px;">';
+            $html .= '<form method="POST" action="/login/switch_org.php" style="display:flex;gap:8px;align-items:center;">';
+            $html .= csrfField();
+            $html .= '<input type="hidden" name="return_to" value="' . htmlspecialchars($_SERVER['REQUEST_URI'] ?? '/login/admin/products.php', ENT_QUOTES, 'UTF-8') . '">';
+            $html .= '<label for="support-org-switcher" style="font-size:.85rem;opacity:.8;">Business Unit:</label>';
+            $html .= '<select id="support-org-switcher" name="org_id" class="filter-select" style="min-width:180px;">';
+            foreach ($supportOrgs as $org) {
+                $oid = (int) ($org['id'] ?? 0);
+                if ($oid <= 0) {
+                    continue;
+                }
+                $selected = $oid === $currentOrgId ? ' selected' : '';
+                $html .= '<option value="' . $oid . '"' . $selected . '>'
+                      . htmlspecialchars((string) ($org['name'] ?? ('BU #' . $oid)), ENT_QUOTES, 'UTF-8')
+                      . '</option>';
+            }
+            $html .= '</select>';
+            $html .= '<button type="submit" class="btn-secondary btn-sm">Switch</button>';
+            $html .= '</form>';
+            $html .= '</div>' . "\n";
+        }
+    }
 
     if ($safeRole !== '') {
         $roleJs = json_encode($safeRole, JSON_UNESCAPED_UNICODE);

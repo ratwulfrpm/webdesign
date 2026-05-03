@@ -268,7 +268,7 @@ $esc       = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 
             <div class="welcome-avatar small"><?= $initial ?></div>
             <span class="top-bar-title">
                 <?= t('owner_title') ?>
-                <span class="org-badge"><?= $orgName ?></span>
+                <?php if ($orgName !== ''): ?><span class="org-badge"><?= $orgName ?></span><?php endif; ?>
             </span>
         </div>
         <div class="top-bar-right">

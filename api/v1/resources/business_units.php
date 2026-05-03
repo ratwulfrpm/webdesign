@@ -140,6 +140,8 @@ function _createBusinessUnit(array $auth, PDO $pdo): void
     }
 
     try {
+        $pdo->beginTransaction();
+
         $ins = $pdo->prepare(
             'INSERT INTO organizations (slug, name, description, is_active)
              VALUES (?, ?, ?, ?)'
@@ -151,23 +153,23 @@ function _createBusinessUnit(array $auth, PDO $pdo): void
             $isActive,
         ]);
         $newId = (int) $pdo->lastInsertId();
+
+        // Automatically add the creating owner as a member of the new business unit.
+        $pdo->prepare(
+            'INSERT INTO org_members (user_id, org_id, role) VALUES (?, ?, "owner")
+             ON DUPLICATE KEY UPDATE is_active = 1, role = "owner"'
+        )->execute([$auth['user_id'], $newId]);
+
+        $pdo->commit();
     } catch (\PDOException $e) {
+        if ($pdo->inTransaction()) {
+            $pdo->rollBack();
+        }
         if ($e->getCode() === '23000') {
             jsonError("Slug '{$slug}' is already in use", 422);
         }
         error_log('_createBusinessUnit error: ' . $e->getMessage());
         jsonError('Save failed', 500);
-    }
-
-    // Automatically add the creating owner as a member of the new business unit
-    try {
-        $pdo->prepare(
-            'INSERT INTO org_members (user_id, org_id, role) VALUES (?, ?, "owner")
-             ON DUPLICATE KEY UPDATE is_active = 1, role = "owner"'
-        )->execute([$auth['user_id'], $newId]);
-    } catch (\PDOException $e) {
-        error_log('_createBusinessUnit owner member error: ' . $e->getMessage());
-        // Non-fatal — org was created; log and continue
     }
 
     jsonOk([

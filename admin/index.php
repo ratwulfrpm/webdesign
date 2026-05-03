@@ -43,11 +43,13 @@ initLang();
 requireRole(['admin', 'support']);
 
 $pdo      = getDB();
-$feedback = '';$orgId    = (int) $_SESSION['org_id'];
+$feedback = '';
+$orgId    = (int) ($_SESSION['org_id'] ?? 0);
 $userId   = (int) $_SESSION['user_id'];
 $role     = (string) ($_SESSION['role'] ?? '');
 $accessibleOrgs = loadAccessibleOrganizations($pdo, $userId, $role);
 $accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
+$scopedOrgIds = $role === 'support' ? (in_array($orgId, $accessibleOrgIds, true) ? [$orgId] : []) : $accessibleOrgIds;
 $orgName  = htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8');
 // ── Handle admin POST actions ─────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -60,7 +62,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     switch ($action) {
         case 'activate':
-            if (orgScopeUserAccessible($pdo, $uid, $accessibleOrgIds, ['supplier'])) {
+            if (orgScopeUserAccessible($pdo, $uid, $scopedOrgIds, ['supplier'])) {
                 $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = ?')->execute([$uid]);
                 $feedback = t('feedback_activated');
             }
@@ -70,14 +72,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Prevent admin from deactivating themselves
             if ($uid > 0
                 && $uid !== $userId
-                && orgScopeUserAccessible($pdo, $uid, $accessibleOrgIds, ['supplier'])) {
+                && orgScopeUserAccessible($pdo, $uid, $scopedOrgIds, ['supplier'])) {
                 $pdo->prepare('UPDATE users SET is_active = 0 WHERE id = ?')->execute([$uid]);
                 $feedback = t('feedback_deactivated');
             }
             break;
 
         case 'unlock':
-            if (orgScopeUserAccessible($pdo, $uid, $accessibleOrgIds, ['supplier'])) {
+            if (orgScopeUserAccessible($pdo, $uid, $scopedOrgIds, ['supplier'])) {
                 $pdo->prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')
                     ->execute([$uid]);
                 $feedback = t('feedback_unlocked');
@@ -95,16 +97,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         case 'approve_contract_validity_request':
             if ($vrid > 0) {
-                $ok = cvrApproveRequest($pdo, $vrid, (int) $_SESSION['user_id'], $orgId);
+                $ok = cvrApproveRequest($pdo, $vrid, (int) $_SESSION['user_id'], $scopedOrgIds);
                 if ($ok) {
                     $feedback = t('contract_review_approved');
                     auditLog('admin_contract_validity_request_approved', 'info', null, (int) $_SESSION['user_id'], [
                         'request_id' => $vrid,
-                        'org_id' => $orgId,
+                        'org_scope' => $scopedOrgIds,
                     ]);
                     auditLog('contract_primary_changed_by_review', 'info', null, (int) $_SESSION['user_id'], [
                         'request_id' => $vrid,
-                        'org_id' => $orgId,
+                        'org_scope' => $scopedOrgIds,
                     ]);
                 } else {
                     $feedback = t('contract_review_action_failed');
@@ -118,14 +120,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo,
                     $vrid,
                     (int) $_SESSION['user_id'],
-                    $orgId,
+                    $scopedOrgIds,
                     $reviewComment !== '' ? $reviewComment : null
                 );
                 if ($ok) {
                     $feedback = t('contract_review_rejected');
                     auditLog('admin_contract_validity_request_rejected', 'warning', null, (int) $_SESSION['user_id'], [
                         'request_id' => $vrid,
-                        'org_id' => $orgId,
+                        'org_scope' => $scopedOrgIds,
                     ]);
                 } else {
                     $feedback = t('contract_review_action_failed');
@@ -143,8 +145,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ── Fetch data ────────────────────────────────────────────────
 // Admin sees supplier users across every business unit they manage.
 $users = [];
-if (!empty($accessibleOrgIds)) {
-        $orgPlaceholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+if (!empty($scopedOrgIds)) {
+    $orgPlaceholders = implode(',', array_fill(0, count($scopedOrgIds), '?'));
         $uStmt = $pdo->prepare(
                 "SELECT u.id, u.username, u.email, u.is_active,
                                 u.first_login, u.failed_attempts, u.locked_until,
@@ -160,7 +162,7 @@ if (!empty($accessibleOrgIds)) {
                                      u.first_login, u.failed_attempts, u.locked_until, u.created_at
                     ORDER BY u.username ASC"
         );
-        $uStmt->execute($accessibleOrgIds);
+        $uStmt->execute($scopedOrgIds);
         $users = $uStmt->fetchAll();
 }
 
@@ -170,7 +172,7 @@ $requests = $pdo->query(
       ORDER BY status ASC, requested_at DESC'
 )->fetchAll();
 
-$validityRequests = cvrListValidityRequests($pdo, $orgId);
+$validityRequests = cvrListValidityRequests($pdo, $scopedOrgIds);
 
 $username = htmlspecialchars($_SESSION['username'] ?? 'Admin', ENT_QUOTES, 'UTF-8');
 $initial  = strtoupper(substr($username, 0, 1));
@@ -194,7 +196,7 @@ $lang     = currentLang();
             <div class="welcome-avatar small"><?= $initial ?></div>
             <span class="top-bar-title">
                 <?= t('admin_title') ?>
-                <span class="org-badge"><?= $orgName ?></span>
+                <?php if ($orgName !== ''): ?><span class="org-badge"><?= $orgName ?></span><?php endif; ?>
             </span>
         </div>
         <div class="top-bar-right">

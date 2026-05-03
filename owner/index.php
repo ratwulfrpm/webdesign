@@ -42,8 +42,8 @@ initLang();
 requireRole(['owner']);
 
 $pdo      = getDB();
-$feedback = '';$orgId    = (int) $_SESSION['org_id'];
-$orgName  = htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8');
+$feedback = '';
+$orgName  = '';
 // ── Handle owner POST actions ──────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrfValidate();
@@ -80,14 +80,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'change_role':
             // Owner can assign any valid role, but cannot change their own role
             $newRole    = $_POST['new_role'] ?? '';
-            $validRoles = ['owner', 'admin', 'support', 'supplier', 'user'];
+            $validRoles = ['owner', 'admin', 'support', 'supplier'];
             if ($uid > 0
                 && in_array($newRole, $validRoles, true)
                 && $uid !== (int) $_SESSION['user_id']
             ) {
                 $pdo->prepare(
-                    'UPDATE org_members SET role = ? WHERE user_id = ? AND org_id = ?'
-                )->execute([$newRole, $uid, $orgId]);
+                    'UPDATE org_members SET role = ? WHERE user_id = ? AND is_active = 1'
+                )->execute([$newRole, $uid]);
                 $feedback = t('feedback_role_changed');
             }
             break;
@@ -145,18 +145,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ── Fetch data ────────────────────────────────────────────────
-// Owner sees ALL members of the current org across all roles
+// Owner sees ALL members across ALL organizations.
 $uStmt = $pdo->prepare(
-    'SELECT u.id, u.username, u.email, u.is_active,
-            u.first_login, u.failed_attempts, u.locked_until,
-            om.role
-       FROM users u
-       JOIN org_members om ON u.id = om.user_id
-      WHERE om.org_id = ?
-        AND om.is_active = 1
-      ORDER BY FIELD(om.role,"owner","admin","support","supplier","user"), u.username ASC'
+        'SELECT u.id, u.username, u.email, u.is_active,
+                        u.first_login, u.failed_attempts, u.locked_until,
+                        GROUP_CONCAT(DISTINCT om.role ORDER BY FIELD(om.role,"owner","admin","support","supplier","user") SEPARATOR ",") AS roles_csv,
+                        GROUP_CONCAT(DISTINCT o.name ORDER BY o.name SEPARATOR ", ") AS org_names
+             FROM users u
+             JOIN org_members om ON u.id = om.user_id
+             JOIN organizations o ON o.id = om.org_id
+            WHERE om.is_active = 1
+            GROUP BY u.id, u.username, u.email, u.is_active, u.first_login, u.failed_attempts, u.locked_until
+            ORDER BY u.username ASC'
 );
-$uStmt->execute([$orgId]);
+$uStmt->execute();
 $users = $uStmt->fetchAll();
 
 $requests = $pdo->query(
@@ -189,7 +191,7 @@ $lang     = currentLang();
             <div class="welcome-avatar small"><?= $initial ?></div>
             <span class="top-bar-title">
                 <?= t('owner_title') ?>
-                <span class="org-badge"><?= $orgName ?></span>
+                <?php if ($orgName !== ''): ?><span class="org-badge"><?= $orgName ?></span><?php endif; ?>
             </span>
         </div>
         <div class="top-bar-right">
@@ -240,6 +242,7 @@ $lang     = currentLang();
                             <th><?= t('col_username') ?></th>
                             <th><?= t('col_email') ?></th>
                             <th><?= t('col_role') ?></th>
+                            <th><?= t('col_org') ?></th>
                             <th><?= t('col_status') ?></th>
                             <th><?= t('col_first_login') ?></th>
                             <th><?= t('col_attempts') ?></th>
@@ -252,9 +255,13 @@ $lang     = currentLang();
                         <?php
                             $isLocked  = !empty($u['locked_until']) && strtotime($u['locked_until']) > time();
                             $isSelf    = (int) $u['id'] === (int) $_SESSION['user_id'];
-                            $roleBadge = match($u['role']) {
+                            $rolesCsv = (string) ($u['roles_csv'] ?? 'supplier');
+                            $roles = array_values(array_filter(explode(',', $rolesCsv)));
+                            $primaryRole = $roles[0] ?? 'supplier';
+                            $roleBadge = match($primaryRole) {
                                 'owner'    => 'badge-owner',
                                 'admin'    => 'badge-admin',
+                                'support'  => 'badge-admin',
                                 'supplier' => 'badge-supplier',
                                 default    => 'badge-user',
                             };
@@ -265,9 +272,10 @@ $lang     = currentLang();
                             <td><?= htmlspecialchars($u['email'], ENT_QUOTES, 'UTF-8') ?></td>
                             <td>
                                 <span class="badge <?= $roleBadge ?>">
-                                    <?= htmlspecialchars(t('role_' . $u['role']), ENT_QUOTES, 'UTF-8') ?>
+                                    <?= htmlspecialchars(t('role_' . $primaryRole), ENT_QUOTES, 'UTF-8') ?>
                                 </span>
                             </td>
+                            <td class="text-muted small"><?= htmlspecialchars((string) ($u['org_names'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
                             <td>
                                 <span class="badge <?= (int) $u['is_active'] ? 'badge-active' : 'badge-inactive' ?>">
                                     <?= (int) $u['is_active'] ? t('status_active') : t('status_inactive') ?>
@@ -320,10 +328,10 @@ $lang     = currentLang();
                                         <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
                                         <input type="hidden" name="action" value="change_role">
                                         <select name="new_role" class="role-select">
-                                            <option value="owner"    <?= $u['role'] === 'owner'    ? 'selected' : '' ?>><?= t('role_owner') ?></option>
-                                            <option value="admin"    <?= $u['role'] === 'admin'    ? 'selected' : '' ?>><?= t('role_admin') ?></option>
-                                            <option value="supplier" <?= $u['role'] === 'supplier' ? 'selected' : '' ?>><?= t('role_supplier') ?></option>
-                                            <option value="user"     <?= $u['role'] === 'user'     ? 'selected' : '' ?>><?= t('role_user') ?></option>
+                                            <option value="owner"    <?= $primaryRole === 'owner'    ? 'selected' : '' ?>><?= t('role_owner') ?></option>
+                                            <option value="admin"    <?= $primaryRole === 'admin'    ? 'selected' : '' ?>><?= t('role_admin') ?></option>
+                                            <option value="support"  <?= $primaryRole === 'support'  ? 'selected' : '' ?>><?= t('role_support') ?></option>
+                                            <option value="supplier" <?= $primaryRole === 'supplier' ? 'selected' : '' ?>><?= t('role_supplier') ?></option>
                                         </select>
                                         <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_set_role') ?></button>
                                     </form>

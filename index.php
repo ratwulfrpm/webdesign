@@ -91,35 +91,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (is_array($result)) {
             // Success — look up which organizations this user belongs to
             $orgs = getUserOrgs((int) $result['id']);
+            $effectiveRole = resolveEffectiveRole($orgs);
 
             if (empty($orgs)) {
                 // Authenticated but no org membership configured
                 $error = t('error_no_org');
-            } elseif (count($orgs) === 1) {
-                // Exactly one org — auto-select it and go straight to the panel
-                createSession($result, $orgs[0]);
-                redirectToHome();
-                exit;
             } else {
-                // Multiple orgs — only show picker for owner role (owner may need
-                // to choose which org context to enter). Admin/support/supplier
-                // auto-select their primary org; the panel already exposes all
-                // accessible orgs via loadAccessibleOrganizations().
-                $hasOwnerOrg = false;
-                foreach ($orgs as $org) {
-                    if (($org['role'] ?? '') === 'owner') {
-                        $hasOwnerOrg = true;
-                        break;
-                    }
-                }
-                if (!$hasOwnerOrg) {
-                    createSession($result, $orgs[0]);
+                // Owner/admin are always global and never select a business unit.
+                if ($effectiveRole === 'owner' || $effectiveRole === 'admin') {
+                    createGlobalSession($result, $effectiveRole);
                     redirectToHome();
                     exit;
                 }
-                createPendingSession($result, $orgs);
-                header('Location: /login/org-picker.php');
-                exit;
+
+                // Support selects BU only when assigned to multiple BUs.
+                if ($effectiveRole === 'support') {
+                    if (count($orgs) === 1) {
+                        createSession($result, $orgs[0]);
+                        redirectToHome();
+                        exit;
+                    }
+                    createPendingSession($result, $orgs);
+                    header('Location: /login/org-picker.php');
+                    exit;
+                }
+
+                // Supplier and any lower role: single active BU from membership.
+                $firstSupplierOrg = firstOrgForRole($orgs, 'supplier');
+                if ($firstSupplierOrg !== null) {
+                    createSession($result, $firstSupplierOrg);
+                    redirectToHome();
+                    exit;
+                }
+
+                // Fallback to avoid partial login when memberships are malformed.
+                $error = t('error_unsupported_role');
             }
 
         } elseif (strpos($result, 'LOCKED:') === 0) {

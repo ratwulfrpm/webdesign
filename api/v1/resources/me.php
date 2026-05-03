@@ -3,9 +3,9 @@
  * api/v1/resources/me.php — Current-user identity & scope endpoint.
  *
  * Routes:
- *   GET /api/v1/me   Returns the authenticated user's role, assigned
- *                    business units (from org_members), and the currently
- *                    active business unit (org_id in session).
+ *   GET /api/v1/me   Returns the authenticated user's role and assigned
+ *                    business units (from org_members). active_business_unit
+ *                    is returned only for support role.
  *
  * RBAC: all authenticated roles (owner, admin, support, supplier).
  */
@@ -41,22 +41,43 @@ function handleMe(string $method): void
     $stmt->execute([$userId]);
     $buRows = $stmt->fetchAll();
 
-    $businessUnits = array_map(fn($r) => [
+    $assignedBusinessUnits = array_map(fn($r) => [
         'id'      => (int) $r['id'],
         'name'    => (string) $r['name'],
         'role'    => (string) $r['bu_role'],
-        'active'  => ((int) $r['id'] === $orgId),
     ], $buRows);
 
-    jsonOk([
+    $response = [
         'user_id'                => $userId,
         'username'               => $username,
         'role'                   => $role,
-        'active_business_unit'   => [
-            'id'   => $orgId,
-            'name' => $orgName,
-        ],
-        'business_units'         => $businessUnits,
-        'business_unit_count'    => count($businessUnits),
-    ]);
+        'assigned_business_units'=> $assignedBusinessUnits,
+        'business_units'         => $assignedBusinessUnits,
+        'business_unit_count'    => count($assignedBusinessUnits),
+    ];
+
+    if ($role === 'support' || $role === 'supplier') {
+        $active = null;
+        foreach ($assignedBusinessUnits as $unit) {
+            if ((int) $unit['id'] === $orgId) {
+                $active = [
+                    'id'   => (int) $unit['id'],
+                    'name' => (string) $unit['name'],
+                ];
+                break;
+            }
+        }
+
+        // Fallback to session label if support has exactly one active org in session.
+        if ($active === null && $orgId > 0) {
+            $active = [
+                'id'   => $orgId,
+                'name' => $orgName,
+            ];
+        }
+
+        $response['active_business_unit'] = $active;
+    }
+
+    jsonOk($response);
 }

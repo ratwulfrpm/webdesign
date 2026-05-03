@@ -45,7 +45,7 @@ require_once __DIR__ . '/includes/org_scope.php';
 
 requireAuth();
 initLang();
-requireRole(['admin', 'owner', 'support']);
+requireRole(['admin', 'owner']);
 
 $pdo     = getDB();
 $userId  = (int) $_SESSION['user_id'];
@@ -279,7 +279,7 @@ $initial  = strtoupper(substr($username, 0, 1));
             <div class="welcome-avatar small"><?= $initial ?></div>
             <span class="top-bar-title">
                 <?= t('inv_title') ?>
-                <span class="org-badge"><?= $orgName ?></span>
+                <?php if ($orgName !== ''): ?><span class="org-badge"><?= $orgName ?></span><?php endif; ?>
             </span>
         </div>
         <div class="top-bar-right">

@@ -72,6 +72,16 @@ if ($role === 'admin' || $role === 'support') {
     )->fetchAll();
 }
 
+if ($role === 'support') {
+    $orgs = array_values(array_filter(
+        $orgs,
+        fn($row) => (int) ($row['id'] ?? 0) === $orgId
+    ));
+    if ($fOrg > 0 && $fOrg !== $orgId) {
+        $fOrg = $orgId;
+    }
+}
+
 // IDs the admin/support is allowed to see (used to enforce tenant isolation)
 $allowedOrgIds = ($role === 'admin' || $role === 'support')
     ? array_map('intval', array_column($orgs, 'id'))
@@ -81,11 +91,21 @@ $allowedOrgIds = ($role === 'admin' || $role === 'support')
 $conditions = ['1=1'];
 $params     = [];
 
-// Admin/Support: restrict to their assigned orgs (all of them, not just session org)
-if (($role === 'admin' || $role === 'support') && !empty($allowedOrgIds)) {
+// Admin: restrict to all assigned orgs.
+if ($role === 'admin' && !empty($allowedOrgIds)) {
     $placeholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
     $conditions[] = "p.org_id IN ($placeholders)";
     $params       = array_merge($params, $allowedOrgIds);
+}
+
+// Support: strict active-BU scope only.
+if ($role === 'support') {
+    if ($orgId <= 0 || !in_array($orgId, $allowedOrgIds, true)) {
+        $conditions[] = '1=0';
+    } else {
+        $conditions[] = 'p.org_id = ?';
+        $params[] = $orgId;
+    }
 }
 
 if ($fSearch !== '') {
@@ -103,6 +123,9 @@ if ($fSearch !== '') {
 if ($fOrg > 0) {
     if ($role === 'admin' && !in_array($fOrg, $allowedOrgIds, true)) {
         $fOrg = 0;   // silently ignore out-of-scope org filter
+    }
+    if ($role === 'support' && $fOrg !== $orgId) {
+        $fOrg = $orgId;
     }
     if ($fOrg > 0) {
         $conditions[] = 'p.org_id = ?';
@@ -192,7 +215,7 @@ $filterUrl = function(array $overrides = []): string {
             <div class="welcome-avatar small"><?= $initial ?></div>
             <span class="top-bar-title">
                 <?= $username ?>
-                <span class="org-badge"><?= $orgName ?></span>
+                <?php if ($orgName !== ''): ?><span class="org-badge"><?= $orgName ?></span><?php endif; ?>
             </span>
         </div>
         <div class="top-bar-right">
@@ -223,6 +246,9 @@ $filterUrl = function(array $overrides = []): string {
                 <?php if ($role === 'admin'): ?>
                     <?= t('all_products_subtitle_admin') ?>
                     <?= implode(', ', array_map(fn($o) => '<strong>' . htmlspecialchars($o['name'], ENT_QUOTES, 'UTF-8') . '</strong>', $orgs)) ?>
+                <?php elseif ($role === 'support'): ?>
+                    <?= t('all_products_subtitle_admin') ?>
+                    <strong><?= $esc($_SESSION['org_name'] ?? '') ?></strong>
                 <?php else: ?>
                     <?= t('all_products_subtitle') ?>
                 <?php endif; ?>

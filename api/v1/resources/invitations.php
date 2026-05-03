@@ -21,7 +21,7 @@ require_once __DIR__ . '/../../../includes/org_scope.php';
 
 function handleInvitations(string $method, ?int $id, string $action): void
 {
-    $auth = requireAuth(['admin', 'owner', 'support']);
+    $auth = requireAuth(['admin', 'owner']);
     $pdo  = getDB();
 
     match (true) {
@@ -192,11 +192,11 @@ function _createInvitation(array $auth, PDO $pdo): void
         jsonError('Business unit not accessible', 403);
     }
 
-    // Role whitelist: owner → admin/support/supplier; admin → support/supplier; support → supplier only
+    // Role whitelist: owner → admin/support/supplier; admin → support/supplier
     $allowedRoles = match ($auth['role']) {
         'owner'  => ['admin', 'support', 'supplier'],
         'admin'  => ['support', 'supplier'],
-        default  => ['supplier'],
+        default  => [],
     };
     if (!in_array($role, $allowedRoles, true)) {
         jsonError('Invalid role. Allowed: ' . implode(', ', $allowedRoles));

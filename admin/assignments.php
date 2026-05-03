@@ -49,9 +49,16 @@ $role   = (string) ($_SESSION['role'] ?? '');
 $lang   = currentLang();
 $accessibleOrgs = loadAccessibleOrganizations($pdo, $userId, $role);
 $accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
-$assignmentOrgId = orgScopeContainsOrgId($accessibleOrgIds, $orgId)
+$scopedOrgIds = $role === 'support' ? (in_array($orgId, $accessibleOrgIds, true) ? [$orgId] : []) : $accessibleOrgIds;
+if ($role === 'support') {
+    $accessibleOrgs = array_values(array_filter(
+        $accessibleOrgs,
+        fn($row) => (int) ($row['id'] ?? 0) === $orgId
+    ));
+}
+$assignmentOrgId = orgScopeContainsOrgId($scopedOrgIds, $orgId)
     ? $orgId
-    : (int) ($accessibleOrgIds[0] ?? 0);
+    : (int) ($scopedOrgIds[0] ?? 0);
 
 // ── Helper: build public quote URL ───────────────────────────
 function buildQuoteLink(string $plainToken): string
@@ -83,7 +90,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $errors = [];
         $targetOrgId = (int) ($_POST['org_id'] ?? $assignmentOrgId);
 
-        if (!orgScopeContainsOrgId($accessibleOrgIds, $targetOrgId)) {
+        if (!orgScopeContainsOrgId($scopedOrgIds, $targetOrgId)) {
             $errors[] = t('error_no_org');
         }
 
@@ -465,10 +472,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         try {
-            if (empty($accessibleOrgIds)) {
+            if (empty($scopedOrgIds)) {
                 throw new \PDOException('No accessible organizations for revoke');
             }
-            $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+            $placeholders = implode(',', array_fill(0, count($scopedOrgIds), '?'));
             $upd = $pdo->prepare(
                 "UPDATE quote_assignments
                     SET status = 'revoked', revoked_at = NOW(),
@@ -477,7 +484,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     AND org_id IN ({$placeholders})
                     AND status = 'active'"
             );
-            $upd->execute(array_merge([$userId, $quoteId], $accessibleOrgIds));
+            $upd->execute(array_merge([$userId, $quoteId], $scopedOrgIds));
             if ($upd->rowCount() > 0) {
                 auditLog('assignment_revoked', 'info', $quoteId, $userId);
                 $_SESSION['asgn_feedback']      = t('asgn_revoked_success');
@@ -507,10 +514,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
         try {
-            if (empty($accessibleOrgIds)) {
+            if (empty($scopedOrgIds)) {
                 throw new \PDOException('No accessible organizations for delete');
             }
-            $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+            $placeholders = implode(',', array_fill(0, count($scopedOrgIds), '?'));
             $upd = $pdo->prepare(
                 "UPDATE quote_assignments
                     SET status = 'deleted', deleted_at = NOW(),
@@ -519,7 +526,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     AND org_id IN ({$placeholders})
                     AND status IN ('active','expired','revoked')"
             );
-            $upd->execute(array_merge([$userId, $quoteId], $accessibleOrgIds));
+            $upd->execute(array_merge([$userId, $quoteId], $scopedOrgIds));
             if ($upd->rowCount() > 0) {
                 auditLog('assignment_deleted', 'info', $quoteId, $userId);
                 $_SESSION['asgn_feedback']      = t('asgn_deleted_success');
@@ -559,13 +566,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         try {
             // Load parent (must not be deleted)
-            if (empty($accessibleOrgIds)) {
+            if (empty($scopedOrgIds)) {
                 $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
                 $_SESSION['asgn_feedback_type'] = 'error';
                 header('Location: /login/admin/assignments.php');
                 exit;
             }
-            $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+            $placeholders = implode(',', array_fill(0, count($scopedOrgIds), '?'));
             $sel = $pdo->prepare(
                 "SELECT id, org_id, company_name, special_conditions, discount_percentage
                    FROM quote_assignments
@@ -574,7 +581,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     AND status != 'deleted'
                   LIMIT 1"
             );
-            $sel->execute(array_merge([$parentId], $accessibleOrgIds));
+            $sel->execute(array_merge([$parentId], $scopedOrgIds));
             $parent = $sel->fetch();
 
             if (!$parent) {
@@ -695,8 +702,8 @@ unset(
 
 // ─── Recent assignments (last 30, exclude deleted) ────────────
 $recentAssignments = [];
-if (!empty($accessibleOrgIds)) {
-        $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
+if (!empty($scopedOrgIds)) {
+    $placeholders = implode(',', array_fill(0, count($scopedOrgIds), '?'));
         $recentStmt = $pdo->prepare(
                 "SELECT qa.id,
                                 qa.assigned_customer_name,
@@ -723,7 +730,7 @@ if (!empty($accessibleOrgIds)) {
                     ORDER BY qa.created_at DESC
                     LIMIT 30"
         );
-        $recentStmt->execute($accessibleOrgIds);
+        $recentStmt->execute($scopedOrgIds);
         $recentAssignments = $recentStmt->fetchAll();
 }
 
@@ -1112,7 +1119,7 @@ $statusClass = [
             <div class="welcome-avatar small"><?= $initial ?></div>
             <span class="top-bar-title">
                 <?= $username ?>
-                <span class="org-badge"><?= $orgName ?></span>
+                <?php if ($orgName !== ''): ?><span class="org-badge"><?= $orgName ?></span><?php endif; ?>
             </span>
         </div>
         <div class="top-bar-right">

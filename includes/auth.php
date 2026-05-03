@@ -8,10 +8,10 @@
  *  - is_active check on login
  *  - Multi-organization RBAC: user belongs to one or more orgs,
  *    each with an independent role (owner / admin / supplier / user)
- *  - Two-phase session:
- *      Phase 1 (pending):  credentials valid, awaiting org selection
- *      Phase 2 (active):   org chosen, full session with role context
- *  - Org-picker redirect when user has access to more than 1 organization
+ *  - Two-phase session for support only:
+ *      Phase 1 (pending):  credentials valid, awaiting BU selection
+ *      Phase 2 (active):   full session with role context
+ *  - Owner/admin sessions are global (no active BU requirement)
  *  - Language preference loaded into session
  *  - Idle-timeout enforcement (30 minutes)
  *  - Per-request DB revalidation of is_active
@@ -139,6 +139,47 @@ function getUserOrgs(int $userId): array
     return $stmt->fetchAll();
 }
 
+/**
+ * Resolves the effective session role from a user's org memberships.
+ * Priority: owner > admin > support > supplier
+ */
+function resolveEffectiveRole(array $orgs): string
+{
+    $rank = [
+        'owner' => 4,
+        'admin' => 3,
+        'support' => 2,
+        'supplier' => 1,
+    ];
+
+    $bestRole = '';
+    $bestRank = 0;
+
+    foreach ($orgs as $org) {
+        $role = (string) ($org['role'] ?? '');
+        $r = $rank[$role] ?? 0;
+        if ($r > $bestRank) {
+            $bestRank = $r;
+            $bestRole = $role;
+        }
+    }
+
+    return $bestRole;
+}
+
+/**
+ * Returns the first organization for a specific role from a membership list.
+ */
+function firstOrgForRole(array $orgs, string $role): ?array
+{
+    foreach ($orgs as $org) {
+        if (($org['role'] ?? '') === $role) {
+            return $org;
+        }
+    }
+    return null;
+}
+
 // ---------------------------------------------------------------
 // SESSION MANAGEMENT
 // ---------------------------------------------------------------
@@ -157,6 +198,7 @@ function createPendingSession(array $user, array $orgs): void
     $_SESSION['pending_username']    = $user['username'];
     $_SESSION['pending_first_login'] = (int) $user['first_login'];
     $_SESSION['pending_orgs']        = $orgs;
+    $_SESSION['pending_role']        = 'support';
     $_SESSION['lang']                = $user['preferred_language'] ?? 'es';
     $_SESSION['last_activity']       = time();
 }
@@ -169,7 +211,7 @@ function createPendingSession(array $user, array $orgs): void
  */
 function selectOrg(int $orgId): bool
 {
-    if (empty($_SESSION['pending_login'])) {
+    if (empty($_SESSION['pending_login']) || (string) ($_SESSION['pending_role'] ?? '') !== 'support') {
         return false;
     }
 
@@ -199,6 +241,7 @@ function selectOrg(int $orgId): bool
     $_SESSION['org_id']        = (int) $found['id'];
     $_SESSION['org_slug']      = $found['slug'];
     $_SESSION['org_name']      = $found['name'];
+    $_SESSION['support_orgs']  = $_SESSION['pending_orgs'];
     $_SESSION['first_login']   = $firstLogin;
     $_SESSION['lang']          = $lang;
     $_SESSION['last_activity'] = time();
@@ -222,6 +265,29 @@ function createSession(array $user, array $org): void
     $_SESSION['org_id']        = (int) $org['id'];
     $_SESSION['org_slug']      = $org['slug'];
     $_SESSION['org_name']      = $org['name'];
+    if (($org['role'] ?? '') === 'support') {
+        $_SESSION['support_orgs'] = [$org];
+    }
+    $_SESSION['first_login']   = (int) $user['first_login'];
+    $_SESSION['lang']          = $user['preferred_language'] ?? 'es';
+    $_SESSION['last_activity'] = time();
+}
+
+/**
+ * Full session for global roles (owner/admin) without active BU dependency.
+ */
+function createGlobalSession(array $user, string $role): void
+{
+    session_regenerate_id(true);
+    $_SESSION = [];
+
+    $_SESSION['logged_in']     = true;
+    $_SESSION['user_id']       = (int) $user['id'];
+    $_SESSION['username']      = $user['username'];
+    $_SESSION['role']          = $role;
+    $_SESSION['org_id']        = 0;
+    $_SESSION['org_slug']      = '';
+    $_SESSION['org_name']      = '';
     $_SESSION['first_login']   = (int) $user['first_login'];
     $_SESSION['lang']          = $user['preferred_language'] ?? 'es';
     $_SESSION['last_activity'] = time();
@@ -232,8 +298,7 @@ function isLoggedIn(): bool
 {
     return !empty($_SESSION['logged_in'])
         && !empty($_SESSION['user_id'])
-        && !empty($_SESSION['role'])
-        && !empty($_SESSION['org_id']);
+    && !empty($_SESSION['role']);
 }
 
 /** True when a pending (pre-org-selection) session is active. */
@@ -293,6 +358,12 @@ function requirePendingAuth(): void
 
     if (!isPendingLogin()) {
         header('Location: /login/index.php');
+        exit;
+    }
+
+    if ((string) ($_SESSION['pending_role'] ?? '') !== 'support') {
+        destroySession();
+        header('Location: /login/index.php?reason=unsupported_role');
         exit;
     }
 

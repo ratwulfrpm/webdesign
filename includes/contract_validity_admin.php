@@ -23,7 +23,36 @@ function cvrTableAvailable(PDO $pdo): bool
     return $available;
 }
 
-function cvrListValidityRequests(PDO $pdo, ?int $orgId, ?string $status = null): array
+/**
+ * Builds org-scope SQL fragment from null (global), int (single org),
+ * or int[] (multiple orgs).
+ *
+ * @return array{sql:string, params:array}
+ */
+function cvrBuildOrgScope(mixed $orgScope, string $field = 'r.org_id'): array
+{
+    if ($orgScope === null) {
+        return ['sql' => '', 'params' => []];
+    }
+
+    if (is_array($orgScope)) {
+        $ids = array_values(array_filter(array_map('intval', $orgScope), fn($v) => $v > 0));
+        if (empty($ids)) {
+            return ['sql' => ' AND 1=0', 'params' => []];
+        }
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        return ['sql' => " AND {$field} IN ({$placeholders})", 'params' => $ids];
+    }
+
+    $id = (int) $orgScope;
+    if ($id <= 0) {
+        return ['sql' => ' AND 1=0', 'params' => []];
+    }
+
+    return ['sql' => " AND {$field} = ?", 'params' => [$id]];
+}
+
+function cvrListValidityRequests(PDO $pdo, mixed $orgScope, ?string $status = null): array
 {
     if (!cvrTableAvailable($pdo)) {
         return [];
@@ -32,9 +61,10 @@ function cvrListValidityRequests(PDO $pdo, ?int $orgId, ?string $status = null):
     $where = [];
     $params = [];
 
-    if ($orgId !== null) {
-        $where[] = 'r.org_id = ?';
-        $params[] = $orgId;
+    $scope = cvrBuildOrgScope($orgScope, 'r.org_id');
+    if ($scope['sql'] !== '') {
+        $where[] = ltrim(str_replace('AND ', '', $scope['sql']));
+        $params = array_merge($params, $scope['params']);
     }
     if ($status !== null && in_array($status, ['pending', 'approved', 'rejected', 'cancelled'], true)) {
         $where[] = 'r.status = ?';
@@ -81,7 +111,7 @@ function cvrListValidityRequests(PDO $pdo, ?int $orgId, ?string $status = null):
     }
 }
 
-function cvrLoadPendingRequest(PDO $pdo, int $requestId, ?int $orgId): ?array
+function cvrLoadPendingRequest(PDO $pdo, int $requestId, mixed $orgScope): ?array
 {
     if (!cvrTableAvailable($pdo)) {
         return null;
@@ -94,10 +124,9 @@ function cvrLoadPendingRequest(PDO $pdo, int $requestId, ?int $orgId): ?array
                AND r.status = "pending"';
     $params = [$requestId];
 
-    if ($orgId !== null) {
-        $sql .= ' AND r.org_id = ?';
-        $params[] = $orgId;
-    }
+    $scope = cvrBuildOrgScope($orgScope, 'r.org_id');
+    $sql .= $scope['sql'];
+    $params = array_merge($params, $scope['params']);
 
     $sql .= ' LIMIT 1';
 
@@ -111,13 +140,13 @@ function cvrLoadPendingRequest(PDO $pdo, int $requestId, ?int $orgId): ?array
     }
 }
 
-function cvrApproveRequest(PDO $pdo, int $requestId, int $reviewerUserId, ?int $orgId): bool
+function cvrApproveRequest(PDO $pdo, int $requestId, int $reviewerUserId, mixed $orgScope): bool
 {
     if (!cvrTableAvailable($pdo)) {
         return false;
     }
 
-    $pending = cvrLoadPendingRequest($pdo, $requestId, $orgId);
+    $pending = cvrLoadPendingRequest($pdo, $requestId, $orgScope);
     if (!$pending) {
         return false;
     }
@@ -169,13 +198,13 @@ function cvrApproveRequest(PDO $pdo, int $requestId, int $reviewerUserId, ?int $
     }
 }
 
-function cvrRejectRequest(PDO $pdo, int $requestId, int $reviewerUserId, ?int $orgId, ?string $comment): bool
+function cvrRejectRequest(PDO $pdo, int $requestId, int $reviewerUserId, mixed $orgScope, ?string $comment): bool
 {
     if (!cvrTableAvailable($pdo)) {
         return false;
     }
 
-    $pending = cvrLoadPendingRequest($pdo, $requestId, $orgId);
+    $pending = cvrLoadPendingRequest($pdo, $requestId, $orgScope);
     if (!$pending) {
         return false;
     }

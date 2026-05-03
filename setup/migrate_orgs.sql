@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS `org_members` (
 INSERT INTO `organizations` (`slug`, `name`, `description`) VALUES
     ('jshop',     'JShop',     'Plataforma de proveedores JShop'),
     ('jbusiness', 'JBusiness', 'Portal de socios JBusiness')
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
+ON DUPLICATE KEY UPDATE `id` = `id`;
 
 -- ── 4. Migrate existing users to jshop ───────────────────────
 -- All current users inherit their global role as their jshop org role.

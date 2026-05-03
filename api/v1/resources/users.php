@@ -32,7 +32,12 @@ function handleUsers(string $method, ?int $id): void
 
 function _userAllowedOrgIds(array $auth, PDO $pdo): array
 {
-    return loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+    $all = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+    if ($auth['role'] === 'support') {
+        $activeOrgId = (int) ($auth['org_id'] ?? 0);
+        return in_array($activeOrgId, $all, true) ? [$activeOrgId] : [];
+    }
+    return $all;
 }
 
 function _userRoleFilter(string $viewerRole, string $requestedRole = ''): array

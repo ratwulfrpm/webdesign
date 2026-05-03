@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS `org_members` (
     `id`         INT UNSIGNED      NOT NULL AUTO_INCREMENT,
     `user_id`    INT UNSIGNED      NOT NULL,
     `org_id`     SMALLINT UNSIGNED NOT NULL,
-    `role`       ENUM('owner','admin','supplier','user') NOT NULL DEFAULT 'user',
+    `role`       ENUM('owner','admin','support','supplier','user') NOT NULL DEFAULT 'user',
     `is_active`  TINYINT(1)        NOT NULL DEFAULT 1,
     `joined_at`  DATETIME          NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS `org_members` (
 INSERT INTO `organizations` (`slug`, `name`, `description`) VALUES
     ('jshop',     'JShop',     'Plataforma de proveedores JShop'),
     ('jbusiness', 'JBusiness', 'Portal de socios JBusiness')
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
+ON DUPLICATE KEY UPDATE `id` = `id`;
 
 -- â”€â”€ 4. Migrate existing users to jshop if not in any org â”€â”€â”€â”€â”€
 INSERT INTO `org_members` (`user_id`, `org_id`, `role`)
