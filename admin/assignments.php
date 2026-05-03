@@ -708,7 +708,7 @@ $statusClass = [
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= $esc(t('asgn_page_title')) ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=14">
+    <link rel="stylesheet" href="/login/css/style.css?v=15">
     <style>
         /* ── Layout ── */
         .asgn-layout { display:flex; gap:24px; align-items:flex-start; }

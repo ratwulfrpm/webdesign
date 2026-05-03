@@ -644,14 +644,30 @@ html {
     backdrop-filter: blur(8px);
     border: 1px solid var(--color-border);
     border-radius: 20px;
-    padding: 5px 12px;
+    padding: 0 12px;
+    height: 34px;
+    box-sizing: border-box;
     font-size: 0.78rem;
     font-weight: 600;
     letter-spacing: 0.03em;
     flex-shrink: 0;
 }
 
-.top-bar-logout { margin-left: 0; }
+.top-bar-logout {
+    margin-left: 0;
+    display: flex;
+    align-items: center;
+}
+
+.top-bar-logout .btn-secondary {
+    height: 34px;
+    padding: 0 16px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    font-size: 0.85rem;
+}
 
 /* Small avatar variant for top-bar */
 .welcome-avatar.small {
@@ -979,7 +995,8 @@ html {
     .data-table th,
     .data-table td  { padding: 9px 10px; font-size: 0.875rem; }
     .lang-selector  { top: 10px; right: 10px; padding: 4px 10px; font-size: 0.75rem; }
-    .top-bar-lang   { padding: 4px 10px; font-size: 0.75rem; }
+    .top-bar-lang   { height: 32px; padding: 0 10px; font-size: 0.75rem; }
+    .top-bar-logout .btn-secondary { height: 32px; font-size: 0.82rem; padding: 0 14px; }
 }
 
 /* 640px — small tablet / large phone */
@@ -1028,7 +1045,8 @@ html {
         margin-left: 0;
         gap: 8px;
     }
-    .top-bar-lang   { padding: 4px 8px; font-size: 0.73rem; }
+    .top-bar-lang   { height: 30px; padding: 0 8px; font-size: 0.73rem; }
+    .top-bar-logout .btn-secondary { height: 30px; font-size: 0.8rem; padding: 0 12px; }
     .top-bar-actions { width: 100%; display: flex; justify-content: flex-end; }
 
     .tab-nav  { gap: 3px; padding: 4px 8px; }

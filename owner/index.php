@@ -136,7 +136,7 @@ $lang     = currentLang();
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta http-equiv="Cache-Control" content="no-store">
     <title><?= t('owner_page_title') ?></title>
-    <link rel="stylesheet" href="/login/css/style.css?v=14">
+    <link rel="stylesheet" href="/login/css/style.css?v=15">
 </head>
 <body class="wide-layout role-<?= htmlspecialchars($_SESSION['role'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
 
