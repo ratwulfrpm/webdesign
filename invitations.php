@@ -45,7 +45,7 @@ require_once __DIR__ . '/includes/org_scope.php';
 
 requireAuth();
 initLang();
-requireRole(['admin', 'owner']);
+requireRole(['admin', 'owner', 'support']);
 
 $pdo     = getDB();
 $userId  = (int) $_SESSION['user_id'];
@@ -94,10 +94,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $orgLookup[(int) $org['id']] = (string) $org['name'];
         }
 
-        // Validate role
-        $allowedRoles = $role === 'owner'
-            ? ['admin', 'supplier']
-            : ['supplier'];
+        // Validate role — owner may invite admin/support/supplier;
+        // admin may invite support/supplier; support may only invite supplier.
+        $allowedRoles = match ($role) {
+            'owner'   => ['admin', 'support', 'supplier'],
+            'admin'   => ['support', 'supplier'],
+            default   => ['supplier'],
+        };
         if (!in_array($invRole, $allowedRoles, true)) {
             $invRole = 'supplier';
         }

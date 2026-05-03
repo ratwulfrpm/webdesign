@@ -14,8 +14,13 @@ require_once __DIR__ . '/../../../includes/org_scope.php';
 
 function handleUsers(string $method, ?int $id): void
 {
-    $auth = requireAuth(['admin', 'owner']);
+    $auth = requireAuth(['admin', 'owner', 'support']);
     $pdo  = getDB();
+
+    // Support is read-only: cannot activate, deactivate, or unlock users
+    if ($method === 'PATCH' && $auth['role'] === 'support') {
+        jsonError('Forbidden: support role cannot modify users', 403);
+    }
 
     match (true) {
         $method === 'GET'   && $id === null => _listScopedUsers($auth, $pdo),
@@ -32,11 +37,11 @@ function _userAllowedOrgIds(array $auth, PDO $pdo): array
 
 function _userRoleFilter(string $viewerRole, string $requestedRole = ''): array
 {
-    if ($viewerRole === 'admin') {
+    if ($viewerRole === 'admin' || $viewerRole === 'support') {
         return ['supplier'];
     }
 
-    if ($requestedRole !== '' && in_array($requestedRole, ['owner', 'admin', 'supplier'], true)) {
+    if ($requestedRole !== '' && in_array($requestedRole, ['owner', 'admin', 'support', 'supplier'], true)) {
         return [$requestedRole];
     }
 

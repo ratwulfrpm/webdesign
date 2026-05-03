@@ -80,7 +80,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'change_role':
             // Owner can assign any valid role, but cannot change their own role
             $newRole    = $_POST['new_role'] ?? '';
-            $validRoles = ['owner', 'admin', 'supplier', 'user'];
+            $validRoles = ['owner', 'admin', 'support', 'supplier', 'user'];
             if ($uid > 0
                 && in_array($newRole, $validRoles, true)
                 && $uid !== (int) $_SESSION['user_id']
@@ -154,7 +154,7 @@ $uStmt = $pdo->prepare(
        JOIN org_members om ON u.id = om.user_id
       WHERE om.org_id = ?
         AND om.is_active = 1
-      ORDER BY FIELD(om.role,"owner","admin","supplier","user"), u.username ASC'
+      ORDER BY FIELD(om.role,"owner","admin","support","supplier","user"), u.username ASC'
 );
 $uStmt->execute([$orgId]);
 $users = $uStmt->fetchAll();

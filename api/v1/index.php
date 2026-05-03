@@ -118,6 +118,17 @@ switch ($resource) {
         handleAssignments($method, $id, $sub);
         break;
 
+    case 'me':
+        require_once __DIR__ . '/resources/me.php';
+        handleMe($method);
+        break;
+
+    case 'support':
+        // /support/active-business
+        require_once __DIR__ . '/resources/support.php';
+        handleSupport($method, $sub);
+        break;
+
     case 'business-units':
         require_once __DIR__ . '/resources/business_units.php';
         handleBusinessUnits($method, $id, $sub, $subId);

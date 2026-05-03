@@ -95,6 +95,30 @@ function getTabsForRole(string $role): array
                 ],
             ];
 
+        case 'support':
+            return [
+                [
+                    'id'    => 'all_products',
+                    'label' => t('tab_all_products'),
+                    'url'   => '/login/admin/products.php',
+                ],
+                [
+                    'id'    => 'users',
+                    'label' => t('tab_users'),
+                    'url'   => '/login/admin/index.php',
+                ],
+                [
+                    'id'    => 'invitations',
+                    'label' => t('tab_invitations'),
+                    'url'   => '/login/invitations.php',
+                ],
+                [
+                    'id'    => 'assignments',
+                    'label' => t('tab_assignments'),
+                    'url'   => '/login/admin/assignments.php',
+                ],
+            ];
+
         case 'owner':
             return [
                 [
@@ -159,7 +183,7 @@ function renderTabs(string $activePage): string
     }
 
     $navLabel = htmlspecialchars(t('tab_nav_label'), ENT_QUOTES, 'UTF-8');
-    $safeRole = in_array($role, ['owner', 'admin', 'supplier'], true) ? $role : '';
+    $safeRole = in_array($role, ['owner', 'admin', 'support', 'supplier'], true) ? $role : '';
     $roleClass = $safeRole !== '' ? ' tab-nav--role-' . htmlspecialchars($safeRole, ENT_QUOTES, 'UTF-8') : '';
     $roleAttr  = $safeRole !== '' ? ' data-role="' . htmlspecialchars($safeRole, ENT_QUOTES, 'UTF-8') . '"' : '';
 

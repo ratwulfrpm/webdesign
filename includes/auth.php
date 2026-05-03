@@ -31,12 +31,14 @@ define('AUTH_NO_ORG',   'NO_ORG');
 define('ROLE_HIERARCHY', [
     'owner'    => 4,
     'admin'    => 3,
-    'supplier' => 2,
+    'support'  => 2,
+    'supplier' => 1,
 ]);
 
 define('ROLE_HOME', [
     'owner'    => '/login/admin/products.php',
     'admin'    => '/login/admin/products.php',
+    'support'  => '/login/admin/products.php',
     'supplier' => '/login/supplier/summary.php',
 ]);
 
@@ -129,7 +131,7 @@ function getUserOrgs(int $userId): array
            JOIN organizations o ON o.id = om.org_id
           WHERE om.user_id  = ?
             AND om.is_active = 1
-                        AND om.role IN ("owner", "admin", "supplier")
+            AND om.role IN ("owner", "admin", "support", "supplier")
             AND o.is_active  = 1
           ORDER BY o.name ASC'
     );
@@ -327,7 +329,7 @@ function redirectToHome(): void
     $role       = $_SESSION['role']        ?? '';
     $firstLogin = (int) ($_SESSION['first_login'] ?? 0);
 
-    if (!in_array($role, ['owner', 'admin', 'supplier'], true)) {
+    if (!in_array($role, ['owner', 'admin', 'support', 'supplier'], true)) {
         destroySession();
         header('Location: /login/index.php?reason=unsupported_role');
         exit;

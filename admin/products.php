@@ -36,7 +36,7 @@ require_once __DIR__ . '/../includes/tabs.php';
 
 requireAuth();
 initLang();
-requireRole(['admin', 'owner']);   // both roles may access
+requireRole(['admin', 'owner', 'support']);   // all three roles may access
 
 $pdo     = getDB();
 $lang    = currentLang();
@@ -55,9 +55,9 @@ if (!in_array($fStatus, ['', 'active', 'inactive'], true)) $fStatus = '';
 if (!in_array($fFront,  ['', 'yes', 'no'],           true)) $fFront  = '';
 
 // ── Load accessible organizations ────────────────────────────
-// Admin: all orgs they are a member of (so they see all their assigned BUs).
+// Admin/Support: orgs they are a member of (scoped to assigned BUs).
 // Owner: all active orgs in the system.
-if ($role === 'admin') {
+if ($role === 'admin' || $role === 'support') {
     $oStmt = $pdo->prepare(
         'SELECT o.id, o.name FROM org_members om
            JOIN organizations o ON o.id = om.org_id
@@ -72,8 +72,8 @@ if ($role === 'admin') {
     )->fetchAll();
 }
 
-// IDs the admin is allowed to see (used to enforce tenant isolation)
-$allowedOrgIds = ($role === 'admin')
+// IDs the admin/support is allowed to see (used to enforce tenant isolation)
+$allowedOrgIds = ($role === 'admin' || $role === 'support')
     ? array_map('intval', array_column($orgs, 'id'))
     : [];   // empty = no restriction for owner
 
@@ -81,8 +81,8 @@ $allowedOrgIds = ($role === 'admin')
 $conditions = ['1=1'];
 $params     = [];
 
-// Admin: restrict to their assigned orgs (all of them, not just session org)
-if ($role === 'admin' && !empty($allowedOrgIds)) {
+// Admin/Support: restrict to their assigned orgs (all of them, not just session org)
+if (($role === 'admin' || $role === 'support') && !empty($allowedOrgIds)) {
     $placeholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
     $conditions[] = "p.org_id IN ($placeholders)";
     $params       = array_merge($params, $allowedOrgIds);

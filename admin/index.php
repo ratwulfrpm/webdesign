@@ -40,7 +40,7 @@ require_once __DIR__ . '/../includes/org_scope.php';
 // Auth checks
 requireAuth();
 initLang();
-requireRole(['admin']);
+requireRole(['admin', 'support']);
 
 $pdo      = getDB();
 $feedback = '';$orgId    = (int) $_SESSION['org_id'];

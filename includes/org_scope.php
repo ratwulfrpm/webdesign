@@ -16,7 +16,7 @@ function loadAccessibleOrganizations(PDO $pdo, int $userId, string $role, bool $
         return $pdo->query($sql)->fetchAll();
     }
 
-    if ($role === 'admin') {
+    if ($role === 'admin' || $role === 'support') {
         $sql = 'SELECT o.id, o.name
                   FROM org_members om
                   JOIN organizations o ON o.id = om.org_id
