@@ -1282,6 +1282,7 @@ $statusClass = [
                             <h2 class="card-title" style="font-size:1rem;margin-bottom:10px;">
                                 <?= $esc(t('asgn_search_title')) ?>
                             </h2>
+                            <?php if ($role !== 'admin'): ?>
                             <div class="form-group">
                                 <label class="form-label" for="assignment_org_id">
                                     <?= $esc(t('filter_org_label')) ?>
@@ -1295,6 +1296,9 @@ $statusClass = [
                                     <?php endforeach; ?>
                                 </select>
                             </div>
+                            <?php else: ?>
+                            <input type="hidden" id="assignment_org_id" name="org_id" value="<?= $assignmentOrgId ?>">
+                            <?php endif; ?>
                             <div class="search-filter-grid">
                                 <div>
                                     <label class="form-label" style="font-size:0.82rem;">

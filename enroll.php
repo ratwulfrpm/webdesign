@@ -74,7 +74,7 @@ function loadInvitation(PDO $pdo, string $plainToken): array|string
     $tokenHash = hash('sha256', $plainToken);
 
     $stmt = $pdo->prepare(
-        'SELECT si.id, si.org_id, si.role, si.invited_email,
+        'SELECT si.id, si.org_id, si.extra_org_ids, si.role, si.invited_email,
                 si.status, si.expires_at
            FROM supplier_invitations si
           WHERE si.token_hash = ?
@@ -125,6 +125,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Token invalid/expired/used — show error, do NOT reveal details
         $tokenError = t($inv);
     } else {
+        // Contract is only required for supplier enrollments.
+        $isSupplier = ($inv['role'] ?? '') === 'supplier';
+
         // ── Collect & sanitise form fields ────────────────────
         $fullName  = trim($_POST['full_name']        ?? '');
         $email     = trim($_POST['email']            ?? '');
@@ -170,13 +173,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($formError === '') {
-            // ── Validate contract file ─────────────────────────────
-            $contractResult = validateContractFile(
-                $_FILES['contract_file'] ?? ['error' => UPLOAD_ERR_NO_FILE],
-                CONTRACT_MAX_BYTES
-            );
-            if (!$contractResult['ok']) {
-                $formError = t($contractResult['error']);
+            // ── Validate contract file (supplier only) ──────────────────────
+            if ($isSupplier) {
+                $contractResult = validateContractFile(
+                    $_FILES['contract_file'] ?? ['error' => UPLOAD_ERR_NO_FILE],
+                    CONTRACT_MAX_BYTES
+                );
+                if (!$contractResult['ok']) {
+                    $formError = t($contractResult['error']);
+                }
             }
         }
 
@@ -211,6 +216,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
                 $insOrg->execute([$newUserId, $inv['org_id'], $inv['role']]);
 
+                // 2b. Insert additional org memberships (admin multi-org assignments)
+                $extraOrgIds = json_decode($inv['extra_org_ids'] ?? 'null', true) ?? [];
+                foreach ($extraOrgIds as $extraOrgId) {
+                    $extraOrgId = (int) $extraOrgId;
+                    if ($extraOrgId > 0) {
+                        $pdo->prepare(
+                            'INSERT IGNORE INTO org_members (user_id, org_id, role, is_active)
+                             VALUES (?, ?, ?, 1)'
+                        )->execute([$newUserId, $extraOrgId, $inv['role']]);
+                    }
+                }
+
                 // 3. Mark invitation as used
                 $updInv = $pdo->prepare(
                     'UPDATE supplier_invitations
@@ -221,43 +238,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
                 $updInv->execute([$newUserId, $inv['id']]);
 
-                // 4. Save contract file (user_id now known)
-                $contractExt  = (string) ($contractResult['ext'] ?? 'pdf');
-                $contractMime = (string) ($contractResult['mime'] ?? 'application/pdf');
-                $contractsBase = appStorageDir('contracts');
-                $supplierDir   = $contractsBase . DIRECTORY_SEPARATOR . $newUserId;
-                $uniqueName    = bin2hex(random_bytes(16)) . '.' . $contractExt;
-                $finalContractPath = $supplierDir . DIRECTORY_SEPARATOR . $uniqueName;
-                $storagePath   = 'uploads/contracts/' . $newUserId . '/' . $uniqueName;
+                // 4. Save contract file (supplier only)
+                if ($isSupplier) {
+                    $contractExt  = (string) ($contractResult['ext'] ?? 'pdf');
+                    $contractMime = (string) ($contractResult['mime'] ?? 'application/pdf');
+                    $contractsBase = appStorageDir('contracts');
+                    $supplierDir   = $contractsBase . DIRECTORY_SEPARATOR . $newUserId;
+                    $uniqueName    = bin2hex(random_bytes(16)) . '.' . $contractExt;
+                    $finalContractPath = $supplierDir . DIRECTORY_SEPARATOR . $uniqueName;
+                    $storagePath   = 'uploads/contracts/' . $newUserId . '/' . $uniqueName;
 
-                if (!is_dir($supplierDir) && !mkdir($supplierDir, 0755, true)) {
-                    throw new RuntimeException('mkdir_failed');
+                    if (!is_dir($supplierDir) && !mkdir($supplierDir, 0755, true)) {
+                        throw new RuntimeException('mkdir_failed');
+                    }
+                    if (!move_uploaded_file($_FILES['contract_file']['tmp_name'], $finalContractPath)) {
+                        throw new RuntimeException('move_failed');
+                    }
+
+                    $fileHash = hash_file('sha256', $finalContractPath) ?: null;
+
+                    // 5. Insert contract record (first contract → is_primary = 1)
+                    $pdo->prepare(
+                        'INSERT INTO supplier_contracts
+                            (supplier_id, org_id, storage_path, original_filename, mime_type, file_size,
+                             file_hash, signed_date, effective_start_date, effective_end_date,
+                             notes, is_primary, uploaded_by_user_id)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 1, ?)'
+                    )->execute([
+                        $newUserId,
+                        $inv['org_id'],
+                        $storagePath,
+                        mb_substr((string) ($_FILES['contract_file']['name'] ?? ''), 0, 255),
+                        $contractMime,
+                        (int) ($_FILES['contract_file']['size'] ?? 0),
+                        $fileHash,
+                        $newUserId,
+                    ]);
                 }
-                if (!move_uploaded_file($_FILES['contract_file']['tmp_name'], $finalContractPath)) {
-                    throw new RuntimeException('move_failed');
-                }
-
-                $fileHash = hash_file('sha256', $finalContractPath) ?: null;
-
-                // 5. Insert contract record (first contract → is_primary = 1)
-                $pdo->prepare(
-                    'INSERT INTO supplier_contracts
-                        (supplier_id, org_id, storage_path, original_filename, mime_type, file_size,
-                         file_hash, signed_date, effective_start_date, effective_end_date,
-                         notes, is_primary, uploaded_by_user_id)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 1, ?)'
-                )->execute([
-                    $newUserId,
-                    $inv['org_id'],
-                    $storagePath,
-                    mb_substr((string) ($_FILES['contract_file']['name'] ?? ''), 0, 255),
-                    $contractMime,
-                    (int) ($_FILES['contract_file']['size'] ?? 0),
-                    $fileHash,
-                    $newUserId,
-                ]);
-
-                // TODO: if audit_log table exists, log: enrollment + initial contract upload.
 
                 $pdo->commit();
 
@@ -296,6 +313,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $inv        = null;
     }
 }
+
+// Determine if this is a supplier enrollment (affects form fields shown)
+$isSupplier = ($inv['role'] ?? '') === 'supplier';
 
 // ── HTML ──────────────────────────────────────────────────────
 ?>
@@ -351,7 +371,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php else: ?>
         <!-- ── Registration form ──────────────────────────────── -->
         <h1 class="card-title"><?= t('enroll_title') ?></h1>
-        <p class="card-subtitle"><?= t('enroll_subtitle') ?></p>
+        <p class="card-subtitle"><?= t($isSupplier ? 'enroll_subtitle' : 'enroll_subtitle_staff') ?></p>
 
         <?php if (isset($inv['expires_at'])): ?>
         <p class="enroll-notice">
@@ -478,7 +498,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
             </div>
 
-            <!-- Signed contract (required) -->
+            <!-- Signed contract (supplier only) -->
+            <?php if ($isSupplier): ?>
             <div class="input-wrap">
                 <label for="contract_file"><?= t('enroll_contract_label') ?></label>
                 <p class="input-help" style="margin-bottom:6px;"><?= t('enroll_contract_help') ?></p>
@@ -488,6 +509,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                        accept=".pdf,.jpg,.jpeg,.png"
                        required>
             </div>
+            <?php endif; ?>
 
             <button type="submit" class="btn-primary"><?= t('btn_enroll') ?></button>
         </form>

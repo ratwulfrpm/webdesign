@@ -101,7 +101,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 redirectToHome();
                 exit;
             } else {
-                // Multiple orgs — ask the user which one they want to enter
+                // Multiple orgs — only show picker for owner role (owner may need
+                // to choose which org context to enter). Admin/support/supplier
+                // auto-select their primary org; the panel already exposes all
+                // accessible orgs via loadAccessibleOrganizations().
+                $hasOwnerOrg = false;
+                foreach ($orgs as $org) {
+                    if (($org['role'] ?? '') === 'owner') {
+                        $hasOwnerOrg = true;
+                        break;
+                    }
+                }
+                if (!$hasOwnerOrg) {
+                    createSession($result, $orgs[0]);
+                    redirectToHome();
+                    exit;
+                }
                 createPendingSession($result, $orgs);
                 header('Location: /login/org-picker.php');
                 exit;

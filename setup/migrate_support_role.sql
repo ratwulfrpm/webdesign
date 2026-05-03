@@ -25,9 +25,10 @@ ALTER TABLE `supplier_invitations`
 
 -- 3. Extend users.role ENUM to include 'support'
 --    (users.role is a legacy discriminator; per-org role lives in org_members)
+--    Keep 'owner' to avoid truncation of existing owner accounts.
 ALTER TABLE `users`
     MODIFY `role`
-        ENUM('admin','support','supplier')
+        ENUM('owner','admin','support','supplier','user')
         NOT NULL DEFAULT 'supplier';
 
 -- 4. Compatibility VIEW: user_business_units

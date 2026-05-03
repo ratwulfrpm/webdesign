@@ -42,6 +42,29 @@ FROM users u, organizations o
 WHERE u.username = 'usuario1' AND o.slug = 'jbusiness'
 ON DUPLICATE KEY UPDATE role = VALUES(role);
 
+-- ── 3. support: soporte en ambas orgs ────────────────────────
+-- Contraseña: support
+INSERT INTO users (username, email, password_hash, is_active, role, first_login)
+VALUES (
+    'support',
+    'support@local',
+    '$2y$12$A4RKJSm3v10GD3DIdGrvqOSnvDej8q7zvrZFqFQxjI9D.gelIQsKi',
+    1, 'support', 0
+)
+ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP;
+
+INSERT INTO org_members (user_id, org_id, role)
+SELECT u.id, o.id, 'support'
+FROM users u, organizations o
+WHERE u.username = 'support' AND o.slug = 'jbusiness'
+ON DUPLICATE KEY UPDATE role = VALUES(role);
+
+INSERT INTO org_members (user_id, org_id, role)
+SELECT u.id, o.id, 'support'
+FROM users u, organizations o
+WHERE u.username = 'support' AND o.slug = 'jshop'
+ON DUPLICATE KEY UPDATE role = VALUES(role);
+
 -- ── Resultado ─────────────────────────────────────────────────
 SELECT u.username, u.email, o.slug AS org, om.role
 FROM users u

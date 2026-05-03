@@ -76,26 +76,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // ── Generate invitation ───────────────────────────────────
     if ($action === 'generate_invitation') {
-        $targetOrgId = (int) ($_POST['org_id'] ?? $orgId);
-        $invRole     = $_POST['inv_role'] ?? 'supplier';
-        $invEmail    = trim($_POST['invited_email'] ?? '');
-        $sendEmail   = $invEmail !== ''; // always send if email provided
+        $invRole  = $_POST['inv_role'] ?? 'supplier';
+        $invEmail = trim($_POST['invited_email'] ?? '');
 
-        if (!orgScopeContainsOrgId($accessibleOrgIds, $targetOrgId)) {
-            $_SESSION['inv_feedback']      = null;
-            $_SESSION['inv_feedback_type'] = 'error';
-            $_SESSION['inv_feedback']      = t('error_no_org');
-            header('Location: /login/invitations.php');
-            exit;
-        }
-
-        $orgLookup = [];
-        foreach ($accessibleOrgs as $org) {
-            $orgLookup[(int) $org['id']] = (string) $org['name'];
-        }
-
-        // Validate role — owner may invite admin/support/supplier;
-        // admin may invite support/supplier; support may only invite supplier.
+        // Validate role hierarchy
         $allowedRoles = match ($role) {
             'owner'   => ['admin', 'support', 'supplier'],
             'admin'   => ['support', 'supplier'],
@@ -103,6 +87,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         };
         if (!in_array($invRole, $allowedRoles, true)) {
             $invRole = 'supplier';
+        }
+
+        // ── Org selection ─────────────────────────────────────
+        // When owner invites an admin, multiple orgs can be selected via checkboxes.
+        // For all other cases a single org_id dropdown is used.
+        $extraOrgIds   = [];   // additional org IDs beyond the primary one
+        $targetOrgId   = 0;
+
+        if ($invRole === 'admin' && $role === 'owner') {
+            $checkedIds = array_map('intval', (array) ($_POST['admin_org_ids'] ?? []));
+            // Keep only org IDs this owner actually has access to
+            $checkedIds = array_values(array_filter(
+                $checkedIds,
+                fn($id) => in_array($id, $accessibleOrgIds, true)
+            ));
+
+            if (empty($checkedIds)) {
+                $_SESSION['inv_feedback']      = t('inv_err_no_org_selected');
+                $_SESSION['inv_feedback_type'] = 'error';
+                header('Location: /login/invitations.php');
+                exit;
+            }
+
+            $targetOrgId = $checkedIds[0];
+            $extraOrgIds = array_slice($checkedIds, 1);
+        } else {
+            $targetOrgId = (int) ($_POST['org_id'] ?? $orgId);
+            if (!orgScopeContainsOrgId($accessibleOrgIds, $targetOrgId)) {
+                $_SESSION['inv_feedback']      = t('error_no_org');
+                $_SESSION['inv_feedback_type'] = 'error';
+                header('Location: /login/invitations.php');
+                exit;
+            }
+        }
+
+        $orgLookup = [];
+        foreach ($accessibleOrgs as $org) {
+            $orgLookup[(int) $org['id']] = (string) $org['name'];
         }
 
         // Validate email format if provided
@@ -122,12 +144,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // Insert invitation row
         $stmt = $pdo->prepare(
             'INSERT INTO supplier_invitations
-                (token_hash, org_id, role, invited_email, status, expires_at, created_by_user_id)
-             VALUES (?, ?, ?, ?, "pending", ?, ?)'
+                (token_hash, org_id, extra_org_ids, role, invited_email, status, expires_at, created_by_user_id)
+             VALUES (?, ?, ?, ?, ?, "pending", ?, ?)'
         );
         $stmt->execute([
             $tokenHash,
             $targetOrgId,
+            !empty($extraOrgIds) ? json_encode(array_values($extraOrgIds)) : null,
             $invRole,
             $invEmail !== '' ? $invEmail : null,
             $expiresAt,
@@ -142,6 +165,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         ]);
 
         // Optionally send email immediately
+        $sendEmail   = $invEmail !== '';
         $emailResult = null;
         if ($sendEmail) {
             $emailResult = sendInvitationEmail($invEmail, $enrollLink, $lang);
@@ -200,6 +224,7 @@ if (!empty($accessibleOrgIds)) {
     $placeholders = implode(',', array_fill(0, count($accessibleOrgIds), '?'));
     $stmt = $pdo->prepare(
         "SELECT si.id, si.org_id, o.name AS org_name,
+                si.extra_org_ids,
                 si.role, si.invited_email, si.status,
                 si.expires_at, si.created_at, si.used_at, si.revoked_at,
                 cb.username AS created_by_username,
@@ -337,8 +362,8 @@ $initial  = strtoupper(substr($username, 0, 1));
                 <input type="hidden" name="action" value="generate_invitation">
 
                 <div class="form-row">
-                    <!-- Organization select -->
-                    <div class="input-wrap">
+                    <!-- Organization select (hidden for owner+admin; replaced by checkboxes) -->
+                    <div class="input-wrap" id="inv-org-wrap">
                         <label for="inv-org"><?= t('inv_org_label') ?></label>
                         <select id="inv-org" name="org_id" class="input-select">
                             <?php foreach ($orgs as $o): ?>
@@ -350,11 +375,33 @@ $initial  = strtoupper(substr($username, 0, 1));
                         </select>
                     </div>
 
+                    <?php if ($role === 'owner'): ?>
+                    <!-- Multi-org checkbox list — only shown when admin role is selected -->
+                    <div class="input-wrap" id="inv-admin-orgs-wrap" style="display:none;">
+                        <label><?= t('inv_admin_orgs_label') ?></label>
+                        <p class="input-help" style="margin-bottom:8px;"><?= t('inv_admin_orgs_help') ?></p>
+                        <div style="display:flex;flex-direction:column;gap:6px;">
+                            <?php foreach ($orgs as $o): ?>
+                            <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer;">
+                                <input type="checkbox"
+                                       name="admin_org_ids[]"
+                                       value="<?= (int) $o['id'] ?>"
+                                       style="width:16px;height:16px;cursor:pointer;">
+                                <?= htmlspecialchars($o['name'], ENT_QUOTES, 'UTF-8') ?>
+                            </label>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                    <?php endif; ?>
+
                     <!-- Role select -->
                     <div class="input-wrap">
                         <label for="inv-role"><?= t('inv_role_label') ?></label>
                         <select id="inv-role" name="inv_role" class="input-select">
                             <option value="supplier" selected><?= t('role_supplier') ?></option>
+                            <?php if (in_array($role, ['owner', 'admin'], true)): ?>
+                            <option value="support"><?= t('role_support') ?></option>
+                            <?php endif; ?>
                             <?php if ($role === 'owner'): ?>
                             <option value="admin"><?= t('role_admin') ?></option>
                             <?php endif; ?>
@@ -434,7 +481,22 @@ $initial  = strtoupper(substr($username, 0, 1));
                     ?>
                         <tr>
                             <td><?= (int) $inv['id'] ?></td>
-                            <td><?= htmlspecialchars($inv['org_name'], ENT_QUOTES, 'UTF-8') ?></td>
+                            <td>
+                                <?= htmlspecialchars($inv['org_name'], ENT_QUOTES, 'UTF-8') ?>
+                                <?php
+                                // Show additional orgs for admin invitations
+                                $extraIds = json_decode($inv['extra_org_ids'] ?? 'null', true);
+                                if (!empty($extraIds)):
+                                    // Build a lookup of org names from accessible orgs
+                                    $orgNamesById = array_column($orgs, 'name', 'id');
+                                ?>
+                                <span class="text-muted small" style="display:block;">
+                                    <?php foreach ($extraIds as $eid): ?>
+                                    + <?= htmlspecialchars($orgNamesById[$eid] ?? "Org #{$eid}", ENT_QUOTES, 'UTF-8') ?><br>
+                                    <?php endforeach; ?>
+                                </span>
+                                <?php endif; ?>
+                            </td>
                             <td>
                                 <span class="badge badge-supplier">
                                     <?= htmlspecialchars(t('role_' . $inv['role']), ENT_QUOTES, 'UTF-8') ?>
@@ -510,6 +572,29 @@ function copyInvLink() {
         document.execCommand('copy');
     });
 }
+
+// Toggle org selector vs admin multi-org checkboxes based on role selection.
+// Only relevant for the owner role (the admin-orgs wrap only renders for owner).
+(function () {
+    var roleSelect    = document.getElementById('inv-role');
+    var orgWrap       = document.getElementById('inv-org-wrap');
+    var adminOrgsWrap = document.getElementById('inv-admin-orgs-wrap');
+
+    if (!roleSelect || !adminOrgsWrap) return; // not owner — nothing to do
+
+    function updateOrgVisibility() {
+        if (roleSelect.value === 'admin') {
+            orgWrap.style.display       = 'none';
+            adminOrgsWrap.style.display = '';
+        } else {
+            orgWrap.style.display       = '';
+            adminOrgsWrap.style.display = 'none';
+        }
+    }
+
+    roleSelect.addEventListener('change', updateOrgVisibility);
+    updateOrgVisibility(); // run on page load in case form was re-rendered with admin pre-selected
+}());
 </script>
 
 </body>
