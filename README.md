@@ -440,6 +440,24 @@ En móvil, los inputs usan `font-size: max(16px, 1rem)` para **prevenir el zoom 
 6. **Logs de errores** — Asegurarse de que `display_errors = Off` en `php.ini` y que los errores solo se escriban en el log del servidor.
 7. **Rate limiting** — Implementar limitación de intentos de login para prevenir ataques de fuerza bruta.
 
+### Storage de archivos subidos (runtime)
+
+Las fotos de producto y los contratos son datos de runtime y no deben versionarse en GitHub.
+
+- El repositorio ignora `uploads/products/**` y `uploads/contracts/**`.
+- Solo se mantienen placeholders (`uploads/.htaccess` y `.gitkeep`) para conservar estructura.
+
+La aplicacion soporta root configurable para storage con la variable de entorno `APP_STORAGE_ROOT`:
+
+- Si esta definida, las subidas se guardan en `APP_STORAGE_ROOT/uploads/...`.
+- Si no esta definida, se usa el root del proyecto (comportamiento local por defecto).
+
+Ejemplo PowerShell:
+
+```powershell
+$env:APP_STORAGE_ROOT = 'C:\app-data\webdesign'
+```
+
 ---
 
 *Documentación generada el 24 de febrero de 2026.*

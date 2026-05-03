@@ -42,6 +42,7 @@ session_start();
 
 require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../config/db.php';
+require_once __DIR__ . '/../includes/storage.php';
 
 requireAuth();
 
@@ -83,17 +84,17 @@ if ($role === 'supplier' && (int) $contract['supplier_id'] !== $userId) {
 }
 
 // ── Resolve and validate filesystem path ─────────────────────
-$projectRoot       = realpath(__DIR__ . '/..');
-$contractsRootReal = realpath($projectRoot . '/uploads/contracts');
+$contractsRootRaw  = appStorageDir('contracts');
+$contractsRootReal = realpath($contractsRootRaw);
 
-if ($projectRoot === false || $contractsRootReal === false) {
+if ($contractsRootReal === false) {
     http_response_code(500);
     exit('Storage configuration error.');
 }
 
 // Build absolute path from stored relative path (always forward slashes)
-$relPath = ltrim(str_replace('\\', '/', $contract['storage_path']), '/');
-$absPath = realpath($projectRoot . '/' . $relPath);
+$relPath = ltrim(str_replace('\\', '/', (string) $contract['storage_path']), '/');
+$absPath = realpath(appStoragePath($relPath));
 
 // Path traversal guard: resolved path must be inside uploads/contracts/
 if ($absPath === false

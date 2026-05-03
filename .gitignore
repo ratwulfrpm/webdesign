@@ -1,12 +1,16 @@
 # Credentials — never commit real passwords
 config/mail.php
 
-# Uploaded files
-uploads/products/*.jpg
-uploads/products/*.jpeg
-uploads/products/*.png
-uploads/products/*.gif
-uploads/products/*.webp
+# Uploaded files (runtime data, never commit)
+uploads/contracts/**
+uploads/products/**
+
+# Keep upload tree placeholders/config only
+!uploads/.htaccess
+!uploads/contracts/
+!uploads/contracts/.gitkeep
+!uploads/products/
+!uploads/products/.gitkeep
 
 # Dev logs
 logs/

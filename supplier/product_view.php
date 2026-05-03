@@ -32,6 +32,7 @@ require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/image_validate.php';
+require_once __DIR__ . '/../includes/storage.php';
 
 requireAuth();
 initLang();
@@ -117,8 +118,7 @@ $uploadSlots = [
 ];
 $allowedMimes  = ALLOWED_IMAGE_MIMES;
 $maxFileBytes  = 5 * 1024 * 1024;
-$uploadBaseDir = realpath(__DIR__ . '/../uploads/products')
-              ?: (__DIR__ . '/../uploads/products');
+$uploadBaseDir = appStorageDir('products');
 
 // ── Edit form state ───────────────────────────────────────────
 $editErrors = [];
@@ -250,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $doDelete   = ($hasNewFile || isset($_POST[$deleteKey])) && isset($images[$slot]);
 
                     if ($doDelete) {
-                        $oldPath = __DIR__ . '/../' . $images[$slot]['file_path'];
+                        $oldPath = appStoragePath($images[$slot]['file_path']);
                         if (file_exists($oldPath)) @unlink($oldPath);
                         $pdo->prepare(
                             'DELETE FROM supplier_product_images

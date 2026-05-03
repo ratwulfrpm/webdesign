@@ -20,7 +20,8 @@
 
 define('CONTRACT_MAX_BYTES', 10 * 1024 * 1024); // 10 MB
 define('CONTRACT_ALLOWED_MIME', ['application/pdf', 'image/jpeg', 'image/png']);
-define('CONTRACT_UPLOAD_DIR', __DIR__ . '/../../../uploads/contracts/');
+
+require_once __DIR__ . '/../../../includes/storage.php';
 
 function handleContracts(string $method, ?int $id): void
 {
@@ -192,7 +193,7 @@ function _createContract(array $auth, PDO $pdo): void
         'image/jpeg'      => 'jpg',
         'image/png'       => 'png',
     };
-    $storagDir = CONTRACT_UPLOAD_DIR . $supplierId . '/';
+    $storagDir = appStorageDir('contracts') . DIRECTORY_SEPARATOR . $supplierId . DIRECTORY_SEPARATOR;
     if (!is_dir($storagDir)) {
         mkdir($storagDir, 0755, true);
     }

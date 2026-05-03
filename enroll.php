@@ -35,6 +35,7 @@ require_once __DIR__ . '/includes/lang.php';
 require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/image_validate.php';
+require_once __DIR__ . '/includes/storage.php';
 
 // ── Language (no session-based auth, detect from GET/cookie) ─
 $supportedLangs = ['es', 'en', 'zh'];
@@ -221,9 +222,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $updInv->execute([$newUserId, $inv['id']]);
 
                 // 4. Save contract file (user_id now known)
-                $contractsBase = __DIR__ . '/uploads/contracts';
+                $contractExt  = (string) ($contractResult['ext'] ?? 'pdf');
+                $contractMime = (string) ($contractResult['mime'] ?? 'application/pdf');
+                $contractsBase = appStorageDir('contracts');
                 $supplierDir   = $contractsBase . DIRECTORY_SEPARATOR . $newUserId;
-                $uniqueName    = bin2hex(random_bytes(16)) . '.' . $contractResult['ext'];
+                $uniqueName    = bin2hex(random_bytes(16)) . '.' . $contractExt;
                 $finalContractPath = $supplierDir . DIRECTORY_SEPARATOR . $uniqueName;
                 $storagePath   = 'uploads/contracts/' . $newUserId . '/' . $uniqueName;
 
@@ -248,7 +251,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $inv['org_id'],
                     $storagePath,
                     mb_substr((string) ($_FILES['contract_file']['name'] ?? ''), 0, 255),
-                    $contractResult['mime'],
+                    $contractMime,
                     (int) ($_FILES['contract_file']['size'] ?? 0),
                     $fileHash,
                     $newUserId,

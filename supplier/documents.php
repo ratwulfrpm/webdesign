@@ -34,6 +34,7 @@ require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/image_validate.php';
 require_once __DIR__ . '/../includes/contract_validity.php';
 require_once __DIR__ . '/../includes/audit.php';
+require_once __DIR__ . '/../includes/storage.php';
 
 requireAuth();
 initLang();
@@ -103,8 +104,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $endDate    = $cleanDate(trim($_POST['effective_end_date']   ?? ''));
             $notes      = mb_substr(trim($_POST['contract_notes'] ?? ''), 0, 1000);
 
-            $contractsBase = realpath(__DIR__ . '/../uploads/contracts')
-                          ?: (__DIR__ . '/../uploads/contracts');
+            $contractsBase = appStorageDir('contracts');
             $supplierDir   = $contractsBase . DIRECTORY_SEPARATOR . $uid;
             $uniqueName    = bin2hex(random_bytes(16)) . '.' . $contractResult['ext'];
             $finalPath     = $supplierDir . DIRECTORY_SEPARATOR . $uniqueName;

@@ -46,6 +46,7 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/image_validate.php';
 require_once __DIR__ . '/../includes/product_code.php';
+require_once __DIR__ . '/../includes/storage.php';
 
 requireAuth();
 initLang();
@@ -85,8 +86,7 @@ $slotLabelKeys = [
 
 $allowedMimes  = ALLOWED_IMAGE_MIMES;
 $maxFileBytes  = 5 * 1024 * 1024; // 5 MB
-$uploadBaseDir = realpath(__DIR__ . '/../uploads/products')
-              ?: (__DIR__ . '/../uploads/products');
+$uploadBaseDir = appStorageDir('products');
 
 // ── State ─────────────────────────────────────────────────────
 $errors    = [];
