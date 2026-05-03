@@ -4,8 +4,31 @@
  * Admin/Owner workflow helpers for contract validity requests.
  */
 
+function cvrTableAvailable(PDO $pdo): bool
+{
+    static $available = null;
+
+    if ($available !== null) {
+        return $available;
+    }
+
+    try {
+        // Lightweight probe: if table is missing, this throws and we hide the workflow safely.
+        $pdo->query('SELECT 1 FROM supplier_contract_validity_requests LIMIT 1');
+        $available = true;
+    } catch (Throwable $e) {
+        $available = false;
+    }
+
+    return $available;
+}
+
 function cvrListValidityRequests(PDO $pdo, ?int $orgId, ?string $status = null): array
 {
+    if (!cvrTableAvailable($pdo)) {
+        return [];
+    }
+
     $where = [];
     $params = [];
 
@@ -49,13 +72,21 @@ function cvrListValidityRequests(PDO $pdo, ?int $orgId, ?string $status = null):
                       r.requested_at DESC,
                       r.id DESC";
 
-    $st = $pdo->prepare($sql);
-    $st->execute($params);
-    return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    try {
+        $st = $pdo->prepare($sql);
+        $st->execute($params);
+        return $st->fetchAll(PDO::FETCH_ASSOC) ?: [];
+    } catch (Throwable $e) {
+        return [];
+    }
 }
 
 function cvrLoadPendingRequest(PDO $pdo, int $requestId, ?int $orgId): ?array
 {
+    if (!cvrTableAvailable($pdo)) {
+        return null;
+    }
+
     $sql = 'SELECT r.id, r.supplier_id, r.org_id, r.requested_contract_id,
                    r.current_primary_contract_id, r.status
               FROM supplier_contract_validity_requests r
@@ -70,14 +101,22 @@ function cvrLoadPendingRequest(PDO $pdo, int $requestId, ?int $orgId): ?array
 
     $sql .= ' LIMIT 1';
 
-    $st = $pdo->prepare($sql);
-    $st->execute($params);
-    $row = $st->fetch(PDO::FETCH_ASSOC);
-    return $row ?: null;
+    try {
+        $st = $pdo->prepare($sql);
+        $st->execute($params);
+        $row = $st->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    } catch (Throwable $e) {
+        return null;
+    }
 }
 
 function cvrApproveRequest(PDO $pdo, int $requestId, int $reviewerUserId, ?int $orgId): bool
 {
+    if (!cvrTableAvailable($pdo)) {
+        return false;
+    }
+
     $pending = cvrLoadPendingRequest($pdo, $requestId, $orgId);
     if (!$pending) {
         return false;
@@ -132,12 +171,21 @@ function cvrApproveRequest(PDO $pdo, int $requestId, int $reviewerUserId, ?int $
 
 function cvrRejectRequest(PDO $pdo, int $requestId, int $reviewerUserId, ?int $orgId, ?string $comment): bool
 {
+    if (!cvrTableAvailable($pdo)) {
+        return false;
+    }
+
     $pending = cvrLoadPendingRequest($pdo, $requestId, $orgId);
     if (!$pending) {
         return false;
     }
 
-    $safeComment = $comment !== null ? mb_substr(trim($comment), 0, 1000) : null;
+    if ($comment !== null) {
+        $comment = trim($comment);
+        $safeComment = function_exists('mb_substr') ? mb_substr($comment, 0, 1000) : substr($comment, 0, 1000);
+    } else {
+        $safeComment = null;
+    }
 
     $st = $pdo->prepare(
         'UPDATE supplier_contract_validity_requests
