@@ -56,9 +56,14 @@ if ($role === 'support') {
         fn($row) => (int) ($row['id'] ?? 0) === $orgId
     ));
 }
-$assignmentOrgId = orgScopeContainsOrgId($scopedOrgIds, $orgId)
-    ? $orgId
-    : (int) ($scopedOrgIds[0] ?? 0);
+$assignmentOrgId = 0;
+if ($role === 'support') {
+    $assignmentOrgId = orgScopeContainsOrgId($scopedOrgIds, $orgId)
+        ? $orgId
+        : (int) ($scopedOrgIds[0] ?? 0);
+} elseif ($role === 'owner') {
+    $assignmentOrgId = (int) ($scopedOrgIds[0] ?? 0);
+}
 
 // ── Helper: build public quote URL ───────────────────────────
 function buildQuoteLink(string $plainToken): string
@@ -88,9 +93,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'create_assignment') {
 
         $errors = [];
-        $targetOrgId = (int) ($_POST['org_id'] ?? $assignmentOrgId);
-
-        if (!orgScopeContainsOrgId($scopedOrgIds, $targetOrgId)) {
+        $targetOrgId = (int) ($_POST['org_id'] ?? 0);
+        if ($role === 'support' && $targetOrgId <= 0) {
+            $targetOrgId = $assignmentOrgId;
+        }
+        if ($targetOrgId > 0 && !orgScopeContainsOrgId($scopedOrgIds, $targetOrgId)) {
             $errors[] = t('error_no_org');
         }
 
@@ -247,6 +254,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = t('asgn_err_no_products');
         }
 
+        if ($targetOrgId <= 0) {
+            if (empty($scopedOrgIds)) {
+                $errors[] = t('error_no_org');
+            } else {
+                $targetOrgId = orgScopeContainsOrgId($scopedOrgIds, $orgId)
+                    ? $orgId
+                    : (int) $scopedOrgIds[0];
+            }
+        }
+
         // If validation failed — redirect with errors
         if (!empty($errors)) {
             $_SESSION['asgn_errors'] = $errors;
@@ -254,14 +271,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit;
         }
 
-        // 8. Load all selected products from DB (authoritative source)
+            // 8. Load all selected products from DB (authoritative source)
+            // Admin can combine products from any BU they can access.
+            $productScopeOrgIds = $role === 'admin' ? $scopedOrgIds : [$targetOrgId];
         $placeholders = implode(',', array_fill(0, count($productIds), '?'));
-        $prodStmt     = $pdo->prepare(
-            "SELECT id, product_name, price_fob, price_cif, active
-               FROM supplier_products
-              WHERE org_id = ? AND id IN ({$placeholders}) AND active = 1"
-        );
-          $prodStmt->execute(array_merge([$targetOrgId], $productIds));
+            $orgPlaceholders = implode(',', array_fill(0, count($productScopeOrgIds), '?'));
+            $prodStmt     = $pdo->prepare(
+                "SELECT id, product_name, price_fob, price_cif, active
+                   FROM supplier_products
+                  WHERE id IN ({$placeholders})
+                AND org_id IN ({$orgPlaceholders})
+                AND active = 1"
+            );
+            $prodStmt->execute(array_merge($productIds, $productScopeOrgIds));
         $validProducts = [];
         foreach ($prodStmt->fetchAll() as $p) {
             $validProducts[(int)$p['id']] = $p;
@@ -1289,7 +1311,11 @@ $statusClass = [
                             <h2 class="card-title" style="font-size:1rem;margin-bottom:10px;">
                                 <?= $esc(t('asgn_search_title')) ?>
                             </h2>
-                            <?php if ($role !== 'admin'): ?>
+                            <?php if ($role === 'support'): ?>
+                            <input type="hidden" id="assignment_org_id" name="org_id" value="<?= $assignmentOrgId ?>">
+                            <?php elseif ($role === 'admin'): ?>
+                            <input type="hidden" id="assignment_org_id" name="org_id" value="0">
+                            <?php else: ?>
                             <div class="form-group">
                                 <label class="form-label" for="assignment_org_id">
                                     <?= $esc(t('filter_org_label')) ?>
@@ -1303,8 +1329,6 @@ $statusClass = [
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <?php else: ?>
-                            <input type="hidden" id="assignment_org_id" name="org_id" value="<?= $assignmentOrgId ?>">
                             <?php endif; ?>
                             <div class="search-filter-grid">
                                 <div>
