@@ -75,6 +75,22 @@ Security outcomes:
 - support-only BU switcher appears when support has >1 assigned BUs.
 - owner/admin pages avoid showing empty org badge for global session.
 
+### Assignments — transparent multi-BU product search (admin & owner)
+
+Previous behavior:
+- admin and owner had to select a specific business unit before searching products in the assignments UI.
+- Products were filtered to the selected BU only.
+
+New behavior (commits 34c430d / bae35df):
+- The BU selector is **no longer shown** to admin and owner in the assignments product search panel.
+- Search results include products from **all accessible BUs** transparently.
+- A single assignment/quote **may contain products from multiple business units**.
+- Backend validation verifies each selected product against all BUs the user can access (not limited to one).
+- `org_id` in the create assignment POST is derived automatically for admin/owner from session context; the explicit org field is only required for support.
+- The validity amount input auto-selects its value on focus so the first keystroke replaces the default instead of appending to it.
+
+This behavior is identical for `admin` and `owner`. Owner rights are not degraded.
+
 ## 5) Data Integrity and Migration Hardening
 
 Problem addressed:
@@ -128,3 +144,9 @@ Audit covers:
 
 - PHP CLI is not installed in this environment (`php` command unavailable), so runtime CLI lint/tests were not executed here.
 - Static editor diagnostics for modified PHP files are clean.
+
+## 9) Admin / Owner Feature Parity Policy
+
+Whenever a new enhancement is applied to the `admin` role that enables behavior not previously available, the same change must be mirrored to `owner` without reducing any of owner's superior rights.
+
+This ensures `owner ≥ admin` at all times in terms of feature capability.

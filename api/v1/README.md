@@ -279,13 +279,17 @@ Scope notes:
 
 Scope notes:
 - `admin` can only list/create/revoke/delete/clone assignments inside assigned business units.
+- `owner` can operate across all business units.
 - `org_id` in create requests is validated server-side against the caller scope.
+- For `admin` and `owner`, `org_id` in the create body is **optional** — when omitted or set to `0`, the server derives it from the session context automatically.
+- A single quote may contain products from **multiple business units** accessible to the caller. There is no restriction requiring all products to belong to the same BU.
 - Assignment responses include `business_unit_name` and `business_unit`.
 
 **POST /assignments body:**
 ```json
 {
   "org_id": 1,
+  // org_id is optional for admin/owner — omit or pass 0 to auto-derive from session.
   "assigned_customer_name": "Juan Pérez (required)",
   "company_name": "optional",
   "special_conditions": "optional",
