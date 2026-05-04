@@ -1776,7 +1776,7 @@ $statusClass = [
                                         </button>
                                     </form>
                                     <button type="button" class="btn-asgn-action btn-asgn-action--primary"
-                                        onclick="openRegenModal(<?= (int)$a['id'] ?>,<?= json_encode($a['special_conditions'] ?? '') ?>)">
+                                        onclick="openRegenModal(<?= (int)$a['id'] ?>,<?= htmlspecialchars(json_encode($a['special_conditions'] ?? ''), ENT_QUOTES, 'UTF-8') ?>)">
                                         <?= $esc(t('asgn_btn_regen')) ?>
                                     </button>
                                 </div>
