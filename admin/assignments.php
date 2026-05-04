@@ -61,8 +61,6 @@ if ($role === 'support') {
     $assignmentOrgId = orgScopeContainsOrgId($scopedOrgIds, $orgId)
         ? $orgId
         : (int) ($scopedOrgIds[0] ?? 0);
-} elseif ($role === 'owner') {
-    $assignmentOrgId = (int) ($scopedOrgIds[0] ?? 0);
 }
 
 // ── Helper: build public quote URL ───────────────────────────
@@ -272,8 +270,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
             // 8. Load all selected products from DB (authoritative source)
-            // Admin can combine products from any BU they can access.
-            $productScopeOrgIds = $role === 'admin' ? $scopedOrgIds : [$targetOrgId];
+            // Admin and owner can combine products from any BU they can access.
+            $productScopeOrgIds = in_array($role, ['admin', 'owner'], true) ? $scopedOrgIds : [$targetOrgId];
         $placeholders = implode(',', array_fill(0, count($productIds), '?'));
             $orgPlaceholders = implode(',', array_fill(0, count($productScopeOrgIds), '?'));
             $prodStmt     = $pdo->prepare(
@@ -1313,7 +1311,7 @@ $statusClass = [
                             </h2>
                             <?php if ($role === 'support'): ?>
                             <input type="hidden" id="assignment_org_id" name="org_id" value="<?= $assignmentOrgId ?>">
-                            <?php elseif ($role === 'admin'): ?>
+                            <?php elseif (in_array($role, ['admin', 'owner'], true)): ?>
                             <input type="hidden" id="assignment_org_id" name="org_id" value="0">
                             <?php else: ?>
                             <div class="form-group">
@@ -1538,7 +1536,8 @@ $statusClass = [
                                 <div style="display:flex;gap:10px;">
                                     <input type="number" id="validityAmount" name="validity_amount"
                                            class="form-input" min="1" max="168" value="7" step="1"
-                                           oninput="onValidityChange()" style="width:90px;text-align:center;">
+                                         onfocus="this.select()" onclick="this.select()"
+                                         oninput="onValidityChange()" style="width:90px;text-align:center;">
                                     <select id="validityUnit" name="validity_unit"
                                             class="form-input" style="flex:1;" onchange="onValidityChange()">
                                         <option value="hours"><?= $esc(t('asgn_validity_unit_hours')) ?></option>
