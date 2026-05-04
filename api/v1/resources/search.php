@@ -31,7 +31,7 @@ function handleSearch(string $method, string $sub): void
         jsonError('Method Not Allowed', 405);
     }
 
-    $auth = requireAuth(['admin', 'owner']);
+    $auth = requireApiAuth(['admin', 'owner']);
 
     match ($sub) {
         'products' => _searchProducts($auth, getDB()),

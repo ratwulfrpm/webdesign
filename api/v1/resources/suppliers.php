@@ -15,7 +15,7 @@
 
 function handleSuppliers(string $method, ?int $id): void
 {
-    $auth = requireAuth(['admin', 'owner']);
+    $auth = requireApiAuth(['admin', 'owner']);
     $pdo  = getDB();
 
     match (true) {

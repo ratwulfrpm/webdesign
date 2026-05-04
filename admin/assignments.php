@@ -23,13 +23,11 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Content-Type: text/html; charset=utf-8');
 
 // ── Bootstrap ────────────────────────────────────────────────
-session_set_cookie_params([
-    'lifetime' => 0, 'path' => '/', 'secure' => false,
-    'httponly' => true, 'samesite' => 'Lax',
-]);
-session_start();
+require_once __DIR__ . '/../includes/session.php';
 
 require_once __DIR__ . '/../includes/auth.php';
+require_once __DIR__ . '/../includes/RBAC.php';
+require_once __DIR__ . '/../includes/TenantScope.php';
 require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';

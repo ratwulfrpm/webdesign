@@ -491,3 +491,177 @@ function canManageRole(string $managerRole, string $targetRole): bool
     }
     return false;
 }
+
+// ---------------------------------------------------------------
+// AUTH FACADE — OOP wrapper over the procedural helpers above.
+// ---------------------------------------------------------------
+
+/**
+ * Auth — Static facade for authentication and session management.
+ *
+ * New code should use Auth:: methods.  All existing procedural calls
+ * (requireAuth, requireRole, etc.) remain valid and are NOT replaced.
+ *
+ * Owner/Admin rule (enforced globally):
+ *   - Owner  → org_id = 0 in session (global, no BU selection needed).
+ *   - Admin  → org_id = 0 in session (global, no BU selection needed).
+ *   - Support → org_id = active BU in session (required).
+ *   - Neither owner nor admin should be shown a mandatory BU selector.
+ */
+final class Auth
+{
+    // ── Identity ─────────────────────────────────────────────
+
+    /**
+     * Returns full session context for the authenticated user, or null.
+     *
+     * @return array{
+     *   user_id: int, username: string, role: string,
+     *   org_id: int, org_name: string, first_login: int, lang: string
+     * }|null
+     */
+    public static function user(): ?array
+    {
+        if (!isLoggedIn()) {
+            return null;
+        }
+        return [
+            'user_id'     => (int)    ($_SESSION['user_id']     ?? 0),
+            'username'    => (string) ($_SESSION['username']    ?? ''),
+            'role'        => (string) ($_SESSION['role']        ?? ''),
+            'org_id'      => (int)    ($_SESSION['org_id']      ?? 0),
+            'org_name'    => (string) ($_SESSION['org_name']    ?? ''),
+            'first_login' => (int)    ($_SESSION['first_login'] ?? 0),
+            'lang'        => (string) ($_SESSION['lang']        ?? 'es'),
+        ];
+    }
+
+    /** Current authenticated user's ID, or 0 if not logged in. */
+    public static function id(): int
+    {
+        return (int) ($_SESSION['user_id'] ?? 0);
+    }
+
+    /** Current role string, or '' if not logged in. */
+    public static function role(): string
+    {
+        return (string) ($_SESSION['role'] ?? '');
+    }
+
+    /** Numeric rank of the current role. owner=4, admin=3, support=2, supplier=1, else 0. */
+    public static function roleRank(): int
+    {
+        return ROLE_HIERARCHY[self::role()] ?? 0;
+    }
+
+    // ── Session state ────────────────────────────────────────
+
+    /** True if a complete, fully-authenticated session is active. */
+    public static function check(): bool
+    {
+        return isLoggedIn();
+    }
+
+    /** True if a pending (pre-org-selection) session is active (support only). */
+    public static function isPending(): bool
+    {
+        return isPendingLogin();
+    }
+
+    // ── Guards ───────────────────────────────────────────────
+
+    /**
+     * Guard: enforce full authentication.
+     * Redirects to login if not authenticated.
+     * Enforces idle timeout and per-request DB revalidation.
+     */
+    public static function requireLogin(): void
+    {
+        requireAuth();
+    }
+
+    /**
+     * Guard: enforce that the session has one of the given roles.
+     * Call requireLogin() (or requireAccess()) before this.
+     * Redirects to the role's home page on mismatch.
+     *
+     * @param string[] $roles  Allowed roles, e.g. ['owner', 'admin']
+     */
+    public static function requireRole(array $roles): void
+    {
+        requireRole($roles);
+    }
+
+    /**
+     * Combined guard: login + role check.
+     * Returns minimal auth context for handlers.
+     *
+     * @param  string[]  $roles  Allowed roles (empty = any authenticated role)
+     * @return array{user_id: int, role: string, org_id: int}
+     */
+    public static function requireAccess(array $roles = []): array
+    {
+        requireAuth();
+        if (!empty($roles)) {
+            requireRole($roles);
+        }
+        return [
+            'user_id' => (int)    ($_SESSION['user_id'] ?? 0),
+            'role'    => (string) ($_SESSION['role']    ?? ''),
+            'org_id'  => (int)    ($_SESSION['org_id']  ?? 0),
+        ];
+    }
+
+    // ── Lifecycle ────────────────────────────────────────────
+
+    /** Destroy the session completely (full logout). */
+    public static function logout(): void
+    {
+        destroySession();
+    }
+
+    /**
+     * Force an immediate DB revalidation of the current user's is_active flag.
+     * Destroys the session and redirects if the user is deactivated.
+     */
+    public static function refreshUser(): void
+    {
+        if (!isLoggedIn()) {
+            return;
+        }
+        $pdo  = getDB();
+        $stmt = $pdo->prepare('SELECT is_active FROM users WHERE id = ? LIMIT 1');
+        $stmt->execute([(int) ($_SESSION['user_id'] ?? 0)]);
+        $row  = $stmt->fetch();
+        if (!$row || !(int) $row['is_active']) {
+            destroySession();
+            header('Location: /login/index.php?reason=deactivated');
+            exit;
+        }
+    }
+
+    /**
+     * Regenerate the session ID.
+     * Note: login and org-pick already call session_regenerate_id(true) internally.
+     */
+    public static function regenerateSession(): void
+    {
+        session_regenerate_id(true);
+    }
+
+    /**
+     * Clear role-context session keys without destroying the full session.
+     * Use when switching roles or orgs within an existing session.
+     * Always follow with a new createGlobalSession() / createSession() call.
+     */
+    public static function clearRoleContext(): void
+    {
+        unset(
+            $_SESSION['role'],
+            $_SESSION['org_id'],
+            $_SESSION['org_slug'],
+            $_SESSION['org_name'],
+            $_SESSION['support_orgs']
+        );
+    }
+}

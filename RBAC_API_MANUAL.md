@@ -229,3 +229,213 @@ Audit covers:
 Whenever a new enhancement is applied to the `admin` role that enables behavior not previously available, the same change must be mirrored to `owner` without reducing any of owner's superior rights.
 
 This ensures `owner ≥ admin` at all times in terms of feature capability.
+
+---
+
+## 10) Central Auth / RBAC / TenantScope Layer (May 2026)
+
+### 10.1 Overview
+
+A central authentication and authorization layer has been introduced.  Existing procedural helpers in `includes/auth.php` and `includes/org_scope.php` remain intact; three new files add OOP facades on top:
+
+| File | Purpose |
+|---|---|
+| `includes/session.php` | Centralized session bootstrap with dynamic `secure` cookie flag |
+| `includes/auth.php` (extended) | Auth procedural helpers + new `Auth` static class |
+| `includes/RBAC.php` | Permission matrix + role-creation hierarchy |
+| `includes/TenantScope.php` | OOP business-unit scope resolver |
+
+### 10.2 Session Bootstrap — `includes/session.php`
+
+Replaces the duplicated `session_set_cookie_params` + `session_start` block that was present in every entry point.
+
+**Before (duplicated in each file):**
+```php
+session_set_cookie_params(['lifetime'=>0,'path'=>'/','secure'=>false,'httponly'=>true,'samesite'=>'Lax']);
+session_start();
+```
+
+**After (single include):**
+```php
+require_once __DIR__ . '/includes/session.php';
+```
+
+**Changes applied:**
+- `secure` flag is now **dynamic**: `true` when `$_SERVER['HTTPS']` is present and not `'off'`, `false` otherwise.  No manual change required when switching to HTTPS.
+- `httponly = true` enforced globally.
+- `samesite = Lax` enforced globally.
+- Session started once via `PHP_SESSION_NONE` guard (safe to multi-include).
+- All entry points (web + API + admin/api sub-endpoints) now use this file.
+
+### 10.3 Auth Facade — `Auth` class in `includes/auth.php`
+
+New static class providing a clean OOP API over the procedural session helpers.
+
+```php
+// Identity
+Auth::user()       // returns full session context or null
+Auth::id()         // int — user_id or 0
+Auth::role()       // string — role or ''
+Auth::roleRank()   // int — owner=4, admin=3, support=2, supplier=1, else 0
+Auth::check()      // bool — true if fully logged in
+
+// Guards
+Auth::requireLogin()            // redirect to login if unauthenticated
+Auth::requireRole(['owner'])    // redirect to home if role mismatch
+Auth::requireAccess(['admin','owner'])  // combined guard, returns auth context
+
+// Lifecycle
+Auth::logout()           // destroys session
+Auth::refreshUser()      // DB revalidation, destroys session if deactivated
+Auth::regenerateSession()
+Auth::clearRoleContext() // clears org/role keys without destroying session
+```
+
+**Existing procedural calls (`requireAuth()`, `requireRole()`, `isLoggedIn()`, etc.) continue to work unchanged.**
+
+### 10.4 RBAC — `includes/RBAC.php`
+
+Defines a canonical permission matrix for all roles.
+
+```php
+RBAC::can('users.list')           // bool — checks current user's role against matrix
+RBAC::requirePermission('users.create')  // aborts with 403 if lacking permission
+RBAC::canCreateRole('admin', 'owner')    // false — admin cannot create owner
+RBAC::assertRoleHierarchy('admin', 'support')  // ok
+RBAC::assertRoleHierarchy('support', 'supplier')  // 403
+```
+
+**Permission matrix (abbreviated):**
+
+| Permission | Minimum rank | Minimum role |
+|---|---|---|
+| `users.list` | 2 | support |
+| `users.create` | 3 | admin |
+| `users.change_role` | 4 | owner |
+| `invitations.create` | 3 | admin |
+| `products.list` | 2 | support |
+| `products.delete` | 3 | admin |
+| `assignments.create` | 2 | support |
+| `assignments.delete` | 3 | admin |
+| `business_units.*` | 4 | owner |
+| `contracts.review` | 3 | admin |
+
+**Role-creation hierarchy:**
+
+| Creator | Can create | Cannot create |
+|---|---|---|
+| owner | admin, support, supplier | — |
+| admin | support, supplier | admin, owner |
+| support | — | all |
+| supplier | — | all |
+
+*Excepción Admin/Owner: Admin cannot create other admins — owner exclusivity over the admin role is preserved.*
+
+**Context detection:** `requirePermission()` and `assertRoleHierarchy()` detect API context via `HTTP_ACCEPT: application/json` and emit a JSON 403 response instead of an HTML redirect.
+
+### 10.5 TenantScope — `includes/TenantScope.php`
+
+Resolves the correct business-unit scope for the current user and provides query-building helpers.
+
+```php
+TenantScope::businessUnitsForCurrentUser()  // array of {id, name}
+TenantScope::businessUnitIds()              // int[] — empty = owner (no restriction)
+TenantScope::canAccessBusiness(int $id)     // bool
+TenantScope::activeBusinessForSupport()     // int (0 for owner/admin)
+TenantScope::applyToQuery(string $sql, string $col)  // appends scoped WHERE clause
+TenantScope::requireBusinessAccess(int $id) // 403 if out of scope
+```
+
+**Scoping by role:**
+
+| Role | `businessUnitIds()` | `applyToQuery()` behavior |
+|---|---|---|
+| owner | `[]` (empty) | no WHERE clause added |
+| admin | all assigned org IDs | `AND org_id IN (1, 2, ...)` |
+| support | `[active_org_id]` | `AND org_id = 5` |
+| supplier | `[org_id]` | `AND org_id = 3` |
+
+**Owner never uses `active_business_unit`.**  `businessUnitIds()` returning `[]` is the signal to callers that no restriction should be applied.
+
+### 10.6 API — `requireApiAuth` naming fix
+
+**Critical bug fixed:** `requireAuth()` was declared in both `includes/auth.php` (web guard, `void` return) and `api/v1/_helpers.php` (API guard, returns auth context array).  Including both in `api/v1/index.php` caused a PHP fatal redeclaration error on every API request.
+
+**Fix:** renamed the API guard from `requireAuth` to `requireApiAuth` in `_helpers.php` and updated all 13 call sites across `api/v1/resources/*.php`.
+
+**Before:**
+```php
+// _helpers.php
+function requireAuth(array $roles = ['admin', 'owner']): array { ... }
+
+// resource files
+$auth = requireAuth(['admin', 'owner']);
+```
+
+**After:**
+```php
+// _helpers.php
+function requireApiAuth(array $roles = ['admin', 'owner']): array { ... }
+
+// resource files
+$auth = requireApiAuth(['admin', 'owner']);
+```
+
+### 10.7 GET /api/v1/me — Scoping behavior
+
+Returns different scopes per role:
+
+| Role | `assigned_business_units` | `active_business_unit` |
+|---|---|---|
+| owner | all organizations | not returned |
+| admin | all assigned orgs | not returned |
+| support | all assigned orgs | the active org (org_id in session) |
+| supplier | own org | own org |
+
+Owner and admin sessions have `org_id = 0` in session — `active_business_unit` is intentionally absent because they operate globally and are not restricted to any single BU.
+
+### 10.8 Owner / Admin Parity Confirmation
+
+All changes in this layer adhere to the admin→owner parity rule:
+
+- `Auth::requireRole(['admin'])` — owner is NEVER restricted to admin-only gates.
+- `RBAC::can()` — any permission with rank ≤ 3 is automatically satisfied by owner (rank 4).
+- `TenantScope::businessUnitIds()` — owner returns `[]` (no restriction), admin returns all assigned orgs.
+- `TenantScope::canAccessBusiness()` — owner always returns `true`.
+- Owner NEVER has `active_business_unit` in session.
+- Owner is NEVER shown a BU selector.
+- Owner retains all admin permissions plus exclusive `business_units.*` and `users.change_role` permissions.
+
+### 10.9 Manual Test Checklist
+
+**Owner:**
+- [ ] Login as owner → lands on admin/products.php without BU selector
+- [ ] `GET /api/v1/me` → `role: "owner"`, `active_business_unit` absent, all orgs in `assigned_business_units`
+- [ ] Products list shows all products from all BUs
+- [ ] Assignments create: no org picker shown; products from all BUs selectable
+
+**Admin:**
+- [ ] Login as admin → global session, no BU selector
+- [ ] `GET /api/v1/me` → `role: "admin"`, `active_business_unit` absent, assigned BUs only
+- [ ] Products list shows only products from assigned BUs
+- [ ] Cannot access `GET /api/v1/business-units` → 403
+
+**Support:**
+- [ ] Login with 1 BU → auto-select, lands on products page
+- [ ] Login with N BUs → org-picker shown, select one, session set
+- [ ] `GET /api/v1/me` → `active_business_unit` present and matches session org_id
+- [ ] Switch BU via `POST /api/v1/support/active-business` → session updated, new org_id verified
+
+**Supplier:**
+- [ ] Login → supplier scope only
+- [ ] `GET /api/v1/me` → own org in `active_business_unit`
+
+**Session isolation:**
+- [ ] Login as owner, logout, login as support → no inherited context (org_id not carried over)
+- [ ] Login as admin, logout, login as owner → owner session has org_id = 0, no BU selector
+
+**Public quote (token-only):**
+- [ ] Open quote.php?t=TOKEN while logged in as admin/owner → public view with no internal data
+- [ ] No FOB/CIF prices, no supplier codes, no admin navigation visible
+- [ ] Session of logged-in user is NOT modified by quote.php visit
+

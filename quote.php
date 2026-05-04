@@ -35,15 +35,9 @@ header('Content-Type: text/html; charset=utf-8');
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/lang.php';
 require_once __DIR__ . '/includes/audit.php';
+require_once __DIR__ . '/includes/session.php';   // centralized session bootstrap
 
 $lang = 'en';
-if (session_status() === PHP_SESSION_NONE) {
-    session_set_cookie_params([
-        'lifetime' => 0, 'path' => '/', 'secure' => false,
-        'httponly' => true, 'samesite' => 'Lax',
-    ]);
-    session_start();
-}
 initLang();
 $lang = currentLang();
 

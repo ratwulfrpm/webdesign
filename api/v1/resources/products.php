@@ -27,7 +27,7 @@
 
 function handleProducts(string $method, ?int $id, string $sub, string $subId): void
 {
-    $auth = requireAuth(['admin', 'owner', 'supplier']);
+    $auth = requireApiAuth(['admin', 'owner', 'supplier']);
     $pdo  = getDB();
 
     // Sub-resource dispatch when id is present

@@ -30,7 +30,7 @@ function handleSupport(string $method, string $sub): void
 
 function _switchActiveBusinessUnit(): void
 {
-    $auth = requireAuth(['support']);
+    $auth = requireApiAuth(['support']);
     $pdo  = getDB();
 
     $body  = parseBody();

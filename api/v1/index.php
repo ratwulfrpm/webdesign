@@ -29,20 +29,15 @@ header('X-Content-Type-Options: nosniff');
 header('X-Frame-Options: DENY');
 header('Cache-Control: no-store, no-cache, must-revalidate');
 
-// ── Session bootstrap ─────────────────────────────────────────
-session_set_cookie_params([
-    'lifetime' => 0,
-    'path'     => '/',
-    'secure'   => false,      // set true in production (HTTPS)
-    'httponly' => true,
-    'samesite' => 'Lax',
-]);
-session_start();
+// ── Session bootstrap (centralized — sets secure cookie params) ─
+require_once __DIR__ . '/../../includes/session.php';
 
 // ── Core dependencies ─────────────────────────────────────────
 require_once __DIR__ . '/../../config/db.php';
-require_once __DIR__ . '/../../includes/auth.php';
-require_once __DIR__ . '/_helpers.php';
+require_once __DIR__ . '/../../includes/auth.php';   // procedural helpers + Auth class
+require_once __DIR__ . '/../../includes/RBAC.php';
+require_once __DIR__ . '/../../includes/TenantScope.php';
+require_once __DIR__ . '/_helpers.php';              // requireApiAuth + JSON helpers
 
 // ── Path parsing ──────────────────────────────────────────────
 // Detect base path dynamically so this works regardless of the

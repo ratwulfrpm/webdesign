@@ -26,7 +26,7 @@ require_once __DIR__ . '/../../../includes/org_scope.php';
 
 function handleAssignments(string $method, ?int $id, string $action): void
 {
-    $auth = requireAuth(['admin', 'owner']);
+    $auth = requireApiAuth(['admin', 'owner']);
     $pdo  = getDB();
 
     match (true) {
@@ -687,7 +687,7 @@ function handleQuoteReplicate(string $method, ?int $id, string $action): void
     if ($method !== 'POST' || $id === null || $action !== 'replicate') {
         jsonError('Method Not Allowed', 405);
     }
-    $auth = requireAuth(['admin', 'owner']);
+    $auth = requireApiAuth(['admin', 'owner']);
     $pdo  = getDB();
     _replicateAssignment($id, $auth, $pdo);
 }

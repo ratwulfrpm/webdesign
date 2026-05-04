@@ -14,14 +14,7 @@ header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store, no-cache, must-revalidate');
 
-session_set_cookie_params([
-    'lifetime' => 0,
-    'path'     => '/',
-    'secure'   => false,
-    'httponly' => true,
-    'samesite' => 'Lax',
-]);
-session_start();
+require_once __DIR__ . '/includes/session.php';
 
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/csrf.php';

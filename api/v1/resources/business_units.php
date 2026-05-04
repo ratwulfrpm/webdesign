@@ -23,7 +23,7 @@
 
 function handleBusinessUnits(string $method, ?int $id, string $sub, string $subId): void
 {
-    $auth = requireAuth(['owner']);
+    $auth = requireApiAuth(['owner']);
     $pdo  = getDB();
 
     // Sub-resource: /business-units/:id/admins[/:uid]

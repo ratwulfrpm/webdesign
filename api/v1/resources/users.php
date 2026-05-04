@@ -14,7 +14,7 @@ require_once __DIR__ . '/../../../includes/org_scope.php';
 
 function handleUsers(string $method, ?int $id): void
 {
-    $auth = requireAuth(['admin', 'owner', 'support']);
+    $auth = requireApiAuth(['admin', 'owner', 'support']);
     $pdo  = getDB();
 
     // Support is read-only: cannot activate, deactivate, or unlock users

@@ -18,7 +18,7 @@ function handleMe(string $method): void
         jsonError('Method Not Allowed', 405);
     }
 
-    $auth = requireAuth(['owner', 'admin', 'support', 'supplier']);
+    $auth = requireApiAuth(['owner', 'admin', 'support', 'supplier']);
     $pdo  = getDB();
 
     $userId  = (int) $auth['user_id'];

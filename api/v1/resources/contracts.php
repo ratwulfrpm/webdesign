@@ -25,7 +25,7 @@ require_once __DIR__ . '/../../../includes/storage.php';
 
 function handleContracts(string $method, ?int $id): void
 {
-    $auth = requireAuth(['admin', 'owner']);
+    $auth = requireApiAuth(['admin', 'owner']);
     $pdo  = getDB();
 
     match (true) {

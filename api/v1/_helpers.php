@@ -10,6 +10,13 @@
  *  - Auth guard validates session role against allowed list.
  *  - intParam() rejects non-positive IDs immediately.
  *  - parseBody() only reads php://input for application/json content.
+ *
+ * IMPORTANT — naming:
+ *  The web-layer requireAuth() (defined in includes/auth.php) and the
+ *  API-layer requireApiAuth() defined here are deliberately different names
+ *  to avoid PHP fatal redeclaration errors when both files are loaded in
+ *  the same request (which is the case for api/v1/index.php).
+ *  All API resource files must call requireApiAuth(), never requireAuth().
  */
 
 // ── Response helpers ──────────────────────────────────────────
@@ -44,13 +51,18 @@ function jsonError(string $message, int $code = 400, array $extra = []): never
 // ── Auth guard ────────────────────────────────────────────────
 
 /**
- * Require an active session with one of the given roles.
+ * API auth guard: require an active session with one of the given roles.
+ *
  * Returns context array: ['user_id', 'role', 'org_id'].
+ *
+ * Named requireApiAuth (not requireAuth) to avoid PHP fatal redeclaration
+ * conflict with the web-layer requireAuth(): void in includes/auth.php.
+ * Both files are loaded by api/v1/index.php and must have distinct names.
  *
  * @param  string[] $roles Allowed roles, e.g. ['admin','owner']
  * @return array{user_id:int, role:string, org_id:int}
  */
-function requireAuth(array $roles = ['admin', 'owner']): array
+function requireApiAuth(array $roles = ['admin', 'owner']): array
 {
     if (empty($_SESSION['user_id'])) {
         jsonError('Unauthorized', 401);

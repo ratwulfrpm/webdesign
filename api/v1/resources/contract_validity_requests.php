@@ -33,7 +33,7 @@ function handleSupplierContractValidityRoutes(string $method, array $segments): 
         jsonError('Method Not Allowed', 405);
     }
 
-    $auth = requireAuth(['supplier']);
+    $auth = requireApiAuth(['supplier']);
     $pdo = getDB();
     $supplierId = (int) $auth['user_id'];
     $orgId = (int) $auth['org_id'];
@@ -83,7 +83,7 @@ function handleAdminContractValidityRoutes(string $method, array $segments): voi
         jsonError('Not found', 404);
     }
 
-    $auth = requireAuth(['admin', 'owner']);
+    $auth = requireApiAuth(['admin', 'owner']);
     $pdo = getDB();
     $scopeOrgId = $auth['role'] === 'admin' ? (int) $auth['org_id'] : null;
 

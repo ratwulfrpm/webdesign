@@ -21,7 +21,7 @@ require_once __DIR__ . '/../../../includes/org_scope.php';
 
 function handleInvitations(string $method, ?int $id, string $action): void
 {
-    $auth = requireAuth(['admin', 'owner']);
+    $auth = requireApiAuth(['admin', 'owner']);
     $pdo  = getDB();
 
     match (true) {
