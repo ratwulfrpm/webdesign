@@ -268,7 +268,10 @@ Scope notes:
 
 ---
 
-### Assignments (Quotes)
+### Quotes
+
+> **UI label:** Cotizaciones / Quotes  
+> **Internal module name:** `assignments` (routes and DB tables unchanged for compatibility)
 
 | Endpoint | Method | Description | Auth |
 |---|---|---|---|
@@ -280,14 +283,14 @@ Scope notes:
 | `/api/v1/assignments/:id/clone` | POST | Clone quote with new token (regen link) | admin/owner |
 
 Scope notes:
-- `admin` can only list/create/revoke/delete/clone assignments inside assigned business units.
+- `admin` can only list/create/revoke/delete/clone quotes inside assigned business units.
 - `owner` can operate across all business units.
 - `org_id` in create requests is validated server-side against the caller scope.
 - For `admin` and `owner`, `org_id` in the create body is **optional** — when omitted or set to `0`, the server derives it from the session context automatically.
 - A single quote may contain products from **multiple business units** accessible to the caller. There is no restriction requiring all products to belong to the same BU.
-- Assignment responses include `business_unit_name` and `business_unit`.
+- Quote responses include `business_unit_name` and `business_unit`.
 
-**POST /assignments body:**
+**POST /assignments body (create quote):**
 ```json
 {
   "org_id": 1,
@@ -312,7 +315,7 @@ Scope notes:
 }
 ```
 
-**POST /assignments/:id/clone body** (optional override):
+**POST /assignments/:id/clone body (regen quote link)** (optional override):
 ```json
 {
   "assigned_customer_name": "New Customer Name"
@@ -329,7 +332,7 @@ Scope notes:
 }
 ```
 
-**Assignment detail totals:**
+**Quote detail totals:**
 ```json
 {
   "totals": {

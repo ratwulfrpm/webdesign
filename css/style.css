@@ -95,6 +95,19 @@ body.role-user {
     --color-primary-light:#e8f6ee;
 }
 
+/* Support role — teal/slate, compatible with admin but differentiated */
+body.role-support {
+    --color-border-focus:#2e6fa8;
+    --color-accent:      #2e7fbf;
+    --color-accent-hover:#266fa8;
+    --color-accent-deep: #1b5d91;
+    --color-accent-soft: #edf5fb;
+    --color-accent-rgb:  46, 127, 191;
+    --color-primary:      #2e7fbf;
+    --color-primary-dark: #1b5d91;
+    --color-primary-light:#e6f2fb;
+}
+
 html {
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
@@ -2919,5 +2932,132 @@ body.wide-layout .page-content {
 /* Enroll card — slightly wider than login card */
 .card[style*="max-width:480px"] {
     max-width: 480px;
+}
+
+/* ============================================================
+   UI DESIGN SYSTEM — Field sizing by data type
+   (See docs/internal/ui-branding-system.md for full rationale)
+   ============================================================ */
+
+/* Short fields: age, ZIP, percentage, small numbers, duration */
+.field-short {
+    max-width: 120px;
+    min-width: 80px;
+}
+
+/* Medium fields: phone, price, product code, email, username */
+.field-medium {
+    max-width: 320px;
+    min-width: 160px;
+}
+
+/* Long fields: full name, product name, company, legal rep */
+.field-long {
+    max-width: 520px;
+    min-width: 220px;
+}
+
+/* Extra-long / full fields: address, description, conditions, notes */
+.field-xl {
+    max-width: 100%;
+    min-width: 260px;
+}
+
+/* ── Anti-jump: stable content area height ─────────────────── */
+/* Prevents layout "jumps" when switching between tabs/sections */
+.page-content {
+    min-height: 60vh;
+}
+
+/* ── Form input base consistency ────────────────────────────── */
+.form-input {
+    width: 100%;
+    height: 48px;
+    padding: 0 14px;
+    font-family: var(--font-system);
+    font-size: 0.9375rem;
+    color: var(--color-text);
+    background: #f9f9fb;
+    border: 1.5px solid var(--color-border);
+    border-radius: var(--radius-input);
+    outline: none;
+    transition: border-color var(--transition), background var(--transition),
+                box-shadow var(--transition);
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.form-input::placeholder { color: #b0b0b8; }
+.form-input:hover { border-color: #b0b0b8; }
+.form-input:focus {
+    background: #fff;
+    border-color: var(--color-border-focus);
+    box-shadow: 0 0 0 3px rgba(var(--color-accent-rgb), 0.15);
+}
+
+.form-input.is-invalid {
+    border-color: var(--color-error-border) !important;
+    background: #fff8f8 !important;
+}
+
+.form-label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+    margin-bottom: 6px;
+    letter-spacing: 0.01em;
+}
+
+.form-help {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+    line-height: 1.4;
+}
+
+/* ── Status badge variants for quotes/assignments ──────────── */
+.status-badge--revoked {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.status-badge--deleted {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.status-badge--expired {
+    background: #fff0ee;
+    color: #991b1b;
+}
+
+/* ── Feedback banner ─────────────────────────────────────────── */
+.feedback-banner {
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 0.875rem;
+    margin-bottom: 20px;
+    animation: fadeIn 0.25s ease;
+    border: 1px solid transparent;
+}
+
+.feedback-banner--success {
+    background: var(--color-success-bg);
+    border-color: var(--color-success-border);
+    color: #1a7a3a;
+}
+
+.feedback-banner--error {
+    background: var(--color-error-bg);
+    border-color: var(--color-error-border);
+    color: var(--color-error-text);
+}
+
+.feedback-banner--info {
+    background: #f0f6ff;
+    border-color: #b3d1ff;
+    color: #004a99;
 }
 

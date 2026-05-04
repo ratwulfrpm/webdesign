@@ -23,7 +23,7 @@ return [
     'error_locked'         => 'Cuenta bloqueada por intentos fallidos. Puede intentarlo de nuevo en %s minuto(s).',
     'error_timeout'        => 'Su sesión fue cerrada por inactividad (30 minutos). Ingrese nuevamente.',
     'error_deactivated'    => 'Su cuenta fue desactivada. Contacte al administrador.',
-    'error_unsupported_role' => 'Este tipo de cuenta ya no tiene acceso por login. Use el enlace de asignación para ver cotizaciones de cliente.',
+    'error_unsupported_role' => 'Este tipo de cuenta ya no tiene acceso por login. Use el enlace de cotización para ver cotizaciones de cliente.',
 
     // ── Forgot password ───────────────────────────────────────
     'forgot_page_title'    => 'Solicitar clave — Local App',
@@ -591,12 +591,12 @@ return [
     'field_created_at_label'           => 'Fecha de creación',
     'field_status'                     => 'Estado',
 
-    // ── Asignaciones de producto (admin/owner) ───────────────────────
-    'tab_assignments'                  => 'Asignaciones',
-    'asgn_page_title'                  => 'Asignaciones — Local App',
-    'asgn_title'                       => 'Asignaciones de producto',
+    // ── Cotizaciones (admin/owner) ───────────────────────────────────
+    'tab_assignments'                  => 'Cotizaciones',
+    'asgn_page_title'                  => 'Cotizaciones — Local App',
+    'asgn_title'                       => 'Cotizaciones de producto',
     'asgn_subtitle'                    => 'Genera enlaces privados de cotización para clientes.',
-    'asgn_form_title'                  => 'Nueva asignación',
+    'asgn_form_title'                  => 'Nueva cotización',
     'asgn_product_label'               => 'Producto',
     'asgn_product_ph'                  => '— Selecciona un producto —',
     'asgn_customer_label'              => 'Nombre del cliente',
@@ -613,9 +613,9 @@ return [
     'asgn_price_no_base'               => 'Sin precio disponible para la base seleccionada.',
     'asgn_expires_label'               => 'Validez del enlace',
     'asgn_expires_default'             => '7 días desde la creación (asignado automáticamente).',
-    'btn_generate_assignment'          => 'Generar link de asignación',
+    'btn_generate_assignment'          => 'Generar link',
     // Resultado del link generado
-    'asgn_link_title'                  => 'Link de asignación generado',
+    'asgn_link_title'                  => 'Link de cotización generado',
     'asgn_link_copy'                   => 'Copiar link',
     'asgn_link_copied'                 => '¡Copiado!',
     'asgn_link_client'                 => 'Cliente:',
@@ -633,8 +633,8 @@ return [
     'asgn_link_err_invalid_url'        => 'El link de cotización no es válido.',
     'asgn_link_price'                  => 'Precio cliente:',
     'asgn_link_expires'                => 'Expira:',
-    // Lista de asignaciones recientes
-    'asgn_list_title'                  => 'Asignaciones recientes',
+    // Lista de cotizaciones recientes
+    'asgn_list_title'                  => 'Cotizaciones recientes',
     'asgn_col_product'                 => 'Producto',
     'asgn_col_customer'                => 'Cliente',
     'asgn_col_base'                    => 'Base',
@@ -644,13 +644,13 @@ return [
     'asgn_col_expires'                 => 'Expira',
     'asgn_col_views'                   => 'Vistas',
     'asgn_col_created_at'              => 'Creado',
-    'asgn_no_assignments'              => 'No hay asignaciones creadas todavía.',
+    'asgn_no_assignments'              => 'No hay cotizaciones creadas todavía.',
     'asgn_status_active'               => 'Activo',
     'asgn_status_expired'              => 'Expirado',
     'asgn_status_revoked'              => 'Revocado',
     'asgn_status_deleted'              => 'Eliminado',
 
-    // ── Acciones de gestión en lista de asignaciones ─────────────
+    // ── Acciones de gestión en lista de cotizaciones ───────────────
     'asgn_btn_revoke'                  => 'Revocar acceso',
     'asgn_btn_delete'                  => 'Eliminar',
     'asgn_btn_regen'                   => 'Nuevo link',
@@ -665,7 +665,7 @@ return [
     'asgn_revoked_success'             => 'Acceso revocado correctamente.',
     'asgn_deleted_success'             => 'Cotización eliminada.',
     'asgn_regen_success'               => 'Nuevo link generado exitosamente.',
-    'asgn_err_assignment_invalid'      => 'La asignación no existe o no se puede modificar.',
+    'asgn_err_assignment_invalid'      => 'La cotización no existe o no se puede modificar.',
     'asgn_err_revoke_failed'           => 'No se pudo revocar. Puede que ya estuviera revocada.',
     'asgn_err_delete_failed'           => 'No se pudo eliminar la cotización.',
     // Errores de validación
@@ -676,7 +676,7 @@ return [
     'asgn_err_no_fob'                  => 'Este producto no tiene precio FOB.',
     'asgn_err_no_cif'                  => 'Este producto no tiene precio CIF.',
     'asgn_err_profit_invalid'          => 'El porcentaje de ganancia debe ser un número entre 0 y 999.',
-    'asgn_err_save'                    => 'Error al guardar la asignación. Intente de nuevo.',
+    'asgn_err_save'                    => 'Error al guardar la cotización. Intente de nuevo.',
     'asgn_success'                     => 'Link de cotización creado exitosamente.',
 
     // ── Cargos y Validez (nuevos) ─────────────────────────────

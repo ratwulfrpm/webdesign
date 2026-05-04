@@ -23,7 +23,7 @@ return [
     'error_locked'         => '账户因多次登录失败被锁定。请在 %s 分钟后重试。',
     'error_timeout'        => '您的会话因超时（30分钟）已被关闭。请重新登录。',
     'error_deactivated'    => '您的账户已被停用。请联系管理员。',
-    'error_unsupported_role' => '该账户类型已不支持登录。请使用分配链接查看客户报价。',
+    'error_unsupported_role' => '该账户类型已不支持登录。请使用报价链接查看客户报价。',
 
     // ── Forgot password ───────────────────────────────────────
     'forgot_page_title'    => '找回密码 — 本地应用',
@@ -588,12 +588,12 @@ return [
     'field_created_at_label'           => '创建时间',
     'field_status'                     => '状态',
 
-    // ── 产品分配（管理员/所有者）────────────────────────────────────────
-    'tab_assignments'                  => '分配',
-    'asgn_page_title'                  => '分配 — 本地应用',
-    'asgn_title'                       => '产品分配',
+    // ── 报价（管理员/所有者）────────────────────────────────────
+    'tab_assignments'                  => '报价',
+    'asgn_page_title'                  => '报价 — 本地应用',
+    'asgn_title'                       => '产品报价',
     'asgn_subtitle'                    => '为客户生成私密报价链接。',
-    'asgn_form_title'                  => '新建分配',
+    'asgn_form_title'                  => '新建报价',
     'asgn_product_label'               => '产品',
     'asgn_product_ph'                  => '— 选择产品 —',
     'asgn_customer_label'              => '客户名称',
@@ -610,9 +610,9 @@ return [
     'asgn_price_no_base'               => '所选基础无可用价格。',
     'asgn_expires_label'               => '链接有效期',
     'asgn_expires_default'             => '从创建起7天（自动设置）。',
-    'btn_generate_assignment'          => '生成分配链接',
+    'btn_generate_assignment'          => '生成链接',
     // 生成链接结果框
-    'asgn_link_title'                  => '分配链接已生成',
+    'asgn_link_title'                  => '报价链接已生成',
     'asgn_link_copy'                   => '复制链接',
     'asgn_link_copied'                 => '已复制！',
     'asgn_link_client'                 => '客户：',
@@ -630,8 +630,8 @@ return [
     'asgn_link_mail_error'             => '无法发送二维码邮件。',
     'asgn_link_err_invalid_email'      => '用于分享二维码的邮箱无效。',
     'asgn_link_err_invalid_url'        => '报价链接无效。',
-    // 最近分配列表
-    'asgn_list_title'                  => '最近分配',
+    // 最近报价列表
+    'asgn_list_title'                  => '近期报价',
     'asgn_col_product'                 => '产品',
     'asgn_col_customer'                => '客户',
     'asgn_col_base'                    => '基础',
@@ -641,13 +641,13 @@ return [
     'asgn_col_expires'                 => '到期',
     'asgn_col_views'                   => '查看次数',
     'asgn_col_created_at'              => '创建时间',
-    'asgn_no_assignments'              => '尚无分配记录。',
+    'asgn_no_assignments'              => '尚未创建任何报价。',
     'asgn_status_active'               => '有效',
     'asgn_status_expired'              => '已过期',
     'asgn_status_revoked'              => '已撤销',
     'asgn_status_deleted'              => '已删除',
 
-    // ── 分配管理操作 ──────────────────────────────────────────
+    // ── 报价管理操作 ─────────────────────────────────────────
     'asgn_btn_revoke'                  => '撤销访问',
     'asgn_btn_delete'                  => '删除',
     'asgn_btn_regen'                   => '新建链接',
@@ -662,7 +662,7 @@ return [
     'asgn_revoked_success'             => '访问权限已成功撤销。',
     'asgn_deleted_success'             => '报价已删除。',
     'asgn_regen_success'               => '新链接已成功生成。',
-    'asgn_err_assignment_invalid'      => '分配不存在或无法修改。',
+    'asgn_err_assignment_invalid'      => '报价不存在或无法修改。',
     'asgn_err_revoke_failed'           => '无法撤销。可能已被撤销。',
     'asgn_err_delete_failed'           => '无法删除报价。',
     // 验证错误
@@ -673,7 +673,7 @@ return [
     'asgn_err_no_fob'                  => '该产品没有FOB价格。',
     'asgn_err_no_cif'                  => '该产品没有CIF价格。',
     'asgn_err_profit_invalid'          => '利润比例必须是0到999之间的数字。',
-    'asgn_err_save'                    => '保存分配时出错，请重试。',
+    'asgn_err_save'                    => '保存报价失败，请重试。',
     'asgn_success'                     => '报价链接已成功创建。',
 
     // ── 费用和有效期（新功能）────────────────────────────────

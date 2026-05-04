@@ -94,18 +94,21 @@ New behavior (current):
 - Page is controlled via the `upage` GET parameter.
 - A page-number nav bar appears below the users table when total users exceed 50.
 
-### Assignments — transparent multi-BU product search (admin & owner)
+### Quotes (module: assignments) — transparent multi-BU product search (admin & owner)
+
+> **UI label:** Cotizaciones / Quotes  
+> **Internal module name:** `assignments` (file paths, DB tables, and API routes unchanged)
 
 Previous behavior:
-- admin and owner had to select a specific business unit before searching products in the assignments UI.
+- admin and owner had to select a specific business unit before searching products in the quotes UI.
 - Products were filtered to the selected BU only.
 
 New behavior (commits 34c430d / bae35df):
-- The BU selector is **no longer shown** to admin and owner in the assignments product search panel.
+- The BU selector is **no longer shown** to admin and owner in the quotes product search panel.
 - Search results include products from **all accessible BUs** transparently.
-- A single assignment/quote **may contain products from multiple business units**.
+- A single quote **may contain products from multiple business units**.
 - Backend validation verifies each selected product against all BUs the user can access (not limited to one).
-- `org_id` in the create assignment POST is derived automatically for admin/owner from session context; the explicit org field is only required for support.
+- `org_id` in the create quote POST is derived automatically for admin/owner from session context; the explicit org field is only required for support.
 - The validity amount input auto-selects its value on focus so the first keystroke replaces the default instead of appending to it.
 
 This behavior is identical for `admin` and `owner`. Owner rights are not degraded.
@@ -154,7 +157,7 @@ Audit covers:
    - users endpoint scoped correctly for support
 7. Validate critical UI paths:
    - admin/products
-   - admin/assignments
+   - admin/assignments (UI label: Cotizaciones / Quotes)
    - admin/index
    - invitations
 8. Re-run audit queries after remediation if needed.

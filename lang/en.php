@@ -23,7 +23,7 @@ return [
     'error_locked'         => 'Account locked due to failed attempts. Try again in %s minute(s).',
     'error_timeout'        => 'Your session was closed due to inactivity (30 minutes). Please sign in again.',
     'error_deactivated'    => 'Your account has been deactivated. Contact the administrator.',
-    'error_unsupported_role' => 'This account type is no longer supported for login. Use the assignment link to view customer quotes.',
+    'error_unsupported_role' => 'This account type is no longer supported for login. Use the quote link to view customer quotes.',
 
     // ── Forgot password ───────────────────────────────────────
     'forgot_page_title'    => 'Request password — Local App',
@@ -588,12 +588,12 @@ return [
     'field_created_at_label'           => 'Created at',
     'field_status'                     => 'Status',
 
-    // ── Product Assignments (admin/owner) ────────────────────────────
-    'tab_assignments'                  => 'Assignments',
-    'asgn_page_title'                  => 'Assignments — Local App',
-    'asgn_title'                       => 'Product Assignments',
+    // ── Product Quotes (admin/owner) ────────────────────────────────
+    'tab_assignments'                  => 'Quotes',
+    'asgn_page_title'                  => 'Quotes — Local App',
+    'asgn_title'                       => 'Product Quotes',
     'asgn_subtitle'                    => 'Generate private quotation links for customer clients.',
-    'asgn_form_title'                  => 'New assignment',
+    'asgn_form_title'                  => 'New quote',
     'asgn_product_label'               => 'Product',
     'asgn_product_ph'                  => '— Select a product —',
     'asgn_customer_label'              => 'Customer / Client name',
@@ -610,9 +610,9 @@ return [
     'asgn_price_no_base'               => 'No price available for the selected base.',
     'asgn_expires_label'               => 'Link validity',
     'asgn_expires_default'             => '7 days from creation (set automatically).',
-    'btn_generate_assignment'          => 'Generate assignment link',
+    'btn_generate_assignment'          => 'Generate link',
     // Generated link result box
-    'asgn_link_title'                  => 'Assignment link generated',
+    'asgn_link_title'                  => 'Quote link generated',
     'asgn_link_copy'                   => 'Copy link',
     'asgn_link_copied'                 => 'Copied!',
     'asgn_link_client'                 => 'Client:',
@@ -630,8 +630,8 @@ return [
     'asgn_link_err_invalid_url'        => 'The quote link is not valid.',
     'asgn_link_price'                  => 'Client price:',
     'asgn_link_expires'                => 'Expires:',
-    // Recent assignments list
-    'asgn_list_title'                  => 'Recent assignments',
+    // Recent quotes list
+    'asgn_list_title'                  => 'Recent quotes',
     'asgn_col_product'                 => 'Product',
     'asgn_col_customer'                => 'Client',
     'asgn_col_base'                    => 'Base',
@@ -641,13 +641,13 @@ return [
     'asgn_col_expires'                 => 'Expires',
     'asgn_col_views'                   => 'Views',
     'asgn_col_created_at'              => 'Created',
-    'asgn_no_assignments'              => 'No assignments created yet.',
+    'asgn_no_assignments'              => 'No quotes created yet.',
     'asgn_status_active'               => 'Active',
     'asgn_status_expired'              => 'Expired',
     'asgn_status_revoked'              => 'Revoked',
     'asgn_status_deleted'              => 'Deleted',
 
-    // ── Assignment management actions ─────────────────────────
+    // ── Quote management actions ────────────────────────────
     'asgn_btn_revoke'                  => 'Revoke access',
     'asgn_btn_delete'                  => 'Delete',
     'asgn_btn_regen'                   => 'New link',
@@ -662,7 +662,7 @@ return [
     'asgn_revoked_success'             => 'Access revoked successfully.',
     'asgn_deleted_success'             => 'Quote deleted.',
     'asgn_regen_success'               => 'New link generated successfully.',
-    'asgn_err_assignment_invalid'      => 'Assignment does not exist or cannot be modified.',
+    'asgn_err_assignment_invalid'      => 'Quote does not exist or cannot be modified.',
     'asgn_err_revoke_failed'           => 'Could not revoke. It may already be revoked.',
     'asgn_err_delete_failed'           => 'Could not delete the quote.',
     // Validation errors
@@ -673,7 +673,7 @@ return [
     'asgn_err_no_fob'                  => 'This product does not have an FOB price.',
     'asgn_err_no_cif'                  => 'This product does not have a CIF price.',
     'asgn_err_profit_invalid'          => 'Profit percentage must be a number between 0 and 999.',
-    'asgn_err_save'                    => 'Error saving assignment. Please try again.',
+    'asgn_err_save'                    => 'Error saving quote. Please try again.',
     'asgn_success'                     => 'Quote link created successfully.',
 
     // ── Product search ───────────────────────────────────────────────
