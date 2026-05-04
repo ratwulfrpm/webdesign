@@ -75,6 +75,7 @@ return [
 
     // ── Tab navigation ────────────────────────────────────────
     'tab_nav_label'  => 'Sections',
+    'pagination_label' => 'Users pagination',
     'tab_coming_soon'=> 'Coming soon',
     // Supplier tabs
     'tab_profile'    => 'Edit Supplier',
@@ -343,6 +344,7 @@ return [
     // ── Invitations management (admin / owner) ────────────────────
     'inv_page_title'            => 'Supplier Invitations — Local App',
     'inv_title'                 => 'Supplier Invitations',
+    'inv_section_title'         => 'Invitations',
     'inv_form_title'            => 'Generate invitation link',
     'inv_org_label'             => 'Organization',
     'inv_role_label'            => 'Role to assign',

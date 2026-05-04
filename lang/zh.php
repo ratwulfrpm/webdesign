@@ -75,6 +75,7 @@ return [
 
     // ── Tab navigation ────────────────────────────────────────
     'tab_nav_label'  => '功能区',
+    'pagination_label' => '用户分页',
     'tab_coming_soon'=> '即将推出',
     // Supplier tabs
     'tab_profile'    => '编辑供应商',
@@ -346,6 +347,7 @@ return [
     // ── Invitations management (admin / owner) ────────────────────
     'inv_page_title'            => '供应商邀请 — 本地应用',
     'inv_title'                 => '供应商邀请',
+    'inv_section_title'         => '邀请',
     'inv_form_title'            => '生成邀请链接',
     'inv_org_label'             => '组织',
     'inv_role_label'            => '分配角色',

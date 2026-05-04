@@ -75,6 +75,7 @@ return [
 
     // ── Tab navigation ────────────────────────────────────────
     'tab_nav_label'  => 'Secciones',
+    'pagination_label' => 'Paginación de usuarios',
     'tab_coming_soon'=> 'Próximamente',
     // Supplier tabs
     'tab_profile'    => 'Editar Proveedor',
@@ -343,6 +344,7 @@ return [
     // ── Gestión de invitaciones (admin / owner) ───────────────────
     'inv_page_title'            => 'Invitaciones de proveedores — Local App',
     'inv_title'                 => 'Invitaciones de proveedores',
+    'inv_section_title'         => 'Invitaciones',
     'inv_form_title'            => 'Generar enlace de invitación',
     'inv_org_label'             => 'Organización',
     'inv_role_label'            => 'Rol a asignar',

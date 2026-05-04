@@ -75,6 +75,25 @@ Security outcomes:
 - support-only BU switcher appears when support has >1 assigned BUs.
 - owner/admin pages avoid showing empty org badge for global session.
 
+### Invitations — merged into Users page for admin & owner
+
+Previous behavior:
+- admin and owner accessed invitations via a dedicated **"Invitations"** tab pointing to `/login/invitations.php`.
+
+New behavior (current):
+- The **"Invitations" tab is removed** from the admin and owner navigation bar.
+- Invitation management (generate link, revoke, history) is now **embedded inside the Users page** (`/login/admin/index.php` for admin, `/login/owner/index.php` for owner).
+- The Users page now displays three sections: **Users**, **Password Requests**, **Contract Validity Requests**, and a new **Invitations** section at the bottom.
+- Admin can invite `support` and `supplier` roles (unchanged restriction).
+- Owner can invite `admin`, `support`, and `supplier` roles (unchanged). The multi-org checkbox picker for admin invites is also embedded.
+- Support retains a standalone **"Invitations"** tab on `invitations.php` for read-only listing.
+
+### Users list — backend pagination (50 users/page)
+
+- Admin users page (`/login/admin/index.php`) and owner users page (`/login/owner/index.php`) now paginate the users table at **50 users per page**.
+- Page is controlled via the `upage` GET parameter.
+- A page-number nav bar appears below the users table when total users exceed 50.
+
 ### Assignments — transparent multi-BU product search (admin & owner)
 
 Previous behavior:
