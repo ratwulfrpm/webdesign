@@ -118,6 +118,12 @@ switch ($resource) {
         handleAssignments($method, $id, $sub);
         break;
 
+    case 'quotes':
+        // POST /api/v1/quotes/:id/replicate — preferred replicate endpoint
+        require_once __DIR__ . '/resources/assignments.php';
+        handleQuoteReplicate($method, $id, $sub);
+        break;
+
     case 'me':
         require_once __DIR__ . '/resources/me.php';
         handleMe($method);

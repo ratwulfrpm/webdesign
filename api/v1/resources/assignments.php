@@ -3,21 +3,22 @@
  * api/v1/resources/assignments.php — Quote assignments resource handler.
  *
  * Routes:
- *   GET    /api/v1/assignments              list recent assignments (excl. deleted)
- *   POST   /api/v1/assignments              create multi-product quote
- *   GET    /api/v1/assignments/:id          assignment detail + line items
- *   DELETE /api/v1/assignments/:id          soft-delete
- *   POST   /api/v1/assignments/:id/revoke   revoke active assignment
- *   POST   /api/v1/assignments/:id/clone    clone (regen link with new token)
+ *   GET    /api/v1/assignments                    list recent assignments (excl. deleted)
+ *   POST   /api/v1/assignments                    create multi-product quote
+ *   GET    /api/v1/assignments/:id                assignment detail + line items
+ *   DELETE /api/v1/assignments/:id                soft-delete
+ *   POST   /api/v1/assignments/:id/revoke         revoke active assignment
+ *   POST   /api/v1/assignments/:id/clone          clone (regen link with new token) — legacy
+ *   POST   /api/v1/quotes/:id/replicate           replicate quote (preferred alias of clone)
  *
- * RBAC: admin/owner only.
+ * RBAC: admin/owner only (support: read-only via UI, not via this API).
  *
  * Security:
  *   - Token: bin2hex(random_bytes(32)) — stored as SHA-256 hash only.
- *   - Plain token returned ONCE in create/clone response.
+ *   - Plain token returned ONCE in create/clone/replicate response.
  *   - All product IDs validated server-side against DB.
  *   - FOB/CIF prices never returned in public-facing responses.
- *   - IDOR: all queries filtered by org_id from session.
+ *   - IDOR: all queries filtered by org_id from session scope.
  *   - SQL injection: all params bound via PDO prepared statements.
  */
 
@@ -35,6 +36,7 @@ function handleAssignments(string $method, ?int $id, string $action): void
         $method === 'DELETE' && $id !== null && $action === ''             => _deleteAssignment($id, $auth, $pdo),
         $method === 'POST'   && $id !== null && $action === 'revoke'       => _revokeAssignment($id, $auth, $pdo),
         $method === 'POST'   && $id !== null && $action === 'clone'        => _cloneAssignment($id, $auth, $pdo),
+        $method === 'POST'   && $id !== null && $action === 'replicate'    => _replicateAssignment($id, $auth, $pdo),
         default => jsonError('Method Not Allowed', 405),
     };
 }
@@ -670,6 +672,168 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
         'token'           => $plainToken,
         'quote_url'       => _buildQuoteUrl($plainToken),
         'expires_at'      => $expiresAt,
+    ], 201);
+}
+
+// ── REPLICATE (POST /api/v1/quotes/:id/replicate) ─────────────
+// Preferred alias of clone with:
+//  - customer_name required (cannot inherit from parent)
+//  - company_name optional (blank by default)
+//  - special_conditions optional override (defaults to parent's value)
+//  - Response uses quote_id / public_url for clarity
+
+function handleQuoteReplicate(string $method, ?int $id, string $action): void
+{
+    if ($method !== 'POST' || $id === null || $action !== 'replicate') {
+        jsonError('Method Not Allowed', 405);
+    }
+    $auth = requireAuth(['admin', 'owner']);
+    $pdo  = getDB();
+    _replicateAssignment($id, $auth, $pdo);
+}
+
+function _replicateAssignment(int $id, array $auth, PDO $pdo): void
+{
+    $allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
+    if (empty($allowedOrgIds)) {
+        jsonError('Quote not found or not accessible', 404);
+    }
+
+    // 1. Load parent — RBAC-scoped by org (IDOR protection)
+    $orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
+    $st = $pdo->prepare(
+        "SELECT id, org_id, special_conditions, discount_percentage,
+                profit_calculation_type, profit_percentage, profit_fixed_amount,
+                transport_calculation_type, transport_percentage, transport_fixed_amount,
+                tax_calculation_type, tax_percentage, tax_fixed_amount,
+                validity_amount, validity_unit, max_visits
+           FROM quote_assignments
+          WHERE id = ? AND org_id IN ({$orgPlaceholders}) AND status != 'deleted'
+          LIMIT 1"
+    );
+    $st->execute(array_merge([$id], $allowedOrgIds));
+    $parent = $st->fetch();
+    if (!$parent) {
+        jsonError('Quote not found or already deleted', 404);
+    }
+
+    // 2. Load parent items — prices frozen at creation, never re-calculated
+    $iSt = $pdo->prepare(
+        'SELECT product_id, price_base_type, price_base_amount,
+                profit_percentage, profit_calculation_type, profit_fixed_amount, final_unit_price
+           FROM quote_assignment_items
+          WHERE quote_assignment_id = ?'
+    );
+    $iSt->execute([$id]);
+    $items = $iSt->fetchAll();
+    if (empty($items)) {
+        jsonError('Parent quote has no items', 422);
+    }
+
+    // 3. Validate payload — customer_name required; company + conditions optional
+    $body         = parseBody();
+    $customerName = strField($body['customer_name'] ?? '', 200);
+    if ($customerName === '') {
+        jsonError('customer_name is required and must not be empty', 422);
+    }
+    $companyName = strField($body['company_name'] ?? '', 200);
+    // special_conditions: if provided in payload, use it; else inherit from parent
+    $conditions = isset($body['special_conditions'])
+        ? strField((string) $body['special_conditions'], 5000)
+        : (string) ($parent['special_conditions'] ?? '');
+
+    // 4. Relative expiry — same validity_amount + validity_unit as parent (max 7 days)
+    $validityAmount = (int) ($parent['validity_amount'] ?? 7);
+    $validityUnit   = in_array($parent['validity_unit'], ['hours', 'days'], true)
+                    ? $parent['validity_unit'] : 'days';
+    $validityHours  = $validityUnit === 'hours' ? $validityAmount : ($validityAmount * 24);
+    if ($validityHours <= 0 || $validityHours > 168) {
+        $validityAmount = 7;
+        $validityUnit   = 'days';
+    }
+
+    // 5. New cryptographically-secure token — never reuse parent token
+    $plainToken = bin2hex(random_bytes(32));
+    $tokenHash  = hash('sha256', $plainToken);
+    $expiresAt  = $validityUnit === 'hours'
+        ? date('Y-m-d H:i:s', strtotime("+{$validityAmount} hours"))
+        : date('Y-m-d H:i:s', strtotime("+{$validityAmount} days"));
+
+    // 6. Transactional insert — new quote row + line items (cloned)
+    try {
+        $pdo->beginTransaction();
+
+        $qIns = $pdo->prepare(
+            'INSERT INTO quote_assignments
+             (org_id, assigned_customer_name, company_name, special_conditions,
+              discount_percentage,
+              profit_calculation_type, profit_percentage, profit_fixed_amount,
+              transport_calculation_type, transport_percentage, transport_fixed_amount,
+              tax_calculation_type, tax_percentage, tax_fixed_amount,
+              validity_amount, validity_unit, max_visits,
+              token_hash, expires_at, created_by_user_id, parent_quote_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        $qIns->execute([
+            (int) $parent['org_id'],
+            $customerName,
+            $companyName !== '' ? $companyName : null,
+            $conditions  !== '' ? $conditions  : null,
+            $parent['discount_percentage'],
+            $parent['profit_calculation_type'],
+            $parent['profit_percentage'],
+            $parent['profit_fixed_amount'],
+            $parent['transport_calculation_type'],
+            $parent['transport_percentage'],
+            $parent['transport_fixed_amount'],
+            $parent['tax_calculation_type'],
+            $parent['tax_percentage'],
+            $parent['tax_fixed_amount'],
+            $validityAmount,
+            $validityUnit,
+            $parent['max_visits'],
+            $tokenHash,
+            $expiresAt,
+            $auth['user_id'],
+            $id,   // parent_quote_id for traceability
+        ]);
+        $newId = (int) $pdo->lastInsertId();
+
+        $iIns = $pdo->prepare(
+            'INSERT INTO quote_assignment_items
+             (quote_assignment_id, product_id, price_base_type,
+              price_base_amount, profit_percentage, profit_calculation_type,
+              profit_fixed_amount, final_unit_price)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        );
+        foreach ($items as $item) {
+            $iIns->execute([
+                $newId,
+                (int) $item['product_id'],
+                $item['price_base_type'],
+                $item['price_base_amount'],
+                $item['profit_percentage'],
+                $item['profit_calculation_type'],
+                $item['profit_fixed_amount'],
+                $item['final_unit_price'],
+            ]);
+        }
+
+        $pdo->commit();
+    } catch (PDOException $e) {
+        $pdo->rollBack();
+        error_log('_replicateAssignment error: ' . $e->getMessage());
+        jsonError('Save failed', 500);
+    }
+
+    // 7. Response — token returned ONCE; plain token never stored in DB
+    jsonOk([
+        'quote_id'        => $newId,
+        'parent_quote_id' => $id,
+        'public_url'      => _buildQuoteUrl($plainToken),
+        'expires_at'      => $expiresAt,
+        'max_views'       => $parent['max_visits'],    // null = unlimited
+        'status'          => 'active',
     ], 201);
 }
 

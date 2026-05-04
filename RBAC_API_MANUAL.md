@@ -113,6 +113,63 @@ New behavior (commits 34c430d / bae35df):
 
 This behavior is identical for `admin` and `owner`. Owner rights are not degraded.
 
+### Quotes — Replication (POST /api/v1/quotes/:id/replicate)
+
+> **Feature**: "Replicar cotización" / "Replicate quote"  
+> **UI button label** (was "Generar nuevo link"): now `asgn_btn_regen` → translated per locale.
+
+**What replicate does:**
+- Creates a new quote with a fresh, cryptographically-secure token (never reuses parent token).
+- Copies all operational conditions from the parent: products, frozen prices, FOB/CIF base, profit/transport/tax config, discount, validity settings, max_visits, BU.
+- Customer name (`customer_name`) is **required and cannot inherit from parent** — forces the user to identify the new customer explicitly.
+- Company name and special conditions are optional; conditions default to parent's value unless overridden.
+- Expiry is calculated relative to NOW using parent's `validity_amount` + `validity_unit` (not hardcoded 7 days).
+- View count reset to 0 for the new quote.
+- `parent_quote_id` set to original quote's `id` for traceability.
+- Audit log event: `quote_replicated`.
+
+**RBAC rules for replicate:**
+
+| Role | Can replicate | Scope |
+|---|---|---|
+| `owner` | Yes | All business units |
+| `admin` | Yes | Assigned business units only (`org_members`) |
+| `support` | No | Blocked (403) |
+| `supplier` | No | Blocked (403) |
+| Unauthenticated | No | Blocked (401) |
+
+**API routes (both supported):**
+- `POST /api/v1/quotes/:id/replicate` (preferred, canonical endpoint)
+- `POST /api/v1/assignments/:id/replicate` (alias, same handler)
+
+**Payload:**
+```json
+{
+  "customer_name": "Juan Pérez",
+  "company_name": "Acme S.A. (optional)",
+  "special_conditions": "optional override; omit to inherit from parent"
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "success": true,
+  "quote_id": 57,
+  "parent_quote_id": 42,
+  "public_url": "https://…/quote.php?t=…",
+  "expires_at": "2026-05-13 10:00:00",
+  "max_views": null,
+  "status": "active"
+}
+```
+
+**Error cases:**
+- `400` / `422` — `customer_name` missing or empty.
+- `403` — caller is not admin/owner, or parent quote is outside caller's org scope (IDOR protection).
+- `404` — parent quote not found or soft-deleted.
+- `422` — parent quote has no items.
+
 ## 5) Data Integrity and Migration Hardening
 
 Problem addressed:

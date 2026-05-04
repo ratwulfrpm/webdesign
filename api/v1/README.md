@@ -281,6 +281,7 @@ Scope notes:
 | `/api/v1/assignments/:id` | DELETE | Soft-delete quote | admin/owner |
 | `/api/v1/assignments/:id/revoke` | POST | Revoke active quote (token stops working) | admin/owner |
 | `/api/v1/assignments/:id/clone` | POST | Clone quote with new token (regen link) | admin/owner |
+| `/api/v1/quotes/:id/replicate` | POST | Replicate quote for a different customer — new token, relative expiry | admin/owner |
 
 Scope notes:
 - `admin` can only list/create/revoke/delete/clone quotes inside assigned business units.
@@ -321,6 +322,44 @@ Scope notes:
   "assigned_customer_name": "New Customer Name"
 }
 ```
+
+**POST /quotes/:id/replicate body (replicate quote for new customer):**
+```json
+{
+  "customer_name": "Juan Pérez (required — cannot inherit from parent)",
+  "company_name": "Acme S.A. (optional — blank by default)",
+  "special_conditions": "optional — omit to inherit parent conditions; provide to override"
+}
+```
+
+**Replicate response (201 Created):**
+```json
+{
+  "success": true,
+  "quote_id": 57,
+  "parent_quote_id": 42,
+  "public_url": "https://…/quote.php?t=…64-char-hex…",
+  "expires_at": "2026-05-13 10:00:00",
+  "max_views": null,
+  "status": "active"
+}
+```
+
+> `POST /api/v1/assignments/:id/replicate` is an alias for the same operation (both routes supported).
+
+**Replicate RBAC and scope rules:**
+- `admin`: can replicate quotes inside assigned business units only (IDOR protection via `org_members`).
+- `owner`: can replicate quotes across all business units.
+- `support`, `supplier`, unauthenticated: blocked (403).
+
+**What is copied from parent:**
+- All product line items with frozen prices (`price_base_type`, `price_base_amount`, `profit_calculation_type`, `profit_percentage`, `profit_fixed_amount`, `final_unit_price`)
+- Discount, transport, tax (all calculation types + values)
+- Validity settings (`validity_amount`, `validity_unit`) — expiry is calculated relative to NOW
+- `max_visits` limit (view count reset to 0 for new quote)
+- Business unit (`org_id`)
+
+**New token is always generated — parent token is never reused.**
 
 **Create/Clone response includes:**
 ```json

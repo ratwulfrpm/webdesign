@@ -564,12 +564,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         exit;
 
     // ─────────────────────────────────────────────────────────
-    //  REGEN LINK
+    //  REPLICATE QUOTE (formerly regen_link)
+    //  Duplicates all operational conditions; new token, relative expiry.
     // ─────────────────────────────────────────────────────────
     } elseif ($action === 'regen_link') {
 
         $parentId        = (int) ($_POST['assignment_id'] ?? 0);
         $newCustomerName = mb_substr(trim($_POST['customer_name'] ?? ''), 0, 200);
+        $newCompanyName  = mb_substr(trim($_POST['company_name'] ?? ''), 0, 200);
+        // special_conditions: accept edited value from form (pre-loaded from parent)
+        $newConditions   = mb_substr(trim($_POST['special_conditions'] ?? ''), 0, 2000);
 
         if ($parentId <= 0) {
             $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
@@ -585,16 +589,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         try {
-            // Load parent (must not be deleted)
             if (empty($scopedOrgIds)) {
                 $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
                 $_SESSION['asgn_feedback_type'] = 'error';
                 header('Location: /login/admin/assignments.php');
                 exit;
             }
+
+            // Load parent — all operational conditions (must not be deleted)
             $placeholders = implode(',', array_fill(0, count($scopedOrgIds), '?'));
             $sel = $pdo->prepare(
-                "SELECT id, org_id, company_name, special_conditions, discount_percentage
+                "SELECT id, org_id, discount_percentage,
+                        profit_calculation_type, profit_percentage, profit_fixed_amount,
+                        transport_calculation_type, transport_percentage, transport_fixed_amount,
+                        tax_calculation_type, tax_percentage, tax_fixed_amount,
+                        validity_amount, validity_unit, max_visits
                    FROM quote_assignments
                   WHERE id = ?
                     AND org_id IN ({$placeholders})
@@ -611,83 +620,139 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
 
-            // Load parent items
+            // Load parent items — all pricing fields frozen at creation
             $itemsSel = $pdo->prepare(
                 'SELECT product_id, price_base_type, price_base_amount,
-                        profit_percentage, final_unit_price
+                        profit_calculation_type, profit_percentage, profit_fixed_amount,
+                        final_unit_price
                    FROM quote_assignment_items
                   WHERE quote_assignment_id = ?'
             );
             $itemsSel->execute([$parentId]);
             $parentItems = $itemsSel->fetchAll();
 
-            // Generate new token
+            if (empty($parentItems)) {
+                $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
+                $_SESSION['asgn_feedback_type'] = 'error';
+                header('Location: /login/admin/assignments.php');
+                exit;
+            }
+
+            // Relative expiry: same validity_amount + validity_unit as parent
+            $validityAmount = (int) ($parent['validity_amount'] ?? 7);
+            $validityUnit   = $parent['validity_unit'] ?? 'days';
+            if (!in_array($validityUnit, ['hours', 'days'], true)) {
+                $validityUnit = 'days';
+            }
+            // Cap at 7 days max
+            $validityHours = $validityUnit === 'hours' ? $validityAmount : ($validityAmount * 24);
+            if ($validityHours <= 0 || $validityHours > 168) {
+                $validityAmount = 7;
+                $validityUnit   = 'days';
+            }
+
+            // Generate new cryptographically-secure token — never reuse parent token
             $plainToken = bin2hex(random_bytes(32));
             $tokenHash  = hash('sha256', $plainToken);
             $validFrom  = date('Y-m-d H:i:s');
-            $expiresAt  = date('Y-m-d H:i:s', strtotime('+7 days'));
+            if ($validityUnit === 'hours') {
+                $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validityAmount} hours"));
+            } else {
+                $expiresAt = date('Y-m-d H:i:s', strtotime("+{$validityAmount} days"));
+            }
 
             $pdo->beginTransaction();
 
+            // Insert new quote — copy all operational conditions from parent
             $insQuote = $pdo->prepare(
                 'INSERT INTO quote_assignments
-                    (org_id, assigned_customer_name, company_name,
-                     special_conditions, discount_percentage,
+                    (org_id, assigned_customer_name, company_name, special_conditions,
+                     discount_percentage,
+                     profit_calculation_type, profit_percentage, profit_fixed_amount,
+                     transport_calculation_type, transport_percentage, transport_fixed_amount,
+                     tax_calculation_type, tax_percentage, tax_fixed_amount,
+                     validity_amount, validity_unit, max_visits,
                      token_hash, status, valid_from, expires_at,
                      created_by_user_id, parent_quote_id)
-                 VALUES (?, ?, ?, ?, ?, ?, "active", ?, ?, ?, ?)'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "active", ?, ?, ?, ?)'
             );
             $insQuote->execute([
-                $parent['org_id'],
-                $newCustomerName,
-                $parent['company_name'],
-                $parent['special_conditions'],
-                $parent['discount_percentage'],
-                $tokenHash,
-                $validFrom,
-                $expiresAt,
-                $userId,
-                $parentId,
+                (int)  $parent['org_id'],
+                       $newCustomerName,
+                       $newCompanyName !== '' ? $newCompanyName : null,
+                       $newConditions  !== '' ? $newConditions  : null,
+                       $parent['discount_percentage'],
+                       $parent['profit_calculation_type'],
+                       $parent['profit_percentage'],
+                       $parent['profit_fixed_amount'],
+                       $parent['transport_calculation_type'],
+                       $parent['transport_percentage'],
+                       $parent['transport_fixed_amount'],
+                       $parent['tax_calculation_type'],
+                       $parent['tax_percentage'],
+                       $parent['tax_fixed_amount'],
+                       $validityAmount,
+                       $validityUnit,
+                       $parent['max_visits'],   // copy max_visits limit from parent
+                       $tokenHash,
+                       $validFrom,
+                       $expiresAt,
+                       $userId,
+                (int)  $parentId,               // parent_quote_id — traceability
             ]);
             $newQuoteId = (int) $pdo->lastInsertId();
 
+            // Insert items — frozen prices copied verbatim (never re-calculated)
             $insItem = $pdo->prepare(
                 'INSERT INTO quote_assignment_items
                     (quote_assignment_id, product_id, price_base_type,
-                     price_base_amount, profit_percentage, final_unit_price)
-                 VALUES (?, ?, ?, ?, ?, ?)'
+                     price_base_amount, profit_calculation_type,
+                     profit_percentage, profit_fixed_amount, final_unit_price)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
             );
             $itemSummary = [];
             foreach ($parentItems as $item) {
                 $insItem->execute([
                     $newQuoteId,
-                    $item['product_id'],
+                    (int) $item['product_id'],
                     $item['price_base_type'],
                     $item['price_base_amount'],
+                    $item['profit_calculation_type'],
                     $item['profit_percentage'],
+                    $item['profit_fixed_amount'],
                     $item['final_unit_price'],
                 ]);
-                $itemSummary[] = ['price' => (float)$item['final_unit_price']];
+                $itemSummary[] = ['price' => (float) $item['final_unit_price']];
             }
 
             $pdo->commit();
 
-            auditLog('assignment_link_regenerated', 'info', $newQuoteId, $userId, [
-                'parent_id' => $parentId, 'customer' => $newCustomerName,
+            auditLog('quote_replicated', 'info', $newQuoteId, $userId, [
+                'parent_quote_id'  => $parentId,
+                'new_quote_id'     => $newQuoteId,
+                'customer'         => $newCustomerName,
+                'company'          => $newCompanyName,
+                'org_id'           => (int) $parent['org_id'],
+                'expires_at'       => $expiresAt,
+                'validity_amount'  => $validityAmount,
+                'validity_unit'    => $validityUnit,
+                'max_visits'       => $parent['max_visits'],
+                'item_count'       => count($parentItems),
+                'actor_role'       => $role,
             ]);
 
-            $_SESSION['asgn_new_link']      = buildQuoteLink($plainToken);
-            $_SESSION['asgn_new_customer']  = $newCustomerName;
-            $_SESSION['asgn_new_company']   = $parent['company_name'] ?? '';
-            $_SESSION['asgn_new_items']     = $itemSummary;
+            $_SESSION['asgn_new_link']        = buildQuoteLink($plainToken);
+            $_SESSION['asgn_new_customer']    = $newCustomerName;
+            $_SESSION['asgn_new_company']     = $newCompanyName;
+            $_SESSION['asgn_new_items']       = $itemSummary;
             $_SESSION['asgn_new_items_count'] = count($itemSummary);
             $_SESSION['asgn_new_items_total'] = array_sum(array_column($itemSummary, 'price'));
-            $_SESSION['asgn_new_expires']   = $expiresAt;
-            $_SESSION['asgn_feedback']      = t('asgn_regen_success');
-            $_SESSION['asgn_feedback_type'] = 'success';
+            $_SESSION['asgn_new_expires']     = $expiresAt;
+            $_SESSION['asgn_feedback']        = t('asgn_regen_success');
+            $_SESSION['asgn_feedback_type']   = 'success';
 
         } catch (\PDOException $e) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) $pdo->rollBack();
             error_log('assignments.php regen_link failed: ' . $e->getMessage());
             $_SESSION['asgn_feedback']      = t('asgn_err_save');
             $_SESSION['asgn_feedback_type'] = 'error';
@@ -728,6 +793,7 @@ if (!empty($scopedOrgIds)) {
                 "SELECT qa.id,
                                 qa.assigned_customer_name,
                                 qa.company_name,
+                                qa.special_conditions,
                                 qa.discount_percentage,
                                 qa.status,
                                 qa.expires_at,
@@ -745,7 +811,8 @@ if (!empty($scopedOrgIds)) {
                     WHERE qa.status != 'deleted'
                         AND qa.org_id IN ({$placeholders})
                     GROUP BY qa.id, qa.assigned_customer_name, qa.company_name,
-                                     qa.discount_percentage, qa.status, qa.expires_at,
+                                     qa.special_conditions, qa.discount_percentage,
+                                     qa.status, qa.expires_at,
                                      qa.view_count, qa.created_at, qa.revoked_at, u.username, o.name
                     ORDER BY qa.created_at DESC
                     LIMIT 30"
@@ -1709,7 +1776,7 @@ $statusClass = [
                                         </button>
                                     </form>
                                     <button type="button" class="btn-asgn-action btn-asgn-action--primary"
-                                        onclick="openRegenModal(<?= (int)$a['id'] ?>,'<?= $esc($a['assigned_customer_name']) ?>')">
+                                        onclick="openRegenModal(<?= (int)$a['id'] ?>,<?= json_encode($a['special_conditions'] ?? '') ?>)">
                                         <?= $esc(t('asgn_btn_regen')) ?>
                                     </button>
                                 </div>
@@ -1724,21 +1791,39 @@ $statusClass = [
 
     </div><!-- /page-content -->
 
-    <!-- ════════ REGEN MODAL ════════ -->
-    <div class="asgn-modal-overlay" id="regenModalOverlay" role="dialog" aria-modal="true">
-        <div class="asgn-modal">
-            <h3><?= $esc(t('asgn_regen_modal_title')) ?></h3>
+    <!-- ════════ REPLICATE QUOTE MODAL ════════ -->
+    <div class="asgn-modal-overlay" id="regenModalOverlay" role="dialog" aria-modal="true"
+         aria-labelledby="regenModalTitle">
+        <div class="asgn-modal" style="max-width:480px;">
+            <h3 id="regenModalTitle"><?= $esc(t('asgn_regen_modal_title')) ?></h3>
             <form method="POST" action="/login/admin/assignments.php" id="regenForm">
                 <input type="hidden" name="csrf_token" value="<?= $csrf ?>">
                 <input type="hidden" name="action" value="regen_link">
                 <input type="hidden" name="assignment_id" id="regenAssignmentId" value="">
                 <div class="form-group">
                     <label class="form-label" for="regenCustomerName">
-                        <?= $esc(t('asgn_regen_customer_label')) ?>
+                        <?= $esc(t('asgn_regen_customer_label')) ?> <span style="color:#e74c3c;">*</span>
                     </label>
                     <input type="text" id="regenCustomerName" name="customer_name"
-                           class="form-input" maxlength="200"
+                           class="form-input" maxlength="200" required
                            placeholder="<?= $esc(t('asgn_regen_customer_ph')) ?>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="regenCompanyName">
+                        <?= $esc(t('asgn_regen_company_label')) ?>
+                    </label>
+                    <input type="text" id="regenCompanyName" name="company_name"
+                           class="form-input" maxlength="200"
+                           placeholder="<?= $esc(t('asgn_regen_company_ph')) ?>">
+                </div>
+                <div class="form-group">
+                    <label class="form-label" for="regenSpecialConditions">
+                        <?= $esc(t('asgn_regen_conditions_label')) ?>
+                    </label>
+                    <textarea id="regenSpecialConditions" name="special_conditions"
+                              class="form-input" rows="3" maxlength="2000"
+                              placeholder="<?= $esc(t('asgn_regen_conditions_ph')) ?>"></textarea>
+                    <span class="form-help"><?= $esc(t('asgn_regen_conditions_hint')) ?></span>
                 </div>
                 <div class="asgn-modal-actions">
                     <button type="button" class="btn-secondary btn-sm" onclick="closeRegenModal()">
@@ -2385,14 +2470,15 @@ $statusClass = [
     }
 
     // ═══════════════════════════════════════════════════════════
-    //  REGEN MODAL
+    //  REPLICATE MODAL
     // ═══════════════════════════════════════════════════════════
-    function openRegenModal(id, currentCustomer) {
+    function openRegenModal(id, specialConditions) {
         document.getElementById('regenAssignmentId').value = id;
-        document.getElementById('regenCustomerName').value = currentCustomer;
+        document.getElementById('regenCustomerName').value = '';          // always blank — new customer
+        document.getElementById('regenCompanyName').value  = '';          // always blank — new company
+        document.getElementById('regenSpecialConditions').value = specialConditions || '';  // pre-filled from original
         document.getElementById('regenModalOverlay').classList.add('open');
         document.getElementById('regenCustomerName').focus();
-        document.getElementById('regenCustomerName').select();
     }
     function closeRegenModal() {
         document.getElementById('regenModalOverlay').classList.remove('open');
