@@ -1,6 +1,6 @@
-﻿<?php
+<?php
 /**
- * /login/admin/index.php — System administration panel
+ * /login/admin/users.php — System administration panel
  *
  * Access: role = 'admin' only.
  * Features:
@@ -154,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($role === 'support') {
                 $_SESSION['inv_feedback']      = t('error_unsupported_role');
                 $_SESSION['inv_feedback_type'] = 'error';
-                header('Location: /login/admin/index.php');
+                header('Location: /login/admin/users.php');
                 exit;
             }
             $invRole  = $_POST['inv_role'] ?? 'supplier';
@@ -174,7 +174,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (empty($checkedIds)) {
                     $_SESSION['inv_feedback']      = t('inv_err_no_org_selected');
                     $_SESSION['inv_feedback_type'] = 'error';
-                    header('Location: /login/admin/index.php');
+                    header('Location: /login/admin/users.php');
                     exit;
                 }
                 $targetOrgId = $checkedIds[0];
@@ -184,14 +184,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if (!orgScopeContainsOrgId($accessibleOrgIds, $targetOrgId)) {
                     $_SESSION['inv_feedback']      = t('error_no_org');
                     $_SESSION['inv_feedback_type'] = 'error';
-                    header('Location: /login/admin/index.php');
+                    header('Location: /login/admin/users.php');
                     exit;
                 }
             }
             if ($invEmail !== '' && !filter_var($invEmail, FILTER_VALIDATE_EMAIL)) {
                 $_SESSION['inv_feedback']      = t('enroll_err_email');
                 $_SESSION['inv_feedback_type'] = 'error';
-                header('Location: /login/admin/index.php');
+                header('Location: /login/admin/users.php');
                 exit;
             }
             $orgLookup = [];
@@ -231,7 +231,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $_SESSION['inv_email_result']  = $emailResult;
             $_SESSION['inv_feedback']      = t('inv_generated_success');
             $_SESSION['inv_feedback_type'] = 'success';
-            header('Location: /login/admin/index.php');
+            header('Location: /login/admin/users.php');
             exit;
 
         case 'revoke_invitation':
@@ -255,13 +255,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             $_SESSION['inv_feedback']      = t('inv_revoked_success');
             $_SESSION['inv_feedback_type'] = 'success';
-            header('Location: /login/admin/index.php');
+            header('Location: /login/admin/users.php');
             exit;
 
     }
 
     // PRG — prevent re-submit on refresh
-    header('Location: /login/admin/index.php');
+    header('Location: /login/admin/users.php');
     exit;
 }
 
@@ -480,7 +480,7 @@ $initial  = strtoupper(substr($username, 0, 1));
                                 <div class="user-actions">
                                     <!-- Row 1: activate/deactivate + unlock -->
                                     <div class="user-actions-row">
-                                        <form method="POST" action="/login/admin/index.php">
+                                        <form method="POST" action="/login/admin/users.php">
                                             <input type="hidden" name="csrf_token"
                                                    value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                             <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
@@ -493,7 +493,7 @@ $initial  = strtoupper(substr($username, 0, 1));
                                             <?php endif; ?>
                                         </form>
                                         <?php if ($isLocked): ?>
-                                        <form method="POST" action="/login/admin/index.php">
+                                        <form method="POST" action="/login/admin/users.php">
                                             <input type="hidden" name="csrf_token"
                                                    value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                             <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
@@ -562,7 +562,7 @@ $initial  = strtoupper(substr($username, 0, 1));
                             </td>
                             <td>
                                 <?php if ($r['status'] === 'pending'): ?>
-                                <form method="POST" action="/login/admin/index.php">
+                                <form method="POST" action="/login/admin/users.php">
                                     <input type="hidden" name="csrf_token"
                                            value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                     <input type="hidden" name="request_id" value="<?= (int) $r['id'] ?>">
@@ -629,13 +629,13 @@ $initial  = strtoupper(substr($username, 0, 1));
                             <td>
                                 <?php if ($vr['status'] === 'pending'): ?>
                                 <div class="user-actions-row" style="display:flex;gap:6px;flex-wrap:wrap;">
-                                    <form method="POST" action="/login/admin/index.php" style="display:inline;">
+                                    <form method="POST" action="/login/admin/users.php" style="display:inline;">
                                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                         <input type="hidden" name="action" value="approve_contract_validity_request">
                                         <input type="hidden" name="validity_request_id" value="<?= (int) $vr['id'] ?>">
                                         <button type="submit" class="btn-tbl btn-success"><?= t('btn_approve') ?></button>
                                     </form>
-                                    <form method="POST" action="/login/admin/index.php" style="display:inline;">
+                                    <form method="POST" action="/login/admin/users.php" style="display:inline;">
                                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
                                         <input type="hidden" name="action" value="reject_contract_validity_request">
                                         <input type="hidden" name="validity_request_id" value="<?= (int) $vr['id'] ?>">
@@ -708,7 +708,7 @@ $initial  = strtoupper(substr($username, 0, 1));
             <?php if ($role !== 'support'): ?>
             <div style="margin-top:24px;">
                 <h3 class="section-subtitle"><?= t('inv_form_title') ?></h3>
-                <form method="POST" action="/login/admin/index.php#invitations" class="inv-gen-form">
+                <form method="POST" action="/login/admin/users.php#invitations" class="inv-gen-form">
                     <?= csrfField() ?>
                     <input type="hidden" name="action" value="generate_invitation">
                     <div class="form-row">
@@ -823,7 +823,7 @@ $initial  = strtoupper(substr($username, 0, 1));
                                 </td>
                                 <td class="actions-cell">
                                     <?php if ($role !== 'support' && $inv['status'] === 'pending'): ?>
-                                    <form method="POST" action="/login/admin/index.php#invitations" style="display:inline">
+                                    <form method="POST" action="/login/admin/users.php#invitations" style="display:inline">
                                         <?= csrfField() ?>
                                         <input type="hidden" name="action" value="revoke_invitation">
                                         <input type="hidden" name="inv_id"  value="<?= (int) $inv['id'] ?>">
@@ -889,7 +889,7 @@ $initial  = strtoupper(substr($username, 0, 1));
                 if (window.confirm('Su sesión cerrará pronto por inactividad. ¿Desea continuar?')) {
                     resetTimer();
                     // Ping the server to reset the PHP idle timer
-                    fetch('/login/admin/index.php', { method: 'HEAD', credentials: 'same-origin' });
+                    fetch('/login/admin/users.php', { method: 'HEAD', credentials: 'same-origin' });
                 }
             }
         }, 10000);

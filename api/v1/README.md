@@ -65,7 +65,7 @@ Notes:
 - `owner` can list users across all active business units.
 - Responses include `business_unit_name` and `business_units`.
 - **Web UI**: Admin and owner users pages paginate at **50 users/page** (`?upage=N`).
-- **Web UI**: Invitation management is now embedded in the admin (`/login/admin/index.php`) and owner (`/login/owner/index.php`) users pages. A standalone Invitations tab is no longer shown in their navigation.
+- **Web UI**: Invitation management is now embedded in the admin (`/login/admin/users.php`) and owner (`/login/owner/users.php`) users pages. A standalone Invitations tab is no longer shown in their navigation.
 
 **PATCH /users/:id body:**
 ```json

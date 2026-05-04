@@ -80,8 +80,8 @@ apple-login/
     en.php                — All English strings
     .htaccess             — Deny direct access
   css/style.css           — Full UI stylesheet (Apple-inspired)
-  admin/index.php         — Admin panel (supplier+user mgmt, activate/deactivate/unlock/change_role, password requests)
-  owner/index.php         — Owner panel (ALL roles mgmt, full promote/demote, all actions)
+  admin/users.php         — Admin panel (supplier+user mgmt, activate/deactivate/unlock/change_role, password requests)
+  owner/users.php         — Owner panel (ALL roles mgmt, full promote/demote, all actions)
   supplier/
     profile.php           — Full supplier profile (4 sections + contacts CRUD)
     summary.php           — Supplier dashboard (shows all profile data)
@@ -100,8 +100,8 @@ apple-login/
 ### Role Hierarchy (higher = more privileges)
 | Level | Role | Label ES | Home Panel |
 |---|---|---|---|
-| 4 | `owner` | Propietario | `/owner/index.php` |
-| 3 | `admin` | Administrador | `/admin/index.php` |
+| 4 | `owner` | Propietario | `/owner/users.php` |
+| 3 | `admin` | Administrador | `/admin/users.php` |
 | 2 | `supplier` | Proveedor | `/supplier/profile.php` or `/supplier/summary.php` |
 | 1 | `user` | Usuario | `/user/dashboard.php` |
 
@@ -129,8 +129,8 @@ requireRole(['owner']);  // or ['admin'], ['supplier'], ['user']
 ```
 
 ## Routing Logic
-- Login → `owner` role → `/owner/index.php`
-- Login → `admin` role → `/admin/index.php`
+- Login → `owner` role → `/owner/users.php`
+- Login → `admin` role → `/admin/users.php`
 - Login → `supplier` + `first_login=1` → `/supplier/profile.php`
 - Login → `supplier` + `first_login=0` → `/supplier/summary.php`
 - Login → `user` role → `/user/dashboard.php`

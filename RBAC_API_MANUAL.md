@@ -82,7 +82,7 @@ Previous behavior:
 
 New behavior (current):
 - The **"Invitations" tab is removed** from the admin and owner navigation bar.
-- Invitation management (generate link, revoke, history) is now **embedded inside the Users page** (`/login/admin/index.php` for admin, `/login/owner/index.php` for owner).
+- Invitation management (generate link, revoke, history) is now **embedded inside the Users page** (`/login/admin/users.php` for admin, `/login/owner/users.php` for owner).
 - The Users page now displays three sections: **Users**, **Password Requests**, **Contract Validity Requests**, and a new **Invitations** section at the bottom.
 - Admin can invite `support` and `supplier` roles (unchanged restriction).
 - Owner can invite `admin`, `support`, and `supplier` roles (unchanged). The multi-org checkbox picker for admin invites is also embedded.
@@ -90,7 +90,7 @@ New behavior (current):
 
 ### Users list — backend pagination (50 users/page)
 
-- Admin users page (`/login/admin/index.php`) and owner users page (`/login/owner/index.php`) now paginate the users table at **50 users per page**.
+- Admin users page (`/login/admin/users.php`) and owner users page (`/login/owner/users.php`) now paginate the users table at **50 users per page**.
 - Page is controlled via the `upage` GET parameter.
 - A page-number nav bar appears below the users table when total users exceed 50.
 
