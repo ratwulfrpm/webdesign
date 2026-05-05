@@ -32,6 +32,7 @@ Sistema de autenticación local con diseño inspirado en Apple, construido con P
 9. [Diseño responsive](#9-diseño-responsive)
 10. [Pasar a producción](#10-pasar-a-producción)
 11. [UI/UX por rol (theming)](#11-uiux-por-rol-theming)
+12. [Router progresivo (rutas limpias)](#12-router-progresivo-rutas-limpias)
 
 ---
 
@@ -53,22 +54,56 @@ No se requieren librerías externas ni gestor de dependencias (sin Composer, sin
 ```
 apple-login/
 ├── index.php              # Página de login (pública)
-├── dashboard.php          # Área protegida (requiere sesión)
+├── dashboard.php          # Dispatcher de rol (redirige al panel correcto)
+├── router.php             # Front controller progresivo (rutas limpias)
 ├── logout.php             # Cierre de sesión (acepta solo POST)
+├── quote.php              # Vista pública de cotización (token-only)
+├── enroll.php             # Auto-registro de proveedor (token-only)
+├── invitations.php        # Gestión de invitaciones (admin/owner/support)
+├── switch_org.php         # Cambio de BU activa (support)
 ├── README.md              # Este archivo
 │
+├── admin/                 # Panel administrativo
+│   ├── products.php       # Listado global de productos
+│   ├── product_view.php   # Detalle de producto (solo lectura)
+│   ├── users.php          # Gestión de usuarios (admin/support)
+│   └── assignments.php    # Gestión de cotizaciones/asignaciones
+│
+├── owner/                 # Panel exclusivo del owner
+│   ├── users.php          # Gestión global de usuarios (todos los roles)
+│   └── business_units.php # Gestión de unidades de negocio
+│
+├── supplier/              # Panel de proveedor
+│   ├── summary.php        # Dashboard del proveedor
+│   ├── profile.php        # Perfil e información legal
+│   ├── add_product.php    # Carga de productos con imágenes
+│   ├── product_view.php   # Detalle de producto propio
+│   ├── documents.php      # Contratos y documentos
+│   └── contract_file.php  # Descarga de archivo de contrato
+│
+├── api/v1/                # REST API — fronte controller independiente
+│   ├── index.php          # Front controller de la API (propio .htaccess)
+│   ├── _helpers.php       # Helpers JSON + requireApiAuth()
+│   └── resources/         # Recursos REST (products, users, assignments…)
+│
 ├── config/
-│   └── db.php             # Constantes de conexión + singleton PDO
+│   ├── db.php             # Constantes de conexión + singleton PDO
+│   └── routes.php         # Mapa central de rutas web (nuevo)
 │
 ├── css/
 │   └── style.css          # Estilos Apple-inspired + diseño responsive
 │
 ├── includes/
-│   ├── auth.php           # Funciones de autenticación y sesión
-│   └── csrf.php           # Generación y validación de tokens CSRF
+│   ├── session.php        # Bootstrap de sesión centralizado
+│   ├── auth.php           # Autenticación + clase Auth (OOP facade)
+│   ├── RBAC.php           # Matriz de permisos por rol
+│   ├── TenantScope.php    # Resolución de scope multi-tenant
+│   ├── Router.php         # Router progresivo (nuevo)
+│   ├── csrf.php           # Tokens CSRF
+│   └── lang.php           # Soporte multilenguaje (ES/EN/ZH)
 │
 └── setup/
-    ├── create_db.sql      # Script SQL para crear BD y usuario demo
+    ├── create_db.sql      # Script SQL para crear BD
     └── generate_hash.php  # Utilidad para generar hashes bcrypt
 ```
 
@@ -468,7 +503,124 @@ $env:APP_STORAGE_ROOT = 'C:\app-data\webdesign'
 
 ---
 
-*Documentación generada el 24 de febrero de 2026.*
+*Documentación generada el 24 de febrero de 2026. Router progresivo añadido el 4 de mayo de 2026.*
+
+---
+
+## 12. Router progresivo (rutas limpias)
+
+A partir de mayo de 2026, la aplicación cuenta con un **router central progresivo** que permite acceder a las páginas mediante URLs limpias (sin `.php`) además de mantener compatibilidad total con el acceso directo a archivos.
+
+### Principio: transición progresiva
+
+```
+Legacy (sigue funcionando):   http://localhost/login/admin/products.php
+Ruta limpia (nueva):          http://localhost/login/admin/products
+```
+
+Ambas rutas sirven exactamente el mismo contenido. El router incluye el archivo PHP legado como handler — no reescribe vistas ni duplica lógica.
+
+### Archivos involucrados
+
+| Archivo | Descripción |
+|---------|-------------|
+| `router.php` | Front controller progresivo (entrypoint para rutas limpias) |
+| `includes/Router.php` | Clase Router — registro y despacho de rutas |
+| `config/routes.php` | Mapa central de todas las rutas web |
+| `.htaccess` | Reglas mod_rewrite para rutas limpias |
+
+### Cómo funciona
+
+1. Apache recibe una petición a `/login/admin/products` (no existe ese archivo)
+2. `.htaccess` detecta que no es un archivo ni directorio existente → reescribe a `router.php`
+3. `router.php` carga session/auth/RBAC/TenantScope/Router/routes
+4. `Router::dispatch()` busca coincidencia → aplica control de acceso → incluye el archivo legacy
+5. El archivo PHP legacy se ejecuta normalmente (tiene sus propios `require_once` que no se vuelven a cargar)
+
+### Rutas registradas
+
+#### Rutas públicas
+
+| Ruta limpia | Archivo | Tipo |
+|-------------|---------|------|
+| `/login` | `index.php` | Página de login |
+| `/login/enroll` | `enroll.php` | Registro por invitación |
+| `/login/forgot-password` | `forgot_password.php` | Solicitud de contraseña |
+| `/login/quote` | `quote.php` | Cotización pública (token-only) |
+| `/login/org-picker` | `org-picker.php` | Selector de BU (pending session) |
+
+#### Rutas autenticadas — cualquier rol
+
+| Ruta limpia | Archivo | Roles |
+|-------------|---------|-------|
+| `/login/logout` | `logout.php` | owner, admin, support, supplier |
+| `/login/dashboard` | `dashboard.php` | owner, admin, support, supplier |
+| `/login/switch-org` | `switch_org.php` | support |
+
+#### Rutas admin (owner siempre incluido por paridad)
+
+| Ruta limpia | Archivo | Roles |
+|-------------|---------|-------|
+| `/login/admin/products` | `admin/products.php` | owner, admin, support |
+| `/login/admin/products/{id}` | `admin/product_view.php` | owner, admin, support |
+| `/login/admin/users` | `admin/users.php` | admin, support ¹ |
+| `/login/admin/assignments` | `admin/assignments.php` | owner, admin, support |
+| `/login/admin/invitations` | `invitations.php` | owner, admin, support |
+| `/login/invitations` | `invitations.php` | owner, admin, support |
+
+> ¹ **Excepción Admin/Owner**: owner está excluido de `/admin/users` porque su panel exclusivo `/owner/users` tiene capacidades superiores (lista global de todos los roles + `change_role`). El owner NO pierde acceso — usa su propio panel.
+
+#### Rutas exclusivas del owner
+
+| Ruta limpia | Archivo | Roles |
+|-------------|---------|-------|
+| `/login/owner/users` | `owner/users.php` | owner |
+| `/login/owner/business-units` | `owner/business_units.php` | owner |
+
+#### Rutas de proveedor
+
+| Ruta limpia | Archivo | Roles |
+|-------------|---------|-------|
+| `/login/supplier/summary` | `supplier/summary.php` | supplier |
+| `/login/supplier/profile` | `supplier/profile.php` | supplier |
+| `/login/supplier/add-product` | `supplier/add_product.php` | supplier |
+| `/login/supplier/products/{id}` | `supplier/product_view.php` | supplier |
+| `/login/supplier/documents` | `supplier/documents.php` | supplier |
+| `/login/supplier/contract-file` | `supplier/contract_file.php` | supplier |
+
+### Rutas públicas token-only (quote)
+
+La ruta `/login/quote` está marcada como `tokenRoute = true`:
+
+- El router **no aplica** `requireAuth()` ni comprueba la sesión.
+- Un admin/owner logueado que abra un link de cotización recibe exactamente la misma vista de cliente.
+- No se exponen precios FOB/CIF, códigos internos ni datos de proveedor.
+- `quote.php` aplica su propio aislamiento internamente.
+
+### API — separación web/API
+
+Las rutas `/api/v1/*` **no pasan** por el router web:
+
+- `.htaccess` excluye cualquier path que contenga `/api/` del rewrite a `router.php`.
+- La API tiene su propio front controller en `api/v1/index.php` con su propio `.htaccess`.
+- `requireApiAuth()` (en `api/v1/_helpers.php`) permanece independiente de la capa web.
+- Ver: [RBAC_API_MANUAL.md](RBAC_API_MANUAL.md)
+
+### Acceso local (MAMP)
+
+```
+# Rutas legacy (acceso directo — sin cambios)
+http://localhost/login/index.php
+http://localhost/login/admin/products.php
+
+# Rutas limpias (a través del router)
+http://localhost/login/
+http://localhost/login/admin/products
+http://localhost/login/admin/assignments
+http://localhost/login/owner/users
+http://localhost/login/supplier/summary
+http://localhost/login/quote?t=<token>
+```
 
 ---
 
@@ -501,6 +653,7 @@ Local authentication system with an Apple-inspired design, built with PHP, MySQL
 8. [Security Features](#8-security-features)
 9. [Responsive Design](#9-responsive-design)
 10. [Going to Production](#10-going-to-production)
+11. [Progressive Router (clean URLs)](#11-progressive-router-clean-urls)
 
 ---
 
@@ -522,22 +675,56 @@ No external libraries or dependency managers are required (no Composer, no npm).
 ```
 apple-login/
 ├── index.php              # Login page (public)
-├── dashboard.php          # Protected area (requires session)
+├── dashboard.php          # Role dispatcher (redirects to correct panel)
+├── router.php             # Progressive front controller (clean URLs)
 ├── logout.php             # Sign-out handler (POST only)
+├── quote.php              # Public quotation view (token-only)
+├── enroll.php             # Supplier self-registration (token-only)
+├── invitations.php        # Invitation management (admin/owner/support)
+├── switch_org.php         # Switch active BU (support)
 ├── README.md              # This file
 │
+├── admin/                 # Admin panel
+│   ├── products.php       # Global product listing
+│   ├── product_view.php   # Product detail (read-only)
+│   ├── users.php          # User management (admin/support)
+│   └── assignments.php    # Quotation/assignment management
+│
+├── owner/                 # Owner-exclusive panel
+│   ├── users.php          # Global user management (all roles)
+│   └── business_units.php # Business unit management
+│
+├── supplier/              # Supplier panel
+│   ├── summary.php        # Supplier dashboard
+│   ├── profile.php        # Profile & legal info
+│   ├── add_product.php    # Upload products with images
+│   ├── product_view.php   # Own product detail
+│   ├── documents.php      # Contracts & documents
+│   └── contract_file.php  # Contract file download
+│
+├── api/v1/                # REST API — independent front controller
+│   ├── index.php          # API front controller (own .htaccess)
+│   ├── _helpers.php       # JSON helpers + requireApiAuth()
+│   └── resources/         # REST resources (products, users, assignments…)
+│
 ├── config/
-│   └── db.php             # Connection constants + PDO singleton
+│   ├── db.php             # Connection constants + PDO singleton
+│   └── routes.php         # Central web route map (new)
 │
 ├── css/
 │   └── style.css          # Apple-inspired styles + responsive design
 │
 ├── includes/
-│   ├── auth.php           # Authentication and session functions
-│   └── csrf.php           # CSRF token generation and validation
+│   ├── session.php        # Centralized session bootstrap
+│   ├── auth.php           # Authentication + Auth class (OOP facade)
+│   ├── RBAC.php           # Role permission matrix
+│   ├── TenantScope.php    # Multi-tenant scope resolver
+│   ├── Router.php         # Progressive router (new)
+│   ├── csrf.php           # CSRF tokens
+│   └── lang.php           # Multi-language support (ES/EN/ZH)
 │
 └── setup/
-    ├── create_db.sql      # SQL script to create the DB and demo user
+    ├── create_db.sql      # SQL script to create the DB
     └── generate_hash.php  # Utility to generate bcrypt hashes
 ```
 
@@ -843,4 +1030,121 @@ On mobile, inputs use `font-size: max(16px, 1rem)` to **prevent iOS auto-zoom** 
 
 ---
 
-*Documentation generated on February 24, 2026.*
+## 11. Progressive Router (clean URLs)
+
+As of May 2026, the application includes a **central progressive router** that enables clean-URL access (without `.php`) while maintaining full backward compatibility with direct file access.
+
+### Principle: progressive transition
+
+```
+Legacy (still works):     http://localhost/login/admin/products.php
+Clean URL (new):          http://localhost/login/admin/products
+```
+
+Both URLs serve exactly the same content. The router includes the legacy PHP file as its handler — no views are rewritten or logic duplicated.
+
+### Files involved
+
+| File | Description |
+|------|-------------|
+| `router.php` | Progressive front controller (entry point for clean URLs) |
+| `includes/Router.php` | Router class — route registration and dispatch |
+| `config/routes.php` | Central web route map |
+| `.htaccess` | mod_rewrite rules for clean URLs |
+
+### How it works
+
+1. Apache receives a request for `/login/admin/products` (no such file exists)
+2. `.htaccess` detects it is neither an existing file nor directory → rewrites to `router.php`
+3. `router.php` loads session / auth / RBAC / TenantScope / Router / routes
+4. `Router::dispatch()` finds a match → enforces access control → includes the legacy file
+5. The legacy PHP file executes normally (its own `require_once` calls are not reloaded by PHP)
+
+### Registered routes
+
+#### Public routes
+
+| Clean URL | File | Type |
+|-----------|------|------|
+| `/login` | `index.php` | Login page |
+| `/login/enroll` | `enroll.php` | Registration via invitation |
+| `/login/forgot-password` | `forgot_password.php` | Password reset request |
+| `/login/quote` | `quote.php` | Public quotation view (token-only) |
+| `/login/org-picker` | `org-picker.php` | BU selector (pending session) |
+
+#### Authenticated routes — any role
+
+| Clean URL | File | Roles |
+|-----------|------|-------|
+| `/login/logout` | `logout.php` | owner, admin, support, supplier |
+| `/login/dashboard` | `dashboard.php` | owner, admin, support, supplier |
+| `/login/switch-org` | `switch_org.php` | support |
+
+#### Admin routes (owner always included for parity)
+
+| Clean URL | File | Roles |
+|-----------|------|-------|
+| `/login/admin/products` | `admin/products.php` | owner, admin, support |
+| `/login/admin/products/{id}` | `admin/product_view.php` | owner, admin, support |
+| `/login/admin/users` | `admin/users.php` | admin, support ¹ |
+| `/login/admin/assignments` | `admin/assignments.php` | owner, admin, support |
+| `/login/admin/invitations` | `invitations.php` | owner, admin, support |
+| `/login/invitations` | `invitations.php` | owner, admin, support |
+
+> ¹ **Admin/Owner exception**: owner is excluded from `/admin/users` because their dedicated panel `/owner/users` has superset capabilities (lists all roles + `change_role`). The owner does NOT lose access — they use their own panel.
+
+#### Owner-exclusive routes
+
+| Clean URL | File | Roles |
+|-----------|------|-------|
+| `/login/owner/users` | `owner/users.php` | owner |
+| `/login/owner/business-units` | `owner/business_units.php` | owner |
+
+#### Supplier routes
+
+| Clean URL | File | Roles |
+|-----------|------|-------|
+| `/login/supplier/summary` | `supplier/summary.php` | supplier |
+| `/login/supplier/profile` | `supplier/profile.php` | supplier |
+| `/login/supplier/add-product` | `supplier/add_product.php` | supplier |
+| `/login/supplier/products/{id}` | `supplier/product_view.php` | supplier |
+| `/login/supplier/documents` | `supplier/documents.php` | supplier |
+| `/login/supplier/contract-file` | `supplier/contract_file.php` | supplier |
+
+### Token-only public routes (quote)
+
+The `/login/quote` route is flagged as `tokenRoute = true`:
+
+- The router does **not** call `requireAuth()` or check the session.
+- An authenticated admin/owner who opens a quote link gets exactly the same customer view.
+- No FOB/CIF prices, internal codes, or supplier data are exposed.
+- `quote.php` enforces this isolation internally.
+
+### API — web/API routing separation
+
+Paths under `/api/v1/*` **do not pass through** the web router:
+
+- The root `.htaccess` excludes any path containing `/api/` from being rewritten to `router.php`.
+- The API has its own front controller at `api/v1/index.php` with its own `api/v1/.htaccess`.
+- `requireApiAuth()` (in `api/v1/_helpers.php`) remains independent of the web auth layer.
+- See: [RBAC_API_MANUAL.md](RBAC_API_MANUAL.md)
+
+### Local access (MAMP)
+
+```
+# Legacy routes (direct access — unchanged)
+http://localhost/login/index.php
+http://localhost/login/admin/products.php
+
+# Clean URLs (via the router)
+http://localhost/login/
+http://localhost/login/admin/products
+http://localhost/login/admin/assignments
+http://localhost/login/owner/users
+http://localhost/login/supplier/summary
+http://localhost/login/quote?t=<token>
+```
+
+---
+
+*Documentation generated on February 24, 2026. Progressive router added May 4, 2026.*

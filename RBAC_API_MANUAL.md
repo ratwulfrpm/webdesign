@@ -439,3 +439,100 @@ All changes in this layer adhere to the admin→owner parity rule:
 - [ ] No FOB/CIF prices, no supplier codes, no admin navigation visible
 - [ ] Session of logged-in user is NOT modified by quote.php visit
 
+---
+
+## 11) Web vs API Routing Separation (May 2026)
+
+The application uses **two completely independent routing systems** that coexist without interference.
+
+### 11.1 Architecture overview
+
+```
+Incoming request
+       │
+       ▼
+Apache / .htaccess (project root)
+       │
+       ├── Path contains /api/  ──────────────────────────────────────▶ api/v1/.htaccess
+       │                                                                        │
+       │                                                               api/v1/index.php
+       │                                                               (API front controller)
+       │                                                               requireApiAuth()
+       │
+       ├── File or directory exists  ────────────────────────────────▶ serve file directly
+       │   (legacy .php URLs)                                           (backwards compat)
+       │
+       └── No match  ───────────────────────────────────────────────▶ router.php
+                                                                       (web front controller)
+                                                                       Router::dispatch()
+                                                                       requireAuth() / requireRole()
+```
+
+### 11.2 Web router (`router.php` + `includes/Router.php`)
+
+| Aspect | Detail |
+|--------|--------|
+| **Entry point** | `router.php` (project root) |
+| **Triggered by** | Root `.htaccess` mod_rewrite — only when neither a file nor a directory matches the request path, and the path does not contain `/api/` |
+| **Route map** | `config/routes.php` — central web route definitions |
+| **Auth layer** | `requireAuth()` / `requireRole()` — procedural web guards from `includes/auth.php` |
+| **Token routes** | `quote.php`, `enroll.php` — marked `tokenRoute=true`; auth checks skipped entirely |
+| **Backwards compat** | Direct `.php` file access always works — rewrite only fires when the file does not exist |
+
+**Root `.htaccess` rewrite block:**
+```apache
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI}      !/api/ [NC]
+    RewriteRule ^                   router.php [QSA,L]
+</IfModule>
+```
+
+The three conditions must ALL be true for the rewrite to fire:
+1. Request path is not an existing file
+2. Request path is not an existing directory
+3. Request URI does not contain `/api/` (case-insensitive)
+
+### 11.3 API router (`api/v1/index.php`)
+
+| Aspect | Detail |
+|--------|--------|
+| **Entry point** | `api/v1/index.php` |
+| **Triggered by** | `api/v1/.htaccess` — routes all requests inside `api/v1/` to `index.php` |
+| **Auth layer** | `requireApiAuth()` in `api/v1/_helpers.php` — returns auth context array, emits JSON 403 on failure |
+| **Response format** | Always `application/json` |
+| **Session** | Reads PHP session but never initiates redirects — always returns JSON errors |
+
+### 11.4 Why they are fully independent
+
+- **No shared front controller**: the web router and the API router never call each other.
+- **No shared auth function names**: the web guard is `requireAuth()` (void, redirects on failure); the API guard is `requireApiAuth()` (returns array, JSON 403 on failure). They have different signatures and behaviors.
+- **No shared `.htaccess`**: the root `.htaccess` exclusion condition (`!/api/`) ensures API paths never reach `router.php`. The `api/v1/.htaccess` handles internal API routing.
+- **No state sharing**: `router.php` reads and writes PHP session; `api/v1/index.php` reads session for auth but never modifies it during request handling.
+
+### 11.5 Adding routes
+
+**New web page (clean URL):**
+1. Create the PHP file (e.g., `admin/new_page.php`) with its own `requireAuth()` / `requireRole()` guards.
+2. Register the clean URL in `config/routes.php`:
+   ```php
+   Router::get('/admin/new-page', __DIR__ . '/../admin/new_page.php', ['owner', 'admin']);
+   ```
+3. The legacy URL `/login/admin/new_page.php` continues working unchanged.
+
+**New API endpoint:**
+1. Create `api/v1/resources/new_resource.php` using `requireApiAuth()`.
+2. Add a route case in `api/v1/index.php`.
+3. No changes to web router or root `.htaccess` needed.
+
+### 11.6 Security properties
+
+| Property | Web router | API router |
+|----------|-----------|------------|
+| Auth failure | HTTP 302 redirect to login page | HTTP 403 JSON response |
+| Token-only routes | `tokenRoute=true` skips all session checks | N/A — every API endpoint requires auth |
+| CSRF | Legacy pages enforce CSRF on POST forms | API uses `requireApiAuth()` token validation |
+| Session required | Yes (except public/token routes) | Yes (reads session; no session creation) |
+

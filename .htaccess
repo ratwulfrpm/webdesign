@@ -31,3 +31,30 @@ ServerSignature Off
 # RewriteEngine On
 # RewriteCond %{HTTP_HOST} ^www\.(.+)$ [NC]
 # RewriteRule ^ http://%1%{REQUEST_URI} [R=301,L]
+
+# ── Progressive Router — Clean URL support ────────────────────
+#
+# Routes requests for non-existent paths through router.php.
+# This enables clean URLs like /login/admin/products alongside
+# the existing legacy URLs like /login/admin/products.php.
+#
+# Rules:
+#  1. If the requested path IS an existing file → serve it directly.
+#     (legacy .php files are served without going through the router)
+#  2. If the requested path IS an existing directory → serve it directly.
+#  3. If the path contains /api/ → skip (API has its own front controller).
+#  4. Everything else → dispatch through router.php.
+#
+# This means:
+#  /login/admin/products.php → served directly (legacy, unchanged)
+#  /login/admin/products     → rewritten to router.php (clean URL)
+#  /login/api/v1/products    → NOT rewritten (API handled separately)
+#
+# Safe for MAMP/Apache local development. Requires mod_rewrite.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteCond %{REQUEST_URI}      !/api/ [NC]
+    RewriteRule ^                   router.php [QSA,L]
+</IfModule>
