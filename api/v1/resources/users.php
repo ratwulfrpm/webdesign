@@ -11,13 +11,16 @@
  */
 
 require_once __DIR__ . '/../../../includes/org_scope.php';
+require_once __DIR__ . '/../../../includes/mailer.php';
+require_once __DIR__ . '/../../../includes/audit.php';
+require_once __DIR__ . '/../../../includes/Validator.php';
 
 function handleUsers(string $method, ?int $id): void
 {
     $auth = requireApiAuth(['admin', 'owner', 'support']);
     $pdo  = getDB();
 
-    // Support is read-only: cannot activate, deactivate, or unlock users
+    // Support is read-only: cannot activate, deactivate, unlock, or reset users
     if ($method === 'PATCH' && $auth['role'] === 'support') {
         jsonError('Forbidden: support role cannot modify users', 403);
     }
@@ -234,18 +237,23 @@ function _patchScopedUser(int $id, array $auth, PDO $pdo): void
 
     $body = parseBody();
     $action = strField($body['action'] ?? '', 20);
-    if (!in_array($action, ['activate', 'deactivate', 'unlock'], true)) {
-        jsonError('Invalid action. Allowed: activate, deactivate, unlock', 422);
+    if (!in_array($action, ['activate', 'deactivate', 'unlock', 'reset-password'], true)) {
+        jsonError('Invalid action. Allowed: activate, deactivate, unlock, reset-password', 422);
     }
 
     if ($action === 'deactivate' && $id === (int) $auth['user_id']) {
         jsonError('You cannot deactivate your own account', 422);
     }
 
+    if ($action === 'reset-password') {
+        _resetUserPassword($id, $auth, $pdo, $row);
+        return; // _resetUserPassword always exits via jsonOk/jsonError
+    }
+
     match ($action) {
-        'activate' => $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = ?')->execute([$id]),
+        'activate'   => $pdo->prepare('UPDATE users SET is_active = 1 WHERE id = ?')->execute([$id]),
         'deactivate' => $pdo->prepare('UPDATE users SET is_active = 0 WHERE id = ?')->execute([$id]),
-        'unlock' => $pdo->prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')->execute([$id]),
+        'unlock'     => $pdo->prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')->execute([$id]),
     };
 
     $updated = _loadScopedUserRow($id, $auth, $pdo);
@@ -253,4 +261,100 @@ function _patchScopedUser(int $id, array $auth, PDO $pdo): void
         'action' => $action,
         'user' => _mapScopedUserRow($updated ?: $row),
     ]);
+}
+
+/**
+ * POST /api/v1/users/:id  action=reset-password
+ *
+ * Generates a 36-char alphanumeric temporary password, stores its hash,
+ * marks must_change_password = 1, and sends the temp password by email.
+ *
+ * RBAC:
+ *   owner  → can reset admin, support, supplier (not other owners)
+ *   admin  → can reset support, supplier within their org scope
+ *   support → forbidden (never reaches here; blocked above)
+ *
+ * SECURITY:
+ *   - Temp password is NEVER returned in the API response.
+ *   - Temp password is sent only to the user's registered email.
+ *   - Only the bcrypt hash is stored in the database.
+ *   - Audit log records the event without logging the temp password.
+ */
+function _resetUserPassword(int $id, array $auth, PDO $pdo, array $row): void
+{
+    $actorRole = $auth['role'];
+
+    // Determine target's primary role from the loaded row.
+    $targetRoles = array_values(array_filter(explode(',', (string) ($row['roles_csv'] ?? ''))));
+    $targetRole  = $targetRoles[0] ?? 'supplier';
+
+    // RBAC guards
+    if ($actorRole === 'owner') {
+        if ($targetRole === 'owner') {
+            jsonError('Cannot reset password of another owner', 403);
+        }
+    } elseif ($actorRole === 'admin') {
+        if (in_array($targetRole, ['owner', 'admin'], true)) {
+            jsonError('Admin cannot reset password of owner or admin', 403);
+        }
+    } else {
+        jsonError('Forbidden', 403);
+    }
+
+    // Fetch target email and language
+    $tgtStmt = $pdo->prepare('SELECT email, preferred_language FROM users WHERE id = ? LIMIT 1');
+    $tgtStmt->execute([$id]);
+    $targetUser = $tgtStmt->fetch();
+    if (!$targetUser) {
+        jsonError('User not found', 404);
+    }
+
+    $tempPassword = Validator::generateTemporaryPassword();
+    $tempHash     = password_hash($tempPassword, PASSWORD_BCRYPT, ['cost' => 12]);
+    $createdAt    = date('Y-m-d H:i:s');
+    $expiresAt    = date('Y-m-d H:i:s', time() + 86400);
+    $expiresHuman = date('d/m/Y H:i', time() + 86400);
+    $targetLang   = $targetUser['preferred_language'] ?? 'es';
+
+    $pdo->prepare(
+        'UPDATE users
+            SET password_hash                  = ?,
+                must_change_password            = 1,
+                temporary_password_created_at   = ?,
+                temporary_password_expires_at   = ?,
+                failed_attempts                 = 0,
+                locked_until                    = NULL
+          WHERE id = ?'
+    )->execute([$tempHash, $createdAt, $expiresAt, $id]);
+
+    $emailResult = sendPasswordResetEmail(
+        $targetUser['email'],
+        $tempPassword,
+        $expiresHuman,
+        $targetLang
+    );
+
+    auditLog('password_reset_requested', 'info', null, $auth['user_id'], [
+        'target_user_id' => $id,
+        'email_sent'     => $emailResult['sent'],
+    ]);
+    auditLog('temporary_password_generated', 'info', null, $auth['user_id'], [
+        'target_user_id' => $id,
+    ]);
+
+    $response = [
+        'action'          => 'reset-password',
+        'must_change_password' => true,
+        'temporary_password_expires_at' => $expiresAt,
+        'email_sent'      => $emailResult['sent'],
+    ];
+
+    // DEV-ONLY: include temp password in response when using placeholder credentials.
+    // NEVER returned in production (email credentials configured → no dev_temp_password key).
+    if (isset($emailResult['dev_temp_password'])) {
+        $response['dev_temp_password'] = $emailResult['dev_temp_password'];
+        $response['_dev_notice']       = 'DEV-ONLY. Remove placeholder MAIL_USER/MAIL_PASS to suppress.';
+    }
+
+    jsonOk($response);
 }

@@ -256,4 +256,84 @@ final class Validator
     {
         return strip_tags($value) === $value;
     }
+
+    // ── Password policy ───────────────────────────────────────
+
+    /** Minimum length for a permanent (user-defined) password. */
+    public const PASSWORD_MIN_LEN = 12;
+    /** Maximum length accepted before bcrypt DoS cap. */
+    public const PASSWORD_MAX_LEN = 128;
+
+    /**
+     * Validate a permanent password against the application policy.
+     *
+     * Rules:
+     *   - 12–128 characters
+     *   - At least one uppercase ASCII letter (A-Z)
+     *   - At least one lowercase ASCII letter (a-z)
+     *   - At least one ASCII digit (0-9)
+     *   - Special characters are allowed but not required
+     *   - Empty string is rejected
+     *
+     * Does NOT apply to the 36-char alphanumeric temporary passwords generated
+     * by admin/owner; those follow their own generation rule.
+     *
+     * @param  string $password  The plaintext password to validate
+     * @return array{ok: bool, errors: string[]}
+     */
+    public static function validatePassword(string $password): array
+    {
+        $errors = [];
+
+        if ($password === '') {
+            $errors[] = 'password_empty';
+            return ['ok' => false, 'errors' => $errors];
+        }
+
+        $len = strlen($password);   // byte length for bcrypt compatibility check
+
+        if ($len < self::PASSWORD_MIN_LEN) {
+            $errors[] = 'password_too_short';
+        }
+        if ($len > self::PASSWORD_MAX_LEN) {
+            $errors[] = 'password_too_long';
+        }
+        if (!preg_match('/[A-Z]/', $password)) {
+            $errors[] = 'password_no_upper';
+        }
+        if (!preg_match('/[a-z]/', $password)) {
+            $errors[] = 'password_no_lower';
+        }
+        if (!preg_match('/[0-9]/', $password)) {
+            $errors[] = 'password_no_digit';
+        }
+
+        return ['ok' => empty($errors), 'errors' => $errors];
+    }
+
+    /**
+     * Generate a cryptographically random 36-character alphanumeric
+     * temporary password.
+     *
+     * Alphabet: uppercase A-Z (without I, O), lowercase a-z (without l),
+     * digits 2-9 (without 0, 1) — avoids visually ambiguous characters.
+     * Length: 36 chars → ~208 bits of entropy from this 57-symbol alphabet.
+     *
+     * SECURITY:
+     *   - Uses random_int() (CSPRNG) for every character.
+     *   - Never call this function more than once per reset — store only the hash.
+     *   - Never log the return value.
+     *
+     * @return string  36-character alphanumeric temporary password (plain text)
+     */
+    public static function generateTemporaryPassword(): string
+    {
+        $alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+        $len      = strlen($alphabet);
+        $password = '';
+        for ($i = 0; $i < 36; $i++) {
+            $password .= $alphabet[random_int(0, $len - 1)];
+        }
+        return $password;
+    }
 }

@@ -294,6 +294,208 @@ function writeInviteLog(string $to, string $subject, string $body, string $link)
 }
 
 // ---------------------------------------------------------------------------
+// PASSWORD RESET EMAIL  (admin/owner → user)
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a temporary password reset email to the user.
+ *
+ * SECURITY:
+ *   - tempPassword is sent to the user's registered email only.
+ *   - In production (real SMTP), this function returns no trace of the temp password.
+ *   - In dev mode (placeholder credentials), the temp password is written to
+ *     logs/mail.log AND returned in the 'dev_temp_password' array key.
+ *     This key is ONLY present when credentials are placeholders.
+ *     NEVER display 'dev_temp_password' in production UI.
+ *
+ * @param  string $toEmail      Recipient address
+ * @param  string $tempPassword Plain-text temporary password (36-char alphanumeric)
+ * @param  string $expiresAt    Human-readable expiry datetime string (display only)
+ * @param  string $lang         'es' | 'en' | 'zh'
+ * @return array{sent: bool, logged: bool, log_path: string|null, dev_temp_password?: string}
+ */
+function sendPasswordResetEmail(
+    string $toEmail,
+    string $tempPassword,
+    string $expiresAt,
+    string $lang = 'es'
+): array {
+    $subject  = $lang === 'en'
+        ? 'Password reset — temporary password'
+        : ($lang === 'zh'
+            ? '密码重置 — 临时密码'
+            : 'Restablecimiento de contrasena — clave temporal');
+
+    $bodyText = _buildResetBodyText($toEmail, $tempPassword, $expiresAt, $lang);
+    $bodyHtml = _buildResetBodyHtml($toEmail, $tempPassword, $expiresAt, $lang);
+
+    $credPlaceholder = (
+        MAIL_USER === 'TU_CORREO@gmail.com' ||
+        MAIL_PASS === 'xxxx xxxx xxxx xxxx'
+    );
+
+    if ($credPlaceholder) {
+        // DEV-ONLY: log to file including the temp password for developer convenience.
+        // This code path is NEVER reached in production (real SMTP credentials).
+        $logged = _writeResetLog($toEmail, $subject, $bodyText);
+        return [
+            'sent'              => false,
+            'logged'            => $logged,
+            'log_path'          => MAIL_LOG_DIR . '/mail.log',
+            'dev_temp_password' => $tempPassword,   // DEV-ONLY key
+        ];
+    }
+
+    // Production: send via PHPMailer (no temp password in return value).
+    try {
+        $mail = new PHPMailer(true);
+
+        $mail->isSMTP();
+        $mail->Host       = MAIL_HOST;
+        $mail->Port       = MAIL_PORT;
+        $mail->SMTPSecure = MAIL_ENCRYPT;
+        $mail->SMTPAuth   = true;
+        $mail->Username   = MAIL_USER;
+        $mail->Password   = str_replace(' ', '', MAIL_PASS);
+
+        if (!defined('MAIL_VERIFY_SSL') || !MAIL_VERIFY_SSL) {
+            $mail->SMTPOptions = [
+                'ssl' => [
+                    'verify_peer'       => false,
+                    'verify_peer_name'  => false,
+                    'allow_self_signed' => true,
+                ],
+            ];
+        }
+
+        $mail->CharSet = PHPMailer::CHARSET_UTF8;
+        $mail->setFrom(MAIL_USER, MAIL_FROM_NAME);
+        $mail->addReplyTo(MAIL_REPLY_TO, MAIL_FROM_NAME);
+        $mail->addAddress($toEmail);
+
+        $mail->isHTML(true);
+        $mail->Subject = $subject;
+        $mail->Body    = $bodyHtml;
+        $mail->AltBody = $bodyText;
+
+        $mail->send();
+
+        return ['sent' => true, 'logged' => false, 'log_path' => null];
+
+    } catch (PHPMailerException $e) {
+        $logged = _writeResetLog($toEmail, $subject, $bodyText);
+        writeErrorLog($e->getMessage());
+        return ['sent' => false, 'logged' => $logged, 'log_path' => MAIL_LOG_DIR . '/mail.log'];
+    }
+}
+
+function _buildResetBodyText(
+    string $toEmail,
+    string $tempPassword,
+    string $expiresAt,
+    string $lang
+): string {
+    if ($lang === 'en') {
+        return "Hello,\n\n"
+            . "A temporary password has been generated for your account ({$toEmail}).\n\n"
+            . "Temporary password:  {$tempPassword}\n\n"
+            . "This password expires: {$expiresAt}\n\n"
+            . "When you sign in, the system will immediately ask you to create a new permanent password.\n"
+            . "You will not be able to access the dashboard until you complete this step.\n\n"
+            . "If you did not request this reset, contact your administrator immediately.\n\n"
+            . "- Notificaciones App";
+    }
+    if ($lang === 'zh') {
+        return "您好，\n\n"
+            . "已为您的账户（{$toEmail}）生成临时密码。\n\n"
+            . "临时密码：{$tempPassword}\n\n"
+            . "有效期至：{$expiresAt}\n\n"
+            . "登录后，系统将立即要求您设置新的永久密码。\n"
+            . "在完成此步骤之前，您将无法访问控制面板。\n\n"
+            . "如果您没有请求此重置，请立即联系您的管理员。\n\n"
+            . "- Notificaciones App";
+    }
+    // Spanish (default)
+    return "Hola,\n\n"
+        . "Se ha generado una contrasena temporal para su cuenta ({$toEmail}).\n\n"
+        . "Contrasena temporal:  {$tempPassword}\n\n"
+        . "Esta contrasena vence el: {$expiresAt}\n\n"
+        . "Al ingresar, el sistema le pedira crear una nueva contrasena permanente.\n"
+        . "No podra acceder al panel hasta completar este paso.\n\n"
+        . "Si usted no solicito este restablecimiento, contacte a su administrador de inmediato.\n\n"
+        . "- Notificaciones App";
+}
+
+function _buildResetBodyHtml(
+    string $toEmail,
+    string $tempPassword,
+    string $expiresAt,
+    string $lang
+): string {
+    $esc = fn($v) => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+
+    [$h1, $p1, $p2, $p3, $p4, $p5] = match ($lang) {
+        'en' => [
+            'Password reset',
+            'A temporary password has been generated for your account:',
+            'Temporary password:',
+            "Expires: {$expiresAt}",
+            'When you sign in, you will be required to create a new permanent password immediately. You will not be able to access the system until this step is completed.',
+            'If you did not request this reset, contact your administrator immediately.',
+        ],
+        'zh' => [
+            '密码重置',
+            '已为您的账户生成临时密码：',
+            '临时密码：',
+            "有效期至：{$expiresAt}",
+            '登录后，系统将立即要求您设置新的永久密码。在完成此步骤之前，您将无法访问控制面板。',
+            '如果您没有请求此重置，请立即联系您的管理员。',
+        ],
+        default => [
+            'Restablecimiento de contrasena',
+            'Se ha generado una contrasena temporal para su cuenta:',
+            'Contrasena temporal:',
+            "Vence el: {$expiresAt}",
+            'Al ingresar, el sistema le pedira crear una nueva contrasena permanente de inmediato. No podra acceder al panel hasta completar este paso.',
+            'Si no solicito este restablecimiento, contacte a su administrador de inmediato.',
+        ],
+    };
+
+    return '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>'
+        . '<body style="font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f5f5f7;margin:0;padding:32px 16px;">'
+        . '<div style="max-width:480px;margin:0 auto;background:#fff;border-radius:16px;padding:36px 32px;box-shadow:0 2px 12px rgba(0,0,0,.07);">'
+        . '<h1 style="font-size:1.25rem;font-weight:700;color:#1d1d1f;margin:0 0 16px;">' . $esc($h1) . '</h1>'
+        . '<p style="font-size:.9rem;color:#6e6e73;margin:0 0 8px;">' . $esc($p1) . '</p>'
+        . '<p style="font-size:.85rem;font-weight:600;color:#1d1d1f;margin:0 0 12px;">' . $esc($toEmail) . '</p>'
+        . '<p style="font-size:.85rem;color:#6e6e73;margin:0 0 8px;">' . $esc($p2) . '</p>'
+        . '<div style="background:#f5f5f7;border-radius:12px;padding:16px 20px;font-family:monospace;font-size:1.1rem;font-weight:700;color:#1d1d1f;letter-spacing:.08em;word-break:break-all;margin-bottom:12px;">'
+        . $esc($tempPassword)
+        . '</div>'
+        . '<p style="font-size:.8rem;color:#ff3b30;margin:0 0 16px;font-weight:600;">' . $esc($p3) . '</p>'
+        . '<p style="font-size:.85rem;color:#6e6e73;margin:0 0 16px;">' . $esc($p4) . '</p>'
+        . '<p style="font-size:.8rem;color:#6e6e73;margin:0;">' . $esc($p5) . '</p>'
+        . '</div></body></html>';
+}
+
+function _writeResetLog(string $to, string $subject, string $body): bool
+{
+    $dir = MAIL_LOG_DIR;
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    if (!is_dir($dir)) return false;
+
+    $line = sprintf(
+        "[%s] PWD-RESET TO=%s | SUBJECT=%s\n---\n%s\n===\n",
+        date('Y-m-d H:i:s'),
+        $to,
+        $subject,
+        $body
+    );
+    return (bool) file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);
+}
+
+// ---------------------------------------------------------------------------
 // ASSIGNMENT QR SHARE EMAIL
 // ---------------------------------------------------------------------------
 

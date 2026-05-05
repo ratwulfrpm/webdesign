@@ -840,5 +840,38 @@ return [
     'bu_error_invalid_selection'   => '无效选择。',
     'bu_error_assign_self'         => '您无法通过此表单修改自己的成员资格。',
     'bu_error_user_not_found'      => '用户不存在或已被禁用。',
+
+    // ── 临时密码重置 ──────────────────────────────────────────────────────
+    'btn_reset_password'           => '重置密码',
+    'reset_password_confirm'       => '确定要重置该用户的密码吗？系统将向其发送临时密码，登录后必须修改。',
+    'reset_pwd_success'            => '密码已重置。用户将收到一封包含临时密码的电子邮件。',
+    'reset_pwd_err_forbidden'      => '您无权重置该用户的密码。',
+    'reset_pwd_dev_notice'         => '已生成临时密码（仅开发模式可见）：',
+    'error_unsupported_role'       => '此角色不允许执行该操作。',
+    'error_not_found'              => '用户不存在。',
+    'error_temp_password_expired'  => '临时密码已过期。请联系管理员获取新密码。',
+
+    // ── 强制修改密码页面 (change_password.php) ────────────────────────────
+    'change_pwd_page_title'        => '修改密码 — Local App',
+    'change_pwd_title'             => '需要修改密码',
+    'change_pwd_subtitle'          => '您的管理员已重置您的密码。请先设置新密码，然后才能继续。',
+    'change_pwd_new_label'         => '新密码',
+    'change_pwd_new_placeholder'   => '最少12个字符',
+    'change_pwd_confirm_label'     => '确认密码',
+    'change_pwd_confirm_placeholder' => '重复输入密码',
+    'change_pwd_btn_submit'        => '修改密码',
+    'change_pwd_policy_hint'       => '密码至少需要12个字符，并包含大写字母、小写字母和数字。',
+    'change_pwd_err_empty'         => '请输入新密码。',
+    'change_pwd_err_mismatch'      => '两次输入的密码不一致。',
+    'change_pwd_err_policy'        => '密码不符合安全要求。',
+    'change_pwd_err_server'        => '更新密码时出错，请重试。',
+
+    // ── 密码策略错误（Validator::validatePassword）──────────────────────
+    'password_empty'               => '请输入密码。',
+    'password_too_short'           => '密码至少需要12个字符。',
+    'password_too_long'            => '密码不能超过128个字符。',
+    'password_no_upper'            => '密码必须包含至少一个大写字母。',
+    'password_no_lower'            => '密码必须包含至少一个小写字母。',
+    'password_no_digit'            => '密码必须包含至少一个数字。',
 ];
 

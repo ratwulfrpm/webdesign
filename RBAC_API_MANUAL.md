@@ -465,6 +465,123 @@ Apache / .htaccess (project root)
        └── No match  ───────────────────────────────────────────────▶ router.php
                                                                        (web front controller)
                                                                        Router::dispatch()
+
+---
+
+## 12) Temporary Password Reset & Forced Password Change (June 2026)
+
+### 12.1 Overview
+
+Administrators and owners can reset a user's password without knowing the current password. A 36-character cryptographically-random temporary password is generated, hashed with bcrypt (cost 12), and stored. The plaintext is sent to the user's registered email. The user is forced to change the password on next login via `change_password.php`.
+
+**Password policy (permanent passwords):**
+- Minimum 12 characters, maximum 128
+- At least one uppercase letter
+- At least one lowercase letter
+- At least one digit
+- Implemented in `Validator::validatePassword()`
+
+**Temporary password generation:**
+- 36 characters from a safe alphabet (no ambiguous chars: `0`, `O`, `I`, `1`, `l`)
+- CSPRNG via `random_int()`
+- Implemented in `Validator::generateTemporaryPassword()`
+- Expires 24 hours from generation
+
+### 12.2 RBAC enforcement matrix
+
+| Actor | Can reset | Cannot reset |
+|-------|-----------|--------------|
+| owner | admin, support, supplier | other owners, self |
+| admin | support, supplier (in assigned BUs only) | owner, other admins, self |
+| support | — (forbidden) | everyone |
+| supplier | — (forbidden) | everyone |
+
+### 12.3 Web UI endpoints
+
+| URL | Role | Action |
+|-----|------|--------|
+| `POST /login/admin/users.php` action=`reset_password` | admin | Reset support/supplier in scope |
+| `POST /login/owner/users.php` action=`reset_password` | owner | Reset admin/support/supplier globally |
+| `GET /login/change_password.php` | any (must_change_password=1) | View forced-change form |
+| `POST /login/change_password.php` | any (must_change_password=1) | Submit new permanent password |
+
+### 12.4 REST API endpoints
+
+**PATCH /api/v1/users/:id** — Reset user password
+
+```
+PATCH /api/v1/users/42
+Content-Type: application/json
+
+{ "action": "reset-password" }
+```
+
+Response 200:
+```json
+{
+  "ok": true,
+  "data": {
+    "action": "reset-password",
+    "must_change_password": true,
+    "temporary_password_expires_at": "2026-06-15 23:59:00",
+    "email_sent": true
+  }
+}
+```
+
+Response 403 — RBAC violation  
+Response 404 — user not found in scope  
+Response 422 — invalid action value
+
+**POST /api/v1/auth/change-required-password** — Change required (temporary) password
+
+```
+POST /api/v1/auth/change-required-password
+Content-Type: application/json
+
+{
+  "new_password": "MyNewSecure123!",
+  "confirm_password": "MyNewSecure123!"
+}
+```
+
+Response 200:
+```json
+{ "ok": true, "data": { "message": "Password changed successfully." } }
+```
+
+Response 401 — not logged in  
+Response 403 — must_change_password not active in session  
+Response 422 — validation failure (mismatch, policy violation)  
+Response 500 — database error
+
+### 12.5 Database schema additions
+
+Added by `setup/migrate_password_reset.sql`:
+
+```sql
+ALTER TABLE users
+  ADD COLUMN must_change_password          TINYINT(1)  NOT NULL DEFAULT 0,
+  ADD COLUMN temporary_password_created_at DATETIME    NULL,
+  ADD COLUMN temporary_password_expires_at DATETIME    NULL;
+
+CREATE INDEX idx_must_change_password ON users (must_change_password);
+```
+
+### 12.6 Session flags
+
+| Flag | Type | Set by | Used by |
+|------|------|--------|---------|
+| `$_SESSION['must_change_password']` | int (0/1) | `createSession()`, `createGlobalSession()`, `selectOrg()` | `requireAuth()`, login redirect |
+| `$_SESSION['pending_must_change_password']` | int (0/1) | `createPendingSession()` | `selectOrg()` (multi-org flow) |
+
+### 12.7 Security notes
+
+- Temp password is **never stored in plaintext** — only the bcrypt hash is persisted.
+- Temp password is **never returned in API responses** in production (only the `dev_temp_password` key appears when `MAIL_USER` is the placeholder string).
+- Expired temp passwords are detected at login and return `AUTH_TEMP_EXPIRED` — user must contact admin.
+- `requireAuth()` redirects to `change_password.php` when `must_change_password = 1`, using `basename()` check to prevent redirect loops.
+- Audit log entries: `password_reset_requested`, `temporary_password_generated`, `forced_password_change_completed`.
                                                                        requireAuth() / requireRole()
 ```
 

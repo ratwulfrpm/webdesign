@@ -116,6 +116,74 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             break;
 
+        case 'reset_password':
+            // Owner can reset admin, support, supplier — but not other owners or self.
+            if ($uid > 0 && $uid !== $userId) {
+                // Fetch target user to determine their role and email.
+                $tgtRow = $pdo->prepare(
+                    'SELECT u.id, u.email, u.preferred_language,
+                            om.role AS org_role
+                       FROM users u
+                       JOIN org_members om ON om.user_id = u.id AND om.is_active = 1
+                      WHERE u.id = ?
+                      LIMIT 1'
+                );
+                $tgtRow->execute([$uid]);
+                $targetUser = $tgtRow->fetch();
+
+                if (!$targetUser) {
+                    $feedback = t('error_not_found');
+                    break;
+                }
+
+                // Owner cannot reset another owner.
+                if ($targetUser['org_role'] === 'owner') {
+                    $feedback = t('reset_pwd_err_forbidden');
+                    break;
+                }
+
+                $tempPassword  = Validator::generateTemporaryPassword();
+                $tempHash      = password_hash($tempPassword, PASSWORD_BCRYPT, ['cost' => 12]);
+                $createdAt     = date('Y-m-d H:i:s');
+                $expiresAt     = date('Y-m-d H:i:s', time() + 86400); // 24 hours
+                $expiresHuman  = date('d/m/Y H:i', time() + 86400);
+                $targetLang    = $targetUser['preferred_language'] ?? $lang;
+
+                $pdo->prepare(
+                    'UPDATE users
+                        SET password_hash                  = ?,
+                            must_change_password            = 1,
+                            temporary_password_created_at   = ?,
+                            temporary_password_expires_at   = ?,
+                            failed_attempts                 = 0,
+                            locked_until                    = NULL
+                      WHERE id = ?'
+                )->execute([$tempHash, $createdAt, $expiresAt, $uid]);
+
+                $emailResult = sendPasswordResetEmail(
+                    $targetUser['email'],
+                    $tempPassword,
+                    $expiresHuman,
+                    $targetLang
+                );
+
+                auditLog('password_reset_requested', 'info', null, $userId, [
+                    'target_user_id' => $uid,
+                    'email_sent'     => $emailResult['sent'],
+                ]);
+                auditLog('temporary_password_generated', 'info', null, $userId, [
+                    'target_user_id' => $uid,
+                ]);
+
+                $feedback = t('reset_pwd_success');
+
+                // DEV-ONLY: if email is not configured, store temp password in flash.
+                if (isset($emailResult['dev_temp_password'])) {
+                    $_SESSION['dev_temp_password'] = $emailResult['dev_temp_password'];
+                }
+            }
+            break;
+
         case 'approve_contract_validity_request':
             if ($vrid > 0) {
                 $ok = cvrApproveRequest($pdo, $vrid, (int) $_SESSION['user_id'], null);
@@ -340,6 +408,10 @@ unset(
     $_SESSION['inv_email_result']
 );
 
+// ── Consume reset password dev flash (DEV-ONLY — never shown in production) ─
+$devTempPassword = $_SESSION['dev_temp_password'] ?? null;
+unset($_SESSION['dev_temp_password']);
+
 $username = htmlspecialchars($_SESSION['username'] ?? 'Owner', ENT_QUOTES, 'UTF-8');
 $initial  = strtoupper(substr($username, 0, 1));
 ?>
@@ -395,6 +467,14 @@ $initial  = strtoupper(substr($username, 0, 1));
                           stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             <span><?= htmlspecialchars($feedback, ENT_QUOTES, 'UTF-8') ?></span>
+        </div>
+        <?php endif; ?>
+
+        <?php if ($devTempPassword !== null): ?>
+        <!-- ⚠ DEV-ONLY BLOCK — Temporary password display (never shown in production) -->
+        <div class="alert" style="margin-bottom:20px;background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:16px 20px;" role="status">
+            <strong style="color:#856404;">[DEV] <?= t('reset_pwd_dev_notice') ?></strong><br>
+            <code style="font-size:1rem;letter-spacing:.06em;color:#1d1d1f;"><?= htmlspecialchars($devTempPassword, ENT_QUOTES, 'UTF-8') ?></code>
         </div>
         <?php endif; ?>
 
@@ -506,6 +586,19 @@ $initial  = strtoupper(substr($username, 0, 1));
                                         </select>
                                         <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_set_role') ?></button>
                                     </form>
+                                    <?php if ($primaryRole !== 'owner'): ?>
+                                    <!-- Row 3: reset password (not available for other owners) -->
+                                    <div class="user-actions-row">
+                                        <form method="POST" action="/login/owner/users.php"
+                                              onsubmit="return confirm(<?= htmlspecialchars(json_encode(t('reset_password_confirm')), ENT_QUOTES, 'UTF-8') ?>)">
+                                            <input type="hidden" name="csrf_token"
+                                                   value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
+                                            <input type="hidden" name="user_id" value="<?= (int) $u['id'] ?>">
+                                            <input type="hidden" name="action" value="reset_password">
+                                            <button type="submit" class="btn-tbl btn-secondary"><?= t('btn_reset_password') ?></button>
+                                        </form>
+                                    </div>
+                                    <?php endif; ?>
                                 </div>
                                 <?php endif; ?>
                             </td>

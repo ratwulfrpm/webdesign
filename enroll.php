@@ -154,21 +154,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $formError = t('enroll_err_username_len');
         } elseif (!preg_match('/^[a-zA-Z0-9_\-]+$/', $username)) {
             $formError = t('enroll_err_username_chars');
-        } elseif (strlen($password) < 8) {
-            $formError = t('enroll_err_password_len');
         } elseif ($password !== $confirm) {
+            // Check password match before policy to give a more specific error first.
             $formError = t('enroll_err_password_match');
         } else {
-            // ── Check uniqueness ──────────────────────────────
-            $chkEmail = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
-            $chkEmail->execute([$email]);
-            if ($chkEmail->fetch()) {
-                $formError = t('enroll_err_email_taken');
-            } else {
-                $chkUser = $pdo->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
-                $chkUser->execute([$username]);
-                if ($chkUser->fetch()) {
-                    $formError = t('enroll_err_username_taken');
+            // Policy check: 12+ chars, upper + lower + digit
+            $policyResult = Validator::validatePassword($password);
+            if (!$policyResult['ok']) {
+                $firstError = $policyResult['errors'][0] ?? '';
+                // Map Validator error keys to enroll-specific or generic lang keys.
+                $formError = match ($firstError) {
+                    'password_too_short' => t('enroll_err_password_len'),
+                    default              => t($firstError),
+                };
+            }
+
+            if ($formError === '') {
+                // ── Check uniqueness ──────────────────────────────
+                $chkEmail = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+                $chkEmail->execute([$email]);
+                if ($chkEmail->fetch()) {
+                    $formError = t('enroll_err_email_taken');
+                } else {
+                    $chkUser = $pdo->prepare('SELECT id FROM users WHERE username = ? LIMIT 1');
+                    $chkUser->execute([$username]);
+                    if ($chkUser->fetch()) {
+                        $formError = t('enroll_err_username_taken');
+                    }
                 }
             }
         }

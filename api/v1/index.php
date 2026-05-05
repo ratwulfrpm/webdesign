@@ -152,6 +152,12 @@ switch ($resource) {
         handleAdminContractValidityRoutes($method, $segments);
         break;
 
+    case 'auth':
+        // POST /api/v1/auth/change-required-password
+        require_once __DIR__ . '/resources/auth.php';
+        handleAuth($method, $sub);
+        break;
+
     case '':
         jsonOk([
             'api'     => 'webdesign REST API',

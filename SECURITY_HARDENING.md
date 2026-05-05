@@ -271,6 +271,60 @@ Configured in `includes/session.php` via `session_set_cookie_params()`:
 
 No role, BU ID, or any business data is stored in cookies. The session cookie carries only the PHP session ID.
 
+---
+
+## 9) Temporary Password Reset & Forced Password Change (June 2026)
+
+### 9.1 Threat model
+
+Administrators must be able to unlock access for users who have forgotten their password, without exposing the existing password or creating a persistent back-door.
+
+### 9.2 Security controls
+
+| Control | Implementation |
+|---------|---------------|
+| Temp password generation | `Validator::generateTemporaryPassword()` — 36 chars, CSPRNG via `random_int()`, no ambiguous chars |
+| Storage | Only bcrypt hash (cost 12) stored; plaintext is discarded after hashing |
+| Delivery | Sent to user's registered email only; never logged, never in HTTP response body (production) |
+| Expiry | 24 hours — `temporary_password_expires_at` enforced at login |
+| Post-expiry | `AUTH_TEMP_EXPIRED` returned → login blocked → user must contact admin |
+| Forced change | `must_change_password = 1` → redirect to `change_password.php` on every request until changed |
+| New password policy | 12–128 chars, upper + lower + digit, via `Validator::validatePassword()` |
+| Audit trail | `password_reset_requested`, `temporary_password_generated`, `forced_password_change_completed` |
+| Session hardening | `session_regenerate_id(true)` after successful password change |
+| Dev-mode safety | `dev_temp_password` key only present in API/UI response when `MAIL_USER` is the placeholder string |
+
+### 9.3 RBAC constraints
+
+- Support and supplier roles **cannot** initiate a password reset.
+- Admin can only reset support/supplier users **within their assigned business units**.
+- Owner can reset admin/support/supplier users globally.
+- No role can reset another user of the same or higher rank.
+- Self-reset via this mechanism is blocked (admin/owner cannot reset their own account here).
+
+### 9.4 Redirect loop prevention
+
+`change_password.php` uses `isLoggedIn()` (not `requireAuth()`) to avoid triggering `requireAuth()`'s own redirect to `change_password.php`. `requireAuth()` itself checks `basename($_SERVER['SCRIPT_FILENAME']) !== 'change_password.php'` before redirecting.
+
+### 9.5 Files modified / created
+
+| File | Change |
+|------|--------|
+| `setup/migrate_password_reset.sql` | DB migration: adds `must_change_password`, `temporary_password_created_at`, `temporary_password_expires_at` columns + index |
+| `includes/Validator.php` | Added `PASSWORD_MIN_LEN`, `PASSWORD_MAX_LEN`, `validatePassword()`, `generateTemporaryPassword()` |
+| `includes/mailer.php` | Added `sendPasswordResetEmail()` + multilingual templates |
+| `includes/auth.php` | `AUTH_TEMP_EXPIRED` constant; expiry check in `attemptLogin()`; must_change_password propagated to session |
+| `index.php` | `AUTH_TEMP_EXPIRED` error display; must_change_password redirect |
+| `org-picker.php` | must_change_password redirect after BU selection |
+| `change_password.php` | **New file** — forced password change page |
+| `admin/users.php` | Reset password action + button (support/supplier scope) |
+| `owner/users.php` | Reset password action + button (admin/support/supplier scope) |
+| `api/v1/resources/users.php` | PATCH action `reset-password` |
+| `api/v1/resources/auth.php` | **New file** — `POST /api/v1/auth/change-required-password` |
+| `api/v1/index.php` | Route `case 'auth':` added |
+| `enroll.php` | Password validation upgraded from `strlen < 8` to `Validator::validatePassword()` |
+| `lang/es.php`, `lang/en.php`, `lang/zh.php` | New keys for reset flow, forced change page, and policy errors |
+
 ### 8.4 Public Token Context Isolation (`quote.php`)
 
 The public quotation page operates in **token-only mode**:

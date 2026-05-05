@@ -25,9 +25,10 @@ define('IDLE_TIMEOUT', 1800);       // 30-minute inactivity limit
 define('ABSOLUTE_TIMEOUT', 28800);  // 8-hour hard session ceiling
 define('ORG_PICK_TIMEOUT', 300);
 
-define('AUTH_INVALID',  'INVALID');
-define('AUTH_INACTIVE', 'INACTIVE');
-define('AUTH_NO_ORG',   'NO_ORG');
+define('AUTH_INVALID',       'INVALID');
+define('AUTH_INACTIVE',      'INACTIVE');
+define('AUTH_NO_ORG',        'NO_ORG');
+define('AUTH_TEMP_EXPIRED',  'TEMP_EXPIRED');
 
 define('ROLE_HIERARCHY', [
     'owner'    => 4,
@@ -58,7 +59,8 @@ function attemptLogin(string $identifier, string $password): array|string
     $stmt = $pdo->prepare(
         'SELECT id, username, email, password_hash,
                 is_active, role, failed_attempts, locked_until,
-                first_login, preferred_language
+                first_login, preferred_language,
+                must_change_password, temporary_password_expires_at
            FROM users
           WHERE email = :e OR username = :u
           LIMIT 1'
@@ -102,6 +104,15 @@ function attemptLogin(string $identifier, string $password): array|string
     // Legacy end-customer role is deprecated: access is now token-only via quote link.
     if (($user['role'] ?? '') === 'user') {
         return AUTH_INVALID;
+    }
+
+    // If a temporary password is set, check it has not expired.
+    // The password itself verified above — now check the time window.
+    if ((int) ($user['must_change_password'] ?? 0) === 1) {
+        $expiresAt = $user['temporary_password_expires_at'] ?? null;
+        if ($expiresAt !== null && strtotime($expiresAt) < time()) {
+            return AUTH_TEMP_EXPIRED;
+        }
     }
 
     $pdo->prepare('UPDATE users SET failed_attempts = 0, locked_until = NULL WHERE id = ?')
@@ -194,14 +205,15 @@ function createPendingSession(array $user, array $orgs): void
     session_regenerate_id(true);
     $_SESSION = [];
 
-    $_SESSION['pending_login']       = true;
-    $_SESSION['pending_user_id']     = (int) $user['id'];
-    $_SESSION['pending_username']    = $user['username'];
-    $_SESSION['pending_first_login'] = (int) $user['first_login'];
-    $_SESSION['pending_orgs']        = $orgs;
-    $_SESSION['pending_role']        = 'support';
-    $_SESSION['lang']                = $user['preferred_language'] ?? 'es';
-    $_SESSION['last_activity']       = time();
+    $_SESSION['pending_login']                   = true;
+    $_SESSION['pending_user_id']                 = (int) $user['id'];
+    $_SESSION['pending_username']                = $user['username'];
+    $_SESSION['pending_first_login']             = (int) $user['first_login'];
+    $_SESSION['pending_orgs']                    = $orgs;
+    $_SESSION['pending_role']                    = 'support';
+    $_SESSION['pending_must_change_password']    = (int) ($user['must_change_password'] ?? 0);
+    $_SESSION['lang']                            = $user['preferred_language'] ?? 'es';
+    $_SESSION['last_activity']                   = time();
 }
 
 /**
@@ -236,18 +248,19 @@ function selectOrg(int $orgId): bool
     session_regenerate_id(true);
     $_SESSION = [];
 
-    $_SESSION['logged_in']          = true;
-    $_SESSION['user_id']             = $userId;
-    $_SESSION['username']            = $username;
-    $_SESSION['role']                = $found['role'];
-    $_SESSION['org_id']              = (int) $found['id'];
-    $_SESSION['org_slug']            = $found['slug'];
-    $_SESSION['org_name']            = $found['name'];
-    $_SESSION['support_orgs']        = $supportOrgs;
-    $_SESSION['first_login']         = $firstLogin;
-    $_SESSION['lang']                = $lang;
-    $_SESSION['last_activity']       = time();
-    $_SESSION['session_start_time']  = time();
+    $_SESSION['logged_in']              = true;
+    $_SESSION['user_id']                 = $userId;
+    $_SESSION['username']                = $username;
+    $_SESSION['role']                    = $found['role'];
+    $_SESSION['org_id']                  = (int) $found['id'];
+    $_SESSION['org_slug']                = $found['slug'];
+    $_SESSION['org_name']                = $found['name'];
+    $_SESSION['support_orgs']            = $supportOrgs;
+    $_SESSION['first_login']             = $firstLogin;
+    $_SESSION['must_change_password']    = (int) ($_SESSION['pending_must_change_password'] ?? 0);
+    $_SESSION['lang']                    = $lang;
+    $_SESSION['last_activity']           = time();
+    $_SESSION['session_start_time']      = time();
 
     return true;
 }
@@ -261,20 +274,21 @@ function createSession(array $user, array $org): void
     session_regenerate_id(true);
     $_SESSION = [];
 
-    $_SESSION['logged_in']         = true;
-    $_SESSION['user_id']           = (int) $user['id'];
-    $_SESSION['username']          = $user['username'];
-    $_SESSION['role']              = $org['role'];
-    $_SESSION['org_id']            = (int) $org['id'];
-    $_SESSION['org_slug']          = $org['slug'];
-    $_SESSION['org_name']          = $org['name'];
+    $_SESSION['logged_in']              = true;
+    $_SESSION['user_id']                 = (int) $user['id'];
+    $_SESSION['username']                = $user['username'];
+    $_SESSION['role']                    = $org['role'];
+    $_SESSION['org_id']                  = (int) $org['id'];
+    $_SESSION['org_slug']                = $org['slug'];
+    $_SESSION['org_name']                = $org['name'];
     if (($org['role'] ?? '') === 'support') {
         $_SESSION['support_orgs'] = [$org];
     }
-    $_SESSION['first_login']        = (int) $user['first_login'];
-    $_SESSION['lang']               = $user['preferred_language'] ?? 'es';
-    $_SESSION['last_activity']      = time();
-    $_SESSION['session_start_time'] = time();
+    $_SESSION['first_login']             = (int) $user['first_login'];
+    $_SESSION['must_change_password']    = (int) ($user['must_change_password'] ?? 0);
+    $_SESSION['lang']                    = $user['preferred_language'] ?? 'es';
+    $_SESSION['last_activity']           = time();
+    $_SESSION['session_start_time']      = time();
 }
 
 /**
@@ -285,17 +299,18 @@ function createGlobalSession(array $user, string $role): void
     session_regenerate_id(true);
     $_SESSION = [];
 
-    $_SESSION['logged_in']         = true;
-    $_SESSION['user_id']           = (int) $user['id'];
-    $_SESSION['username']          = $user['username'];
-    $_SESSION['role']              = $role;
-    $_SESSION['org_id']            = 0;
-    $_SESSION['org_slug']          = '';
-    $_SESSION['org_name']          = '';
-    $_SESSION['first_login']       = (int) $user['first_login'];
-    $_SESSION['lang']              = $user['preferred_language'] ?? 'es';
-    $_SESSION['last_activity']     = time();
-    $_SESSION['session_start_time']= time();
+    $_SESSION['logged_in']              = true;
+    $_SESSION['user_id']                 = (int) $user['id'];
+    $_SESSION['username']                = $user['username'];
+    $_SESSION['role']                    = $role;
+    $_SESSION['org_id']                  = 0;
+    $_SESSION['org_slug']                = '';
+    $_SESSION['org_name']                = '';
+    $_SESSION['first_login']             = (int) $user['first_login'];
+    $_SESSION['must_change_password']    = (int) ($user['must_change_password'] ?? 0);
+    $_SESSION['lang']                    = $user['preferred_language'] ?? 'es';
+    $_SESSION['last_activity']           = time();
+    $_SESSION['session_start_time']      = time();
 }
 
 /** True only when a full (org-selected) session is active. */
@@ -371,6 +386,15 @@ function requireAuth(): void
         exit;
     }
     $_SESSION['last_activity'] = $now;
+
+    // Forced password change — redirect to change_password.php for any page except itself.
+    if (!empty($_SESSION['must_change_password'])) {
+        $currentFile = basename((string) ($_SERVER['SCRIPT_FILENAME'] ?? ''));
+        if ($currentFile !== 'change_password.php') {
+            header('Location: /login/change_password.php');
+            exit;
+        }
+    }
 
     try {
         $pdo  = getDB();

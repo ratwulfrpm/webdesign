@@ -104,6 +104,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Owner/admin are always global and never select a business unit.
                 if ($effectiveRole === 'owner' || $effectiveRole === 'admin') {
                     createGlobalSession($result, $effectiveRole);
+                    if (!empty($_SESSION['must_change_password'])) {
+                        header('Location: /login/change_password.php');
+                        exit;
+                    }
                     redirectToHome();
                     exit;
                 }
@@ -112,6 +116,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($effectiveRole === 'support') {
                     if (count($orgs) === 1) {
                         createSession($result, $orgs[0]);
+                        if (!empty($_SESSION['must_change_password'])) {
+                            header('Location: /login/change_password.php');
+                            exit;
+                        }
                         redirectToHome();
                         exit;
                     }
@@ -124,6 +132,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $firstSupplierOrg = firstOrgForRole($orgs, 'supplier');
                 if ($firstSupplierOrg !== null) {
                     createSession($result, $firstSupplierOrg);
+                    if (!empty($_SESSION['must_change_password'])) {
+                        header('Location: /login/change_password.php');
+                        exit;
+                    }
                     redirectToHome();
                     exit;
                 }
@@ -135,6 +147,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif (strpos($result, 'LOCKED:') === 0) {
             $minutes = (int) substr($result, 7);
             $error   = t('error_locked', $minutes);
+
+        } elseif ($result === AUTH_TEMP_EXPIRED) {
+            $error = t('error_temp_password_expired');
 
         } elseif ($result === AUTH_INACTIVE) {
             $error = t('error_inactive');

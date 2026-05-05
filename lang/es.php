@@ -845,5 +845,38 @@ return [
     'bu_error_invalid_selection'   => 'Selección inválida.',
     'bu_error_assign_self'         => 'No puede modificar su propia membresía desde este formulario.',
     'bu_error_user_not_found'      => 'Usuario no encontrado o inactivo.',
+
+    // ── Restablecimiento de contraseña temporal ───────────────────────────
+    'btn_reset_password'           => 'Resetear contraseña',
+    'reset_password_confirm'       => '¿Seguro que desea restablecer la contraseña de este usuario? Se le enviará una contraseña temporal por correo y deberá cambiarla al iniciar sesión.',
+    'reset_pwd_success'            => 'Contraseña restablecida. El usuario recibirá un correo con la contraseña temporal.',
+    'reset_pwd_err_forbidden'      => 'No tiene permiso para restablecer la contraseña de este usuario.',
+    'reset_pwd_dev_notice'         => 'Contraseña temporal generada (solo visible en modo DEV):',
+    'error_unsupported_role'       => 'Acción no permitida para este rol.',
+    'error_not_found'              => 'Usuario no encontrado.',
+    'error_temp_password_expired'  => 'La contraseña temporal ha expirado. Contacte al administrador para obtener una nueva.',
+
+    // ── Cambio forzado de contraseña (change_password.php) ───────────────
+    'change_pwd_page_title'        => 'Cambiar contraseña — Local App',
+    'change_pwd_title'             => 'Cambio de contraseña requerido',
+    'change_pwd_subtitle'          => 'Su administrador ha restablecido su contraseña. Debe establecer una nueva contraseña antes de continuar.',
+    'change_pwd_new_label'         => 'Nueva contraseña',
+    'change_pwd_new_placeholder'   => 'Mínimo 12 caracteres',
+    'change_pwd_confirm_label'     => 'Confirmar contraseña',
+    'change_pwd_confirm_placeholder' => 'Repita la contraseña',
+    'change_pwd_btn_submit'        => 'Cambiar contraseña',
+    'change_pwd_policy_hint'       => 'La contraseña debe tener al menos 12 caracteres e incluir mayúsculas, minúsculas y un número.',
+    'change_pwd_err_empty'         => 'Ingrese una nueva contraseña.',
+    'change_pwd_err_mismatch'      => 'Las contraseñas no coinciden.',
+    'change_pwd_err_policy'        => 'La contraseña no cumple con los requisitos de seguridad.',
+    'change_pwd_err_server'        => 'Error al actualizar la contraseña. Intente de nuevo.',
+
+    // ── Errores de política de contraseña (Validator::validatePassword) ──
+    'password_empty'               => 'Ingrese una contraseña.',
+    'password_too_short'           => 'La contraseña debe tener al menos 12 caracteres.',
+    'password_too_long'            => 'La contraseña no puede superar los 128 caracteres.',
+    'password_no_upper'            => 'La contraseña debe contener al menos una letra mayúscula.',
+    'password_no_lower'            => 'La contraseña debe contener al menos una letra minúscula.',
+    'password_no_digit'            => 'La contraseña debe contener al menos un número.',
 ];
 

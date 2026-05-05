@@ -842,5 +842,38 @@ return [
     'bu_error_invalid_selection'   => 'Invalid selection.',
     'bu_error_assign_self'         => 'You cannot modify your own membership via this form.',
     'bu_error_user_not_found'      => 'User not found or inactive.',
+
+    // ── Temporary password reset ──────────────────────────────────────────
+    'btn_reset_password'           => 'Reset Password',
+    'reset_password_confirm'       => 'Are you sure you want to reset this user\'s password? A temporary password will be sent to them by email and they will be required to change it on next login.',
+    'reset_pwd_success'            => 'Password reset. The user will receive an email with the temporary password.',
+    'reset_pwd_err_forbidden'      => 'You do not have permission to reset this user\'s password.',
+    'reset_pwd_dev_notice'         => 'Temporary password generated (DEV mode only):',
+    'error_unsupported_role'       => 'Action not allowed for this role.',
+    'error_not_found'              => 'User not found.',
+    'error_temp_password_expired'  => 'The temporary password has expired. Please contact your administrator for a new one.',
+
+    // ── Forced password change (change_password.php) ──────────────────────
+    'change_pwd_page_title'        => 'Change Password — Local App',
+    'change_pwd_title'             => 'Password Change Required',
+    'change_pwd_subtitle'          => 'Your administrator has reset your password. You must set a new password before continuing.',
+    'change_pwd_new_label'         => 'New Password',
+    'change_pwd_new_placeholder'   => 'Minimum 12 characters',
+    'change_pwd_confirm_label'     => 'Confirm Password',
+    'change_pwd_confirm_placeholder' => 'Repeat the password',
+    'change_pwd_btn_submit'        => 'Change Password',
+    'change_pwd_policy_hint'       => 'Password must be at least 12 characters and include uppercase, lowercase, and a number.',
+    'change_pwd_err_empty'         => 'Please enter a new password.',
+    'change_pwd_err_mismatch'      => 'Passwords do not match.',
+    'change_pwd_err_policy'        => 'Password does not meet security requirements.',
+    'change_pwd_err_server'        => 'Error updating password. Please try again.',
+
+    // ── Password policy errors (Validator::validatePassword) ──────────────
+    'password_empty'               => 'Please enter a password.',
+    'password_too_short'           => 'Password must be at least 12 characters.',
+    'password_too_long'            => 'Password cannot exceed 128 characters.',
+    'password_no_upper'            => 'Password must contain at least one uppercase letter.',
+    'password_no_lower'            => 'Password must contain at least one lowercase letter.',
+    'password_no_digit'            => 'Password must contain at least one number.',
 ];
 

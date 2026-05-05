@@ -38,6 +38,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $orgId = (int) ($_POST['org_id'] ?? 0);
 
     if ($orgId > 0 && selectOrg($orgId)) {
+        if (!empty($_SESSION['must_change_password'])) {
+            header('Location: /login/change_password.php');
+            exit;
+        }
         redirectToHome();
         exit;
     }
