@@ -85,7 +85,12 @@ switch ($resource) {
 
     case 'users':
         require_once __DIR__ . '/resources/users.php';
-        handleUsers($method, $id);
+        // POST /api/v1/users/{id}/reset-password — dedicated reset endpoint
+        if ($method === 'POST' && $id !== null && $sub === 'reset-password') {
+            handleUserResetPassword($id);
+        } else {
+            handleUsers($method, $id);
+        }
         break;
 
     case 'suppliers':

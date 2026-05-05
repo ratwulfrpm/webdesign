@@ -3,17 +3,36 @@
  * api/v1/resources/users.php — Scoped user administration resource handler.
  *
  * Routes:
- *   GET   /api/v1/users       list accessible users
- *   GET   /api/v1/users/:id   accessible user detail
- *   PATCH /api/v1/users/:id   perform activate|deactivate|unlock action
+ *   GET   /api/v1/users               list accessible users
+ *   GET   /api/v1/users/:id           accessible user detail
+ *   PATCH /api/v1/users/:id           perform activate|deactivate|unlock|reset-password action
+ *   POST  /api/v1/users/:id/reset-password  dedicated reset-password endpoint
  *
- * RBAC: admin/owner only.
+ * RBAC: admin/owner only (support read-only).
  */
 
 require_once __DIR__ . '/../../../includes/org_scope.php';
 require_once __DIR__ . '/../../../includes/mailer.php';
 require_once __DIR__ . '/../../../includes/audit.php';
 require_once __DIR__ . '/../../../includes/Validator.php';
+
+/**
+ * POST /api/v1/users/{id}/reset-password
+ * Dedicated endpoint — functionally equivalent to PATCH /api/v1/users/{id}
+ * with body {action: "reset-password"}, but follows the REST noun/verb style.
+ */
+function handleUserResetPassword(int $id): void
+{
+    $auth = requireApiAuth(['admin', 'owner']);
+    $pdo  = getDB();
+
+    $row = _loadScopedUserRow($id, $auth, $pdo);
+    if (!$row) {
+        jsonError('User not found', 404);
+    }
+
+    _resetUserPassword($id, $auth, $pdo, $row);
+}
 
 function handleUsers(string $method, ?int $id): void
 {
@@ -291,10 +310,24 @@ function _resetUserPassword(int $id, array $auth, PDO $pdo, array $row): void
     // RBAC guards
     if ($actorRole === 'owner') {
         if ($targetRole === 'owner') {
+            auditLog('forbidden_user_management_attempt', 'warning', null, $auth['user_id'], [
+                'action'         => 'reset-password',
+                'target_user_id' => $id,
+                'target_role'    => $targetRole,
+                'actor_role'     => $actorRole,
+                'via'            => 'api',
+            ]);
             jsonError('Cannot reset password of another owner', 403);
         }
     } elseif ($actorRole === 'admin') {
         if (in_array($targetRole, ['owner', 'admin'], true)) {
+            auditLog('forbidden_user_management_attempt', 'warning', null, $auth['user_id'], [
+                'action'         => 'reset-password',
+                'target_user_id' => $id,
+                'target_role'    => $targetRole,
+                'actor_role'     => $actorRole,
+                'via'            => 'api',
+            ]);
             jsonError('Admin cannot reset password of owner or admin', 403);
         }
     } else {

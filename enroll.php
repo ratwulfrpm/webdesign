@@ -29,6 +29,7 @@ require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/lang.php';
 require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/includes/audit.php';
 require_once __DIR__ . '/includes/image_validate.php';
 require_once __DIR__ . '/includes/storage.php';
 require_once __DIR__ . '/includes/Input.php';
@@ -94,6 +95,12 @@ function loadInvitation(PDO $pdo, string $plainToken): array|string
         $pdo->prepare('UPDATE supplier_invitations SET status = "expired" WHERE id = ?')
             ->execute([$inv['id']]);
         $inv['status'] = 'expired';
+        auditLog('invitation_expired', 'info', null, null, [
+            'invitation_id' => (int) $inv['id'],
+            'org_id'        => (int) $inv['org_id'],
+            'role'          => $inv['role'],
+            'expired_at'    => $inv['expires_at'],
+        ]);
     }
 
     return match ($inv['status']) {

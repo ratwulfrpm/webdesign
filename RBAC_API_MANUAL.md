@@ -718,3 +718,103 @@ Defined in `includes/auth.php`:
 | `ORG_PICK_TIMEOUT` | 300 s (5 min) | Org-picker pending session only |
 | `LOCKOUT_SECS` | 3600 s (1 h) | Login brute-force lockout |
 
+---
+
+## 13) Authentication & Session Gap Closure (June 2026)
+
+This section documents the specific gaps that were identified and closed to complete security hardening of the authentication, session, and user-management flows.
+
+### 13.1 Dedicated POST /api/v1/users/:id/reset-password
+
+A new dedicated REST endpoint was added as a semantic alias to `PATCH /api/v1/users/:id {action: "reset-password"}`:
+
+```
+POST /api/v1/users/42/reset-password
+```
+
+No request body is required. Performs the same bcrypt-hashed temporary password generation, email delivery, and forced-change flag as the PATCH form.
+
+**RBAC** — same rules as PATCH reset-password:
+
+| Actor | Can reset | Cannot reset |
+|-------|-----------|--------------|
+| owner | admin, support, supplier (globally) | other owners |
+| admin | support, supplier (assigned BUs only) | owner, other admins |
+| support | — | all (403) |
+
+**Response (200 OK):**
+```json
+{
+  "ok": true,
+  "data": {
+    "action": "reset-password",
+    "must_change_password": true,
+    "temporary_password_expires_at": "2026-06-15 23:59:00",
+    "email_sent": true
+  }
+}
+```
+
+**File changed:** `api/v1/resources/users.php` — added `handleUserResetPassword(int $id)` function.  
+**File changed:** `api/v1/index.php` — `case 'users':` dispatch now intercepts `POST` with `$sub === 'reset-password'` and calls `handleUserResetPassword($id)`.
+
+### 13.2 API must_change_password enforcement
+
+**Gap**: sessions with `must_change_password = 1` could still call any API endpoint, bypassing the forced password-change requirement.
+
+**Fix**: `requireApiAuth()` in `api/v1/_helpers.php` now checks `$_SESSION['must_change_password']` before granting access.  All API routes return HTTP 403 with error code `PASSWORD_CHANGE_REQUIRED` until the user changes their password.
+
+**Exception**: the `POST /api/v1/auth/change-required-password` endpoint is explicitly allowed through so the client can satisfy the requirement programmatically.
+
+**Error response:**
+```json
+{
+  "success": false,
+  "error": {
+    "code": "PASSWORD_CHANGE_REQUIRED",
+    "message": "You must change your password before performing this action."
+  }
+}
+```
+
+### 13.3 switch_org.php — must_change_password preservation
+
+**Gap**: when a support user with `must_change_password = 1` switched business units, the `switch_org.php` session rebuild cleared the flag. The user would land on the normal dashboard instead of `change_password.php`.
+
+**Fix**: `switch_org.php` now reads `must_change_password` before rebuilding the session and re-applies it afterwards:
+
+```php
+$mustChangePassword = (int) ($_SESSION['must_change_password'] ?? 0);
+// … session rebuild (selectOrg / manual rebuild) …
+$_SESSION['must_change_password'] = $mustChangePassword;
+if ($mustChangePassword) {
+    header('Location: /login/change_password.php');
+    exit;
+}
+```
+
+**Audit event added**: `support_business_unit_selected` with `org_id`, `org_name`, and `must_change_password` context.
+
+### 13.4 Audit events added
+
+All events are written via `auditLog()` in `includes/audit.php` (best-effort, never fatal).
+
+| Event | Severity | Trigger | File |
+|-------|----------|---------|------|
+| `invitation_expired` | info | Lazy expiry detected on already-expired invitation during enroll | `enroll.php` |
+| `failed_temp_password_expired` | warning | Login attempt with an expired temporary password | `index.php` |
+| `forbidden_user_management_attempt` | warning | Admin trying to reset owner/admin; owner trying to reset another owner | `admin/users.php`, `owner/users.php`, `api/v1/resources/users.php` |
+| `support_business_unit_selected` | info | Support user switches active business unit | `switch_org.php` |
+| `password_reset_requested` | info | Admin/owner initiates password reset for a user | `admin/users.php`, `owner/users.php`, `api/v1/resources/users.php` |
+| `temporary_password_generated` | info | Temp password hash stored in DB after reset | same files |
+| `forced_password_change_completed` | info | User successfully changes their forced-change password | `change_password.php`, `api/v1/resources/auth.php` |
+
+### 13.5 Admin / Owner parity confirmation
+
+All changes in this closure adhere to the parity rule:
+
+- `POST /api/v1/users/:id/reset-password` — available to both `owner` and `admin`.
+- Forbidden-reset audit log — fires for admin→owner/admin AND owner→owner attempts.
+- `must_change_password` API guard — applies regardless of role; owner is not exempt.
+- `switch_org.php` flag preservation — support role only (owner/admin do not use BU switch).
+

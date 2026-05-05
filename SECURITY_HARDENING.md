@@ -425,3 +425,95 @@ Owner retains all admin capabilities and adds BU-management exclusives. No admin
 | `switch_org.php` | Added `Pragma: no-cache` + `Expires: 0` headers; writes `session_start_time` on BU switch |
 | `SECURITY_HARDENING.md` | This section |
 | `RBAC_API_MANUAL.md` | Session/API token separation section added |
+
+---
+
+## 10. Authentication & Session Gap Closure (June 2026)
+
+This section records the final pass of security hardening, closing remaining gaps identified in the internal audit for authentication, session continuity, password management, and API access control.
+
+### 10.1 API must_change_password Enforcement
+
+**Gap**: API calls could succeed even when `must_change_password = 1` was set in session, bypassing the forced password-change requirement.
+
+**Fix**: `requireApiAuth()` in `api/v1/_helpers.php` now checks the flag before granting access.
+
+```php
+if (!empty($_SESSION['must_change_password'])) {
+    $uri = parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '';
+    if (!str_ends_with(rtrim($uri, '/'), '/auth/change-required-password')) {
+        jsonError('You must change your password before performing this action.', 403, 'PASSWORD_CHANGE_REQUIRED');
+    }
+}
+```
+
+- All routes return **HTTP 403** / `PASSWORD_CHANGE_REQUIRED` until the user complies.
+- `POST /api/v1/auth/change-required-password` is explicitly allowed through to satisfy the requirement programmatically.
+- **OWASP A01 (Broken Access Control)**: forces clients through the password-change gate regardless of role.
+
+### 10.2 switch_org.php — must_change_password Continuity
+
+**Gap**: when a support user with `must_change_password = 1` switched business units, the session rebuild in `switch_org.php` cleared the flag, allowing the user to bypass the forced-change page.
+
+**Fix**: the flag is saved before the rebuild and restored immediately after:
+
+```php
+$mustChangePassword = (int) ($_SESSION['must_change_password'] ?? 0);
+// … selectOrg() / session rebuild …
+$_SESSION['must_change_password'] = $mustChangePassword;
+if ($mustChangePassword) {
+    header('Location: /login/change_password.php');
+    exit;
+}
+```
+
+The same pattern applies to the fallback manual-rebuild path in `switch_org.php`.
+
+### 10.3 Dedicated POST /api/v1/users/:id/reset-password
+
+A dedicated REST endpoint was added as a semantically clear alternative to the PATCH action form:
+
+```
+POST /api/v1/users/42/reset-password
+```
+
+No request body is required. Behaviour is identical to `PATCH /api/v1/users/42 {action: "reset-password"}`: generates a 36-char CSPRNG temp password, stores the bcrypt hash, emails the user, sets `must_change_password = 1`, and writes audit log entries.
+
+**Files changed**:
+- `api/v1/index.php` — `case 'users':` intercepts POST with `$sub === 'reset-password'` before the generic handler.
+- `api/v1/resources/users.php` — new `handleUserResetPassword(int $id)` function.
+
+### 10.4 Audit Events Added
+
+| Event | Severity | Trigger |
+|-------|----------|---------|
+| `invitation_expired` | info | Lazy expiry detected during `enroll.php` enrollment — `loadInvitation()` |
+| `failed_temp_password_expired` | warning | Login attempt with an expired temp password — `index.php` |
+| `forbidden_user_management_attempt` | warning | Admin/owner trying a forbidden password reset — `admin/users.php`, `owner/users.php`, `api/v1/resources/users.php` |
+| `support_business_unit_selected` | info | Support user switches active BU — `switch_org.php` |
+
+Events are written via `auditLog()` in `includes/audit.php`. Audit writes are best-effort and never abort the main request.
+
+### 10.5 Files Modified in This Pass
+
+| File | Change |
+|------|--------|
+| `api/v1/_helpers.php` | `requireApiAuth()` — added `must_change_password` guard with `PASSWORD_CHANGE_REQUIRED` error |
+| `api/v1/index.php` | `case 'users':` — intercepts POST `/users/:id/reset-password` |
+| `api/v1/resources/users.php` | Added `handleUserResetPassword()` function; updated doc comment |
+| `switch_org.php` | Preserves `must_change_password` across session rebuild; redirects to change_password.php if set; adds `support_business_unit_selected` audit |
+| `enroll.php` | Adds `invitation_expired` audit log on lazy expiry |
+| `index.php` | Adds `failed_temp_password_expired` audit log on `AUTH_TEMP_EXPIRED` |
+| `admin/users.php` | Adds `forbidden_user_management_attempt` audit on disallowed reset |
+| `owner/users.php` | Same |
+| `RBAC_API_MANUAL.md` | Section 13 — gap closure documentation |
+| `SECURITY_HARDENING.md` | This section |
+
+### 10.6 OWASP Top 10 Coverage Update
+
+| Risk | Status After This Pass |
+|------|----------------------|
+| A01 Broken Access Control | `must_change_password` enforced at API layer; forbidden-reset attempts audited |
+| A07 Auth/Session Failures | `must_change_password` flag preserved through BU switch; forced change cannot be bypassed |
+| A09 Logging/Monitoring | Four new audit events cover previously silent security-relevant actions |
+

@@ -125,6 +125,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $targetRole = $targetRoleRow ? $targetRoleRow['role'] : '';
 
                 if (in_array($targetRole, ['owner', 'admin'], true)) {
+                    auditLog('forbidden_user_management_attempt', 'warning', null, $userId, [
+                        'action'          => 'reset_password',
+                        'target_user_id'  => $uid,
+                        'target_role'     => $targetRole,
+                        'actor_role'      => $role,
+                    ]);
                     $feedback = t('reset_pwd_err_forbidden');
                     break;
                 }

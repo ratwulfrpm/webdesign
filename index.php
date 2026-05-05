@@ -32,6 +32,7 @@ require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/includes/lang.php';
 require_once __DIR__ . '/includes/Input.php';
 require_once __DIR__ . '/includes/Escape.php';
+require_once __DIR__ . '/includes/audit.php';
 
 // Language selection (PRG — returns if set_lang present)
 initLang();
@@ -149,6 +150,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error   = t('error_locked', $minutes);
 
         } elseif ($result === AUTH_TEMP_EXPIRED) {
+            auditLog('failed_temp_password_expired', 'warning', null, null, [
+                'identifier' => $identifier,
+            ]);
             $error = t('error_temp_password_expired');
 
         } elseif ($result === AUTH_INACTIVE) {

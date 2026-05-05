@@ -138,6 +138,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 // Owner cannot reset another owner.
                 if ($targetUser['org_role'] === 'owner') {
+                    auditLog('forbidden_user_management_attempt', 'warning', null, $userId, [
+                        'action'         => 'reset_password',
+                        'target_user_id' => $uid,
+                        'target_role'    => 'owner',
+                        'actor_role'     => 'owner',
+                    ]);
                     $feedback = t('reset_pwd_err_forbidden');
                     break;
                 }

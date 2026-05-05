@@ -21,6 +21,7 @@ require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/config/db.php';
+require_once __DIR__ . '/includes/audit.php';
 
 requireAuth();
 requireRole(['support']);
@@ -74,25 +75,37 @@ $allSupportStmt->execute([$userId]);
 $supportOrgs = $allSupportStmt->fetchAll() ?: [];
 
 // Preserve non-org session data
-$username   = $_SESSION['username'];
-$firstLogin = $_SESSION['first_login'] ?? 0;
-$lang       = $_SESSION['lang']        ?? 'es';
+$username           = $_SESSION['username'];
+$firstLogin         = $_SESSION['first_login']           ?? 0;
+$lang               = $_SESSION['lang']                   ?? 'es';
+$mustChangePassword = (int) ($_SESSION['must_change_password'] ?? 0);
 
 session_regenerate_id(true);
 $_SESSION = [];
 
-$_SESSION['logged_in']         = true;
-$_SESSION['user_id']           = $userId;
-$_SESSION['username']          = $username;
-$_SESSION['role']              = $org['role'];
-$_SESSION['org_id']            = (int) $org['id'];
-$_SESSION['org_slug']          = $org['slug'];
-$_SESSION['org_name']          = $org['name'];
-$_SESSION['support_orgs']      = $supportOrgs;
-$_SESSION['first_login']       = $firstLogin;
-$_SESSION['lang']              = $lang;
-$_SESSION['last_activity']     = time();
-$_SESSION['session_start_time']= time();
+$_SESSION['logged_in']              = true;
+$_SESSION['user_id']                = $userId;
+$_SESSION['username']               = $username;
+$_SESSION['role']                   = $org['role'];
+$_SESSION['org_id']                 = (int) $org['id'];
+$_SESSION['org_slug']               = $org['slug'];
+$_SESSION['org_name']               = $org['name'];
+$_SESSION['support_orgs']           = $supportOrgs;
+$_SESSION['first_login']            = $firstLogin;
+$_SESSION['must_change_password']   = $mustChangePassword;
+$_SESSION['lang']                   = $lang;
+$_SESSION['last_activity']          = time();
+$_SESSION['session_start_time']     = time();
+
+auditLog('support_business_unit_selected', 'info', null, $userId, [
+    'org_id'   => (int) $org['id'],
+    'org_name' => $org['name'],
+]);
+
+if ($mustChangePassword) {
+    header('Location: /login/change_password.php');
+    exit;
+}
 
 header('Location: ' . $returnTo);
 exit;

@@ -186,6 +186,25 @@ function requireApiAuth(array $roles = ['admin', 'owner']): array
         jsonError('Forbidden', 403);
     }
 
+    // If the user must change their password, block all API calls except
+    // POST /api/v1/auth/change-required-password (which handles it directly
+    // via isLoggedIn() + $_SESSION['must_change_password']).
+    if (!empty($_SESSION['must_change_password'])) {
+        $uri    = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
+        $isAuthChange = str_ends_with(rtrim((string) $uri, '/'), '/auth/change-required-password');
+        if (!$isAuthChange) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'error'   => [
+                    'code'    => 'PASSWORD_CHANGE_REQUIRED',
+                    'message' => 'You must change your password before accessing the API. POST /api/v1/auth/change-required-password',
+                ],
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
+    }
+
     return [
         'user_id' => (int) $_SESSION['user_id'],
         'role'    => $role,

@@ -626,6 +626,21 @@ http://localhost/login/quote?t=<token>
 
 ---
 
+## 13. Cierre de gaps de seguridad (junio 2026)
+
+Las siguientes mejoras de seguridad en autenticación y sesión fueron aplicadas:
+
+| Área | Cambio |
+|------|--------|
+| **Cambio de contraseña forzado — API** | `requireApiAuth()` bloquea todas las llamadas API cuando `must_change_password = 1` (código de error `PASSWORD_CHANGE_REQUIRED`). Solo `POST /api/v1/auth/change-required-password` se permite. |
+| **Cambio de contraseña forzado — cambio de BU** | `switch_org.php` ahora preserva el flag `must_change_password` a través de la reconstrucción de sesión y redirige al usuario support a `change_password.php` después del cambio de BU. |
+| **Endpoint dedicado de reset** | `POST /api/v1/users/:id/reset-password` añadido como endpoint REST dedicado (equivalente a `PATCH /api/v1/users/:id {action: "reset-password"}`). Disponible para admin y owner con las mismas reglas RBAC. |
+| **Cobertura de auditoría** | Cuatro nuevos eventos de auditoría: `invitation_expired`, `failed_temp_password_expired`, `forbidden_user_management_attempt`, `support_business_unit_selected`. |
+
+Ver detalles completos en [SECURITY_HARDENING.md](SECURITY_HARDENING.md) § 10 y [RBAC_API_MANUAL.md](RBAC_API_MANUAL.md) § 13.
+
+---
+
 # 🇺🇸 English Documentation
 
 Local authentication system with an Apple-inspired design, built with PHP, MySQL, and pure CSS. Intended for development environments with MAMP only.
@@ -1148,3 +1163,18 @@ http://localhost/login/quote?t=<token>
 ---
 
 *Documentation generated on February 24, 2026. Progressive router added May 4, 2026.*
+
+---
+
+## 12. Security Hardening Closure (June 2026)
+
+The following authentication and session security improvements were applied:
+
+| Area | Change |
+|------|--------|
+| **Forced password change — API** | `requireApiAuth()` blocks all API calls when `must_change_password = 1` (error code `PASSWORD_CHANGE_REQUIRED`). Only `POST /api/v1/auth/change-required-password` is allowed through. |
+| **Forced password change — BU switch** | `switch_org.php` now preserves the `must_change_password` flag across session rebuilds and redirects the support user to `change_password.php` immediately after the BU switch. |
+| **Dedicated reset endpoint** | `POST /api/v1/users/:id/reset-password` added as a dedicated REST endpoint (functionally equivalent to `PATCH /api/v1/users/:id {action: "reset-password"}`). Available to admin and owner following the same RBAC rules. |
+| **Audit coverage** | Four new audit events: `invitation_expired` (enroll.php), `failed_temp_password_expired` (index.php), `forbidden_user_management_attempt` (admin/users, owner/users, API users resource), `support_business_unit_selected` (switch_org.php). |
+
+For full details see [SECURITY_HARDENING.md](SECURITY_HARDENING.md) § 10 and [RBAC_API_MANUAL.md](RBAC_API_MANUAL.md) § 13.
