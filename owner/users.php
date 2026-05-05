@@ -33,6 +33,7 @@ require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/org_scope.php';
 require_once __DIR__ . '/../includes/mailer.php';
 require_once __DIR__ . '/../includes/Validator.php';
+require_once __DIR__ . '/../includes/AppConfig.php';
 
 // Auth + RBAC checks
 requireAuth();
@@ -49,16 +50,8 @@ $accessibleOrgs   = loadAccessibleOrganizations($pdo, $userId, $role);
 $accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
 
 /**
- * Build the absolute enrollment URL for a plain (un-hashed) token.
+ * buildEnrollLink() is defined in includes/org_scope.php (already required above).
  */
-if (!function_exists('buildEnrollLink')) {
-    function buildEnrollLink(string $plainToken): string
-    {
-        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
-        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
-        return $scheme . '://' . $host . '/login/enroll.php?t=' . rawurlencode($plainToken);
-    }
-}
 // ── Handle owner POST actions ──────────────────────────────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     csrfValidate();
@@ -476,8 +469,7 @@ $initial  = strtoupper(substr($username, 0, 1));
         </div>
         <?php endif; ?>
 
-        <?php if ($devTempPassword !== null): ?>
-        <!-- ⚠ DEV-ONLY BLOCK — Temporary password display (never shown in production) -->
+        <?php if ($devTempPassword !== null && AppConfig::isDev()): ?>
         <div class="alert" style="margin-bottom:20px;background:#fff3cd;border:1px solid #ffc107;border-radius:10px;padding:16px 20px;" role="status">
             <strong style="color:#856404;">[DEV] <?= t('reset_pwd_dev_notice') ?></strong><br>
             <code style="font-size:1rem;letter-spacing:.06em;color:#1d1d1f;"><?= htmlspecialchars($devTempPassword, ENT_QUOTES, 'UTF-8') ?></code>
@@ -628,135 +620,15 @@ $initial  = strtoupper(substr($username, 0, 1));
             <?php endif; ?>
         </section>
 
-        <!-- ── Password requests ──────────────────────────── -->
-        <section class="panel-section" style="margin-top:36px;">
-            <h2 class="section-title"><?= t('col_requests') ?></h2>
+        <?php
+        $actionUrl = '/login/owner/users.php';
+        require __DIR__ . '/../includes/views/password_requests_section.php';
+        ?>
 
-            <?php if (empty($requests)): ?>
-                <p class="text-muted"><?= t('no_requests') ?></p>
-            <?php else: ?>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th><?= t('req_company') ?></th>
-                            <th><?= t('req_email') ?></th>
-                            <th><?= t('req_user') ?></th>
-                            <th><?= t('req_notes') ?></th>
-                            <th><?= t('req_date') ?></th>
-                            <th><?= t('req_status') ?></th>
-                            <th><?= t('col_actions') ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($requests as $r): ?>
-                        <tr>
-                            <td><?= (int) $r['id'] ?></td>
-                            <td><?= htmlspecialchars($r['company_name'], ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars($r['email'], ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= $r['username'] ? htmlspecialchars($r['username'], ENT_QUOTES, 'UTF-8') : '—' ?></td>
-                            <td class="small text-muted"><?= $r['notes'] ? htmlspecialchars($r['notes'], ENT_QUOTES, 'UTF-8') : '—' ?></td>
-                            <td class="small text-muted"><?= htmlspecialchars($r['requested_at'], ENT_QUOTES, 'UTF-8') ?></td>
-                            <td>
-                                <span class="badge <?= $r['status'] === 'pending' ? 'badge-pending' : 'badge-done' ?>">
-                                    <?= $r['status'] === 'pending' ? t('req_pending') : t('req_resolved') ?>
-                                </span>
-                            </td>
-                            <td>
-                                <?php if ($r['status'] === 'pending'): ?>
-                                <form method="POST" action="/login/owner/users.php">
-                                    <input type="hidden" name="csrf_token"
-                                           value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
-                                    <input type="hidden" name="request_id" value="<?= (int) $r['id'] ?>">
-                                    <input type="hidden" name="action" value="resolve_request">
-                                    <button type="submit" class="btn-tbl btn-success"><?= t('btn_resolve') ?></button>
-                                </form>
-                                <?php else: ?>
-                                <span class="text-muted small">—</span>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
-        </section>
-
-        <!-- ── Contract validity requests ──────────────────── -->
-        <section class="panel-section" style="margin-top:36px;">
-            <h2 class="section-title"><?= t('contract_review_requests_title') ?></h2>
-
-            <?php if (empty($validityRequests)): ?>
-                <p class="text-muted"><?= t('contract_review_no_requests') ?></p>
-            <?php else: ?>
-            <div class="table-wrap">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th><?= t('col_supplier') ?></th>
-                            <th><?= t('contract_review_business_unit') ?></th>
-                            <th><?= t('contract_review_requested_contract') ?></th>
-                            <th><?= t('contract_review_current_contract') ?></th>
-                            <th><?= t('col_contract_signed_date') ?></th>
-                            <th><?= t('col_contract_start') ?></th>
-                            <th><?= t('col_contract_end') ?></th>
-                            <th><?= t('col_contract_uploaded_at') ?></th>
-                            <th><?= t('contract_review_requested_by') ?></th>
-                            <th><?= t('contract_review_requested_at') ?></th>
-                            <th><?= t('req_status') ?></th>
-                            <th><?= t('col_actions') ?></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                    <?php foreach ($validityRequests as $vr): ?>
-                        <tr>
-                            <td><?= (int) $vr['id'] ?></td>
-                            <td><?= htmlspecialchars((string) $vr['supplier_username'], ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) $vr['org_name'], ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) $vr['requested_contract_file'], ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) ($vr['current_contract_file'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) ($vr['requested_signed_date'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) ($vr['requested_start_date'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) ($vr['requested_end_date'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars(substr((string) $vr['requested_uploaded_at'], 0, 10), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) ($vr['requested_by_username'] ?? '—'), ENT_QUOTES, 'UTF-8') ?></td>
-                            <td><?= htmlspecialchars((string) $vr['requested_at'], ENT_QUOTES, 'UTF-8') ?></td>
-                            <td>
-                                <span class="badge <?= $vr['status'] === 'pending' ? 'badge-pending' : 'badge-done' ?>">
-                                    <?= htmlspecialchars(t('contract_review_status_' . $vr['status']), ENT_QUOTES, 'UTF-8') ?>
-                                </span>
-                            </td>
-                            <td>
-                                <?php if ($vr['status'] === 'pending'): ?>
-                                <div class="user-actions-row" style="display:flex;gap:6px;flex-wrap:wrap;">
-                                    <form method="POST" action="/login/owner/users.php" style="display:inline;">
-                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
-                                        <input type="hidden" name="action" value="approve_contract_validity_request">
-                                        <input type="hidden" name="validity_request_id" value="<?= (int) $vr['id'] ?>">
-                                        <button type="submit" class="btn-tbl btn-success"><?= t('btn_approve') ?></button>
-                                    </form>
-                                    <form method="POST" action="/login/owner/users.php" style="display:inline;">
-                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8') ?>">
-                                        <input type="hidden" name="action" value="reject_contract_validity_request">
-                                        <input type="hidden" name="validity_request_id" value="<?= (int) $vr['id'] ?>">
-                                        <input type="text" name="review_comment" maxlength="1000" placeholder="<?= htmlspecialchars(t('contract_review_comment_optional'), ENT_QUOTES, 'UTF-8') ?>" style="max-width:180px;">
-                                        <button type="submit" class="btn-tbl btn-danger"><?= t('btn_reject') ?></button>
-                                    </form>
-                                </div>
-                                <?php else: ?>
-                                <span class="text-muted small">—</span>
-                                <?php endif; ?>
-                            </td>
-                        </tr>
-                    <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-            <?php endif; ?>
-        </section>
+        <?php
+        $actionUrl = '/login/owner/users.php';
+        require __DIR__ . '/../includes/views/contract_validity_section.php';
+        ?>
 
         <!-- ── Invitations ───────────────────────────────── -->
         <section class="panel-section" style="margin-top:36px;" id="invitations">
@@ -870,107 +742,11 @@ $initial  = strtoupper(substr($username, 0, 1));
 
             <div style="margin-top:32px;">
                 <h3 class="section-subtitle"><?= t('inv_list_title') ?></h3>
-                <?php if (empty($invitations)): ?>
-                <p class="text-muted"><?= t('inv_no_invitations') ?></p>
-                <?php else: ?>
-                <div class="table-wrap">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th>#</th>
-                                <th><?= t('inv_col_org') ?></th>
-                                <th><?= t('inv_col_role') ?></th>
-                                <th><?= t('inv_col_email') ?></th>
-                                <th><?= t('inv_col_status') ?></th>
-                                <th><?= t('inv_col_expires') ?></th>
-                                <th><?= t('inv_col_created_by') ?></th>
-                                <th><?= t('inv_col_used_by') ?></th>
-                                <th><?= t('inv_col_created_at') ?></th>
-                                <th><?= t('col_actions') ?></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                        <?php foreach ($invitations as $inv):
-                            $isExpiredNow = $inv['status'] === 'pending'
-                                && strtotime($inv['expires_at']) < time();
-                            if ($isExpiredNow) {
-                                $pdo->prepare(
-                                    'UPDATE supplier_invitations SET status = "expired" WHERE id = ?'
-                                )->execute([$inv['id']]);
-                                $inv['status'] = 'expired';
-                            }
-                            $statusLabel = t('inv_status_' . $inv['status']);
-                            $statusClass = match($inv['status']) {
-                                'pending' => 'badge-pending',
-                                'used'    => 'badge-done',
-                                default   => 'badge-inactive',
-                            };
-                            $revokeConfirm = $lang === 'en'
-                                ? 'Revoke this invitation?'
-                                : '¿Revocar esta invitación?';
-                            $extraIds = json_decode($inv['extra_org_ids'] ?? 'null', true);
-                            $orgNamesById = array_column($orgs, 'name', 'id');
-                        ?>
-                            <tr>
-                                <td><?= (int) $inv['id'] ?></td>
-                                <td>
-                                    <?= htmlspecialchars($inv['org_name'], ENT_QUOTES, 'UTF-8') ?>
-                                    <?php if (!empty($extraIds)): ?>
-                                    <span class="text-muted small" style="display:block;">
-                                        <?php foreach ($extraIds as $eid): ?>
-                                        + <?= htmlspecialchars($orgNamesById[$eid] ?? "Org #{$eid}", ENT_QUOTES, 'UTF-8') ?><br>
-                                        <?php endforeach; ?>
-                                    </span>
-                                    <?php endif; ?>
-                                </td>
-                                <td>
-                                    <span class="badge badge-supplier">
-                                        <?= htmlspecialchars(t('role_' . $inv['role']), ENT_QUOTES, 'UTF-8') ?>
-                                    </span>
-                                </td>
-                                <td class="text-muted small">
-                                    <?= $inv['invited_email']
-                                        ? htmlspecialchars($inv['invited_email'], ENT_QUOTES, 'UTF-8')
-                                        : '<em>' . t('inv_any_email') . '</em>' ?>
-                                </td>
-                                <td>
-                                    <span class="badge <?= $statusClass ?>">
-                                        <?= htmlspecialchars($statusLabel, ENT_QUOTES, 'UTF-8') ?>
-                                    </span>
-                                </td>
-                                <td class="text-muted small">
-                                    <?= htmlspecialchars($inv['expires_at'], ENT_QUOTES, 'UTF-8') ?>
-                                </td>
-                                <td><?= htmlspecialchars($inv['created_by_username'], ENT_QUOTES, 'UTF-8') ?></td>
-                                <td class="text-muted small">
-                                    <?= $inv['used_by_username']
-                                        ? htmlspecialchars($inv['used_by_username'], ENT_QUOTES, 'UTF-8')
-                                        : '—' ?>
-                                </td>
-                                <td class="text-muted small">
-                                    <?= htmlspecialchars($inv['created_at'], ENT_QUOTES, 'UTF-8') ?>
-                                </td>
-                                <td class="actions-cell">
-                                    <?php if ($inv['status'] === 'pending'): ?>
-                                    <form method="POST" action="/login/owner/users.php#invitations" style="display:inline">
-                                        <?= csrfField() ?>
-                                        <input type="hidden" name="action" value="revoke_invitation">
-                                        <input type="hidden" name="inv_id"  value="<?= (int) $inv['id'] ?>">
-                                        <button type="submit" class="btn-tbl btn-danger"
-                                                onclick="return confirm(<?= htmlspecialchars(json_encode($revokeConfirm), ENT_QUOTES, 'UTF-8') ?>)">
-                                            <?= t('btn_revoke') ?>
-                                        </button>
-                                    </form>
-                                    <?php else: ?>
-                                    <span class="text-muted small">—</span>
-                                    <?php endif; ?>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                <?php endif; ?>
+                <?php
+                $actionUrl = '/login/owner/users.php#invitations';
+                $isOwner   = true;
+                require __DIR__ . '/../includes/views/invitations_list_table.php';
+                ?>
             </div>
         </section>
 

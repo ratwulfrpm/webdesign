@@ -18,6 +18,10 @@ if (!defined('MAIL_USER')) {
     require_once __DIR__ . '/../config/mail.php';
 }
 
+// Environment-aware helpers
+require_once __DIR__ . '/AppConfig.php';
+require_once __DIR__ . '/SafeLogger.php';
+
 define('MAIL_LOG_DIR', __DIR__ . '/../logs');
 
 // Use PHPMailer autoload (manual, no Composer)
@@ -140,6 +144,22 @@ function buildVerificationBodyHtml(string $toEmail, string $code, string $lang):
 }
 
 // -- Dev / fallback log writer ---------------------------------------------
+
+/**
+ * Mask an email address for safe logging (e.g. "user@example.com" → "u***@example.com").
+ */
+function _maskEmail(string $email): string
+{
+    $parts = explode('@', $email, 2);
+    if (count($parts) !== 2 || $parts[0] === '') return '***';
+    $masked = substr($parts[0], 0, 1) . str_repeat('*', max(1, strlen($parts[0]) - 1));
+    return $masked . '@' . $parts[1];
+}
+
+/**
+ * Log a verification-code email event.
+ * PROD: never log the code or body. DEV: full detail.
+ */
 function writeMailLog(string $to, string $subject, string $body, string $code): bool
 {
     $dir = MAIL_LOG_DIR;
@@ -148,14 +168,24 @@ function writeMailLog(string $to, string $subject, string $body, string $code): 
     }
     if (!is_dir($dir)) return false;
 
-    $line = sprintf(
-        "[%s] TO=%s | SUBJECT=%s | CODE=%s\n---\n%s\n===\n",
-        date('Y-m-d H:i:s'),
-        $to,
-        $subject,
-        $code,
-        $body
-    );
+    if (AppConfig::isProd()) {
+        // PROD: log only that a verification email was attempted — never the code.
+        $line = sprintf(
+            "[%s] VERIFY event=verification_code_sent to=%s status=fallback_log\n",
+            date('Y-m-d H:i:s'),
+            _maskEmail($to)
+        );
+    } else {
+        // DEV ONLY: full detail for developer convenience.
+        $line = sprintf(
+            "[%s] [DEV ONLY] TO=%s | SUBJECT=%s | CODE=%s\n---\n%s\n===\n",
+            date('Y-m-d H:i:s'),
+            $to,
+            $subject,
+            $code,
+            $body
+        );
+    }
     return (bool) file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);
 }
 
@@ -163,7 +193,9 @@ function writeErrorLog(string $message): void
 {
     $dir = MAIL_LOG_DIR;
     if (!is_dir($dir)) @mkdir($dir, 0755, true);
-    $line = sprintf("[%s] SMTP ERROR: %s\n", date('Y-m-d H:i:s'), $message);
+    // Truncate SMTP error messages to avoid leaking connection details in prod
+    $safeMsg = AppConfig::isProd() ? substr($message, 0, 120) : $message;
+    $line = sprintf("[%s] SMTP ERROR: %s\n", date('Y-m-d H:i:s'), $safeMsg);
     @file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);
 }
 
@@ -274,6 +306,10 @@ function buildInvitationBodyHtml(string $toEmail, string $enrollLink, string $la
         '</div></body></html>';
 }
 
+/**
+ * Log an invitation email event.
+ * PROD: never log the enrollment link (contains plain token) or body. DEV: full detail.
+ */
 function writeInviteLog(string $to, string $subject, string $body, string $link): bool
 {
     $dir = MAIL_LOG_DIR;
@@ -282,14 +318,24 @@ function writeInviteLog(string $to, string $subject, string $body, string $link)
     }
     if (!is_dir($dir)) return false;
 
-    $line = sprintf(
-        "[%s] INVITE TO=%s | SUBJECT=%s | LINK=%s\n---\n%s\n===\n",
-        date('Y-m-d H:i:s'),
-        $to,
-        $subject,
-        $link,
-        $body
-    );
+    if (AppConfig::isProd()) {
+        // PROD: do not log the enrollment link — it contains a plain token.
+        $line = sprintf(
+            "[%s] INVITE event=invitation_sent to=%s status=fallback_log\n",
+            date('Y-m-d H:i:s'),
+            _maskEmail($to)
+        );
+    } else {
+        // DEV ONLY: full detail including link with token.
+        $line = sprintf(
+            "[%s] [DEV ONLY] INVITE TO=%s | SUBJECT=%s | LINK=%s\n---\n%s\n===\n",
+            date('Y-m-d H:i:s'),
+            $to,
+            $subject,
+            $link,
+            $body
+        );
+    }
     return (bool) file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);
 }
 
@@ -335,15 +381,19 @@ function sendPasswordResetEmail(
     );
 
     if ($credPlaceholder) {
-        // DEV-ONLY: log to file including the temp password for developer convenience.
-        // This code path is NEVER reached in production (real SMTP credentials).
+        // Credentials are placeholder values → skip SMTP.
+        // Log the event; include password only in DEV mode (never in prod).
         $logged = _writeResetLog($toEmail, $subject, $bodyText);
-        return [
-            'sent'              => false,
-            'logged'            => $logged,
-            'log_path'          => MAIL_LOG_DIR . '/mail.log',
-            'dev_temp_password' => $tempPassword,   // DEV-ONLY key
+        $result = [
+            'sent'     => false,
+            'logged'   => $logged,
+            'log_path' => MAIL_LOG_DIR . '/mail.log',
         ];
+        // 'dev_temp_password' key is ONLY present in DEV — UI displays it only when AppConfig::isDev().
+        if (AppConfig::isDev()) {
+            $result['dev_temp_password'] = $tempPassword;
+        }
+        return $result;
     }
 
     // Production: send via PHPMailer (no temp password in return value).
@@ -477,6 +527,15 @@ function _buildResetBodyHtml(
         . '</div></body></html>';
 }
 
+/**
+ * Log a password-reset email event.
+ *
+ * SECURITY — OWASP A09:
+ *   PROD: NEVER log the email body — it contains the temporary password in plain text.
+ *         Log only that the event occurred, with a masked recipient.
+ *   DEV:  Log full body (including password) for developer convenience,
+ *         clearly marked as "[DEV ONLY]".
+ */
 function _writeResetLog(string $to, string $subject, string $body): bool
 {
     $dir = MAIL_LOG_DIR;
@@ -485,13 +544,23 @@ function _writeResetLog(string $to, string $subject, string $body): bool
     }
     if (!is_dir($dir)) return false;
 
-    $line = sprintf(
-        "[%s] PWD-RESET TO=%s | SUBJECT=%s\n---\n%s\n===\n",
-        date('Y-m-d H:i:s'),
-        $to,
-        $subject,
-        $body
-    );
+    if (AppConfig::isProd()) {
+        // PROD: log only event metadata. Body contains the temp password — never write it.
+        $line = sprintf(
+            "[%s] PWD-RESET event=password_reset_notification_attempted to=%s status=fallback_log\n",
+            date('Y-m-d H:i:s'),
+            _maskEmail($to)
+        );
+    } else {
+        // DEV ONLY: full body for developer convenience (includes temporary password).
+        $line = sprintf(
+            "[%s] [DEV ONLY] PWD-RESET TO=%s | SUBJECT=%s\n---\n%s\n===\n",
+            date('Y-m-d H:i:s'),
+            $to,
+            $subject,
+            $body
+        );
+    }
     return (bool) file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);
 }
 
@@ -631,6 +700,10 @@ function buildAssignmentQrBodyHtml(
         '</div></body></html>';
 }
 
+/**
+ * Log a quote-share email event.
+ * PROD: log only event metadata (no quote link or QR URL). DEV: full detail.
+ */
 function writeQuoteShareLog(string $to, string $subject, string $body, string $link, string $qr): bool
 {
     $dir = MAIL_LOG_DIR;
@@ -639,14 +712,24 @@ function writeQuoteShareLog(string $to, string $subject, string $body, string $l
     }
     if (!is_dir($dir)) return false;
 
-    $line = sprintf(
-        "[%s] SHARE TO=%s | SUBJECT=%s | LINK=%s | QR=%s\n---\n%s\n===\n",
-        date('Y-m-d H:i:s'),
-        $to,
-        $subject,
-        $link,
-        $qr,
-        $body
-    );
+    if (AppConfig::isProd()) {
+        // PROD: link may contain a quote token — do not log it.
+        $line = sprintf(
+            "[%s] SHARE event=quote_share_sent to=%s status=fallback_log\n",
+            date('Y-m-d H:i:s'),
+            _maskEmail($to)
+        );
+    } else {
+        // DEV ONLY: full detail including link and QR URL.
+        $line = sprintf(
+            "[%s] [DEV ONLY] SHARE TO=%s | SUBJECT=%s | LINK=%s | QR=%s\n---\n%s\n===\n",
+            date('Y-m-d H:i:s'),
+            $to,
+            $subject,
+            $link,
+            $qr,
+            $body
+        );
+    }
     return (bool) file_put_contents($dir . '/mail.log', $line, FILE_APPEND | LOCK_EX);
 }

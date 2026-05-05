@@ -165,6 +165,32 @@ La conexión utiliza un **singleton PDO** con `ERRMODE_EXCEPTION` y prepared sta
 
 ---
 
+## 4b. Configuración del entorno (APP_ENV)
+
+La variable de entorno `APP_ENV` controla el nivel de detalle de los logs y las funciones de depuración. El valor por defecto es `prod` (comportamiento seguro).
+
+| Valor      | Comportamiento |
+|------------|----------------|
+| `dev`      | Logs completos; contraseñas temporales visibles en UI tras un reset; cuerpo del correo registrado en `logs/mail.log` |
+| `staging`  | Sin datos sensibles en logs; igual que prod en seguridad |
+| `prod`     | Logs mínimos (sólo metadatos); sin secretos; errores genéricos |
+
+**Configurar en `.htaccess` (Apache / MAMP):**
+
+```apache
+SetEnv APP_ENV dev
+```
+
+**Configurar en `php.ini` (MAMP PHP settings):**
+
+```ini
+env[APP_ENV] = dev
+```
+
+Si `APP_ENV` no está definida, la aplicación usa `prod` automáticamente. Nunca definas `dev` en un servidor de producción.
+
+---
+
 ## 5. Credenciales de prueba
 
 | Campo    | Valor       |
@@ -798,6 +824,32 @@ define('DB_CHARSET', 'utf8mb4');
 ```
 
 The connection uses a **PDO singleton** with `ERRMODE_EXCEPTION` and real prepared statements (`ATTR_EMULATE_PREPARES => false`).
+
+---
+
+## 4b. Environment Configuration (APP_ENV)
+
+The `APP_ENV` environment variable controls logging verbosity and debug features. Default is `prod` (safe fallback).
+
+| Value      | Behaviour |
+|------------|-----------|
+| `dev`      | Full logs; temporary password shown in UI after reset; email body written to `logs/mail.log` |
+| `staging`  | No sensitive data in logs; same security posture as prod |
+| `prod`     | Minimal logs (metadata only); no secrets; generic error messages |
+
+**Set in `.htaccess` (Apache / MAMP):**
+
+```apache
+SetEnv APP_ENV dev
+```
+
+**Set in `php.ini` (MAMP PHP settings):**
+
+```ini
+env[APP_ENV] = dev
+```
+
+If `APP_ENV` is not set, the application defaults to `prod` automatically. Never set `dev` on a production server.
 
 ---
 

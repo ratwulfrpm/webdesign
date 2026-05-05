@@ -517,3 +517,86 @@ Events are written via `auditLog()` in `includes/audit.php`. Audit writes are be
 | A07 Auth/Session Failures | `must_change_password` flag preserved through BU switch; forced change cannot be bypassed |
 | A09 Logging/Monitoring | Four new audit events cover previously silent security-relevant actions |
 
+---
+
+## 11. Logging & Secret Handling (June 2026)
+
+### 11.1 Threat Model
+
+Log files are a common exfiltration vector for credentials. Temporary passwords, verification codes, and enrollment tokens written to `logs/mail.log` in plaintext would be readable by anyone with filesystem access to the server (OWASP A09 — Logging and Monitoring Failures). This section documents controls that prevent secrets appearing in logs in production environments.
+
+### 11.2 APP_ENV — Formal Environment Awareness
+
+A formal `APP_ENV` variable now controls all environment-sensitive behaviour. Previously, dev/prod detection was implicit via SMTP placeholder detection; it is now explicit and independently configurable.
+
+| Value      | Log detail       | Secrets in logs | Dev UI features |
+|------------|------------------|-----------------|-----------------|
+| `dev`      | Full (`[DEV ONLY]` marker) | Yes (intentional) | Yes |
+| `staging`  | Reduced          | No              | No              |
+| `prod`     | Minimal metadata only | Never      | No              |
+
+**Default**: `prod` — safe fallback when variable is not set.
+
+**Configuration options:**
+
+```apache
+# Apache / MAMP .htaccess
+SetEnv APP_ENV dev
+```
+
+```ini
+# php.ini (MAMP PHP settings)
+env[APP_ENV] = dev
+```
+
+### 11.3 New Helper Classes
+
+| File | Class | Purpose |
+|------|-------|---------|
+| `includes/AppConfig.php` | `AppConfig` | `env()`, `isDev()`, `isStaging()`, `isProd()` — single source of truth for environment |
+| `includes/SafeLogger.php` | `SafeLogger` | `info()`, `error()`, `debug()`, `secureEvent()`, `maskEmail()`, `maskToken()` — environment-aware structured logging |
+
+`SafeLogger::debug()` is silenced in `prod`. `SafeLogger::secureEvent()` accepts a `$safe` array (always logged) and a `$devOnly` array (logged only in `dev`).
+
+### 11.4 Mail Log Sanitisation (`includes/mailer.php`)
+
+All four mail-fallback log functions now check `AppConfig::isProd()` before writing body content:
+
+| Function | PROD output | DEV output |
+|----------|-------------|------------|
+| `_writeResetLog()` | `event=password_reset_notification_attempted to=u***@example.com` | Full body including temporary password — prefixed `[DEV ONLY]` |
+| `writeMailLog()` | `event=verification_email_fallback to=u***@example.com` | Full body including verification code — prefixed `[DEV ONLY]` |
+| `writeInviteLog()` | `event=invitation_sent to=u***@example.com` | Full body including enrollment link/token — prefixed `[DEV ONLY]` |
+| `writeQuoteShareLog()` | `event=quote_share_fallback to=u***@example.com` | Full body including quote link — prefixed `[DEV ONLY]` |
+
+`writeErrorLog()` truncates SMTP error messages to 120 characters in `prod` to avoid leaking server configuration details.
+
+### 11.5 Temporary Password UI Gate
+
+The `dev_temp_password` key in the `sendPasswordResetEmail()` return value is **only present when `AppConfig::isDev()` is true**. The UI block that renders the temporary password is gated on the same check:
+
+```php
+<?php if ($devTempPassword !== null && AppConfig::isDev()): ?>
+```
+
+In `prod` (or `staging`), the temporary password is never returned in any PHP response or rendered in the browser.
+
+### 11.6 Files Changed
+
+| File | Change |
+|------|--------|
+| `includes/AppConfig.php` | **New** — `APP_ENV` helper class |
+| `includes/SafeLogger.php` | **New** — Secure, environment-aware logging helper |
+| `includes/mailer.php` | All four log functions sanitised; `_maskEmail()` helper added; `dev_temp_password` key gated on `AppConfig::isDev()` |
+| `owner/users.php` | `devTempPassword` UI block gated on `AppConfig::isDev()`; `AppConfig` required |
+| `admin/users.php` | Same as `owner/users.php` |
+| `.env.example` | `APP_ENV` entry added with documentation |
+
+### 11.7 OWASP Top 10 Coverage Update
+
+| Risk | Status After This Pass |
+|------|----------------------|
+| A09 Logging/Monitoring Failures | Passwords and tokens no longer written to logs in prod; `[DEV ONLY]` markers on all sensitive log output in dev |
+| A02 Cryptographic Failures | Temporary passwords no longer exposed in log files or UI in prod |
+| A05 Security Misconfiguration | `APP_ENV` defaults to `prod`; dev features require explicit opt-in |
+

@@ -86,3 +86,20 @@ function orgScopeUserAccessible(
 
     return (bool) $stmt->fetchColumn();
 }
+
+// ── Enrollment URL builder (shared by admin/users.php and owner/users.php) ─
+
+if (!function_exists('buildEnrollLink')) {
+    /**
+     * Build the absolute enrollment URL for a plain (un-hashed) invitation token.
+     *
+     * @param  string $plainToken  Un-hashed 64-char hex token
+     * @return string              Full https://… or http://… URL
+     */
+    function buildEnrollLink(string $plainToken): string
+    {
+        $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+        $host   = $_SERVER['HTTP_HOST'] ?? 'localhost';
+        return $scheme . '://' . $host . '/login/enroll.php?t=' . rawurlencode($plainToken);
+    }
+}
