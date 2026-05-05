@@ -5,13 +5,14 @@
  *
  * GET param: id (int, required)
  *
- * Returns JSON: {success, product: {..., images: {slot:path}, keywords: [...]}}
+ * Returns JSON: {success:true, data:{product:{...}}}
  *
  * Security:
- *  - Session auth (admin/owner).
+ *  - Session auth (admin/owner) via requireApiAuth().
  *  - Accepts only integer product ID.
  *  - FOB/CIF prices included — admin-only.
  *  - supplier_product_code and admin_product_code intentionally omitted from response.
+ *  - Responses use standard envelope: {success, data} / {success, error:{code,message}}.
  */
 
 header('X-Frame-Options: DENY');
@@ -20,39 +21,26 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../../includes/session.php';
-
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../config/db.php';
 require_once __DIR__ . '/../../includes/org_scope.php';
 require_once __DIR__ . '/../../includes/storage.php';
+require_once __DIR__ . '/../../api/v1/_helpers.php';
 
-// ── RBAC ────────────────────────────────────────────────────
-if (empty($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-    exit;
-}
-if (!in_array($_SESSION['role'] ?? '', ['admin', 'owner'], true)) {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Forbidden']);
-    exit;
-}
+// ── RBAC ─────────────────────────────────────────────────────
+$auth = requireApiAuth(['admin', 'owner']);
 
 // ── Validate input ───────────────────────────────────────────
 $productId = (int) ($_GET['id'] ?? 0);
 if ($productId <= 0) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'Invalid product ID']);
-    exit;
+    jsonError('Invalid product ID', 400);
 }
 
 $pdo = getDB();
-$allowedOrgIds = loadAccessibleOrgIds($pdo, (int) $_SESSION['user_id'], (string) ($_SESSION['role'] ?? ''));
+$allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
 
 if (empty($allowedOrgIds)) {
-    http_response_code(404);
-    echo json_encode(['success' => false, 'error' => 'Product not found']);
-    exit;
+    jsonError('Product not found', 404);
 }
 
 $orgPlaceholders = implode(',', array_fill(0, count($allowedOrgIds), '?'));
@@ -71,17 +59,15 @@ $stmt = $pdo->prepare(
             o.name         AS org_name
        FROM supplier_products p
        JOIN users u ON u.id = p.supplier_id
-         LEFT JOIN organizations o ON o.id = p.org_id
-        WHERE p.id = ? AND p.active = 1 AND p.org_id IN (' . $orgPlaceholders . ')
+  LEFT JOIN organizations o ON o.id = p.org_id
+      WHERE p.id = ? AND p.active = 1 AND p.org_id IN (' . $orgPlaceholders . ')
       LIMIT 1'
 );
-    $stmt->execute(array_merge([$productId], $allowedOrgIds));
+$stmt->execute(array_merge([$productId], $allowedOrgIds));
 $product = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$product) {
-    http_response_code(404);
-    echo json_encode(['success' => false, 'error' => 'Product not found']);
-    exit;
+    jsonError('Product not found', 404);
 }
 
 // ── Load images ──────────────────────────────────────────────
@@ -104,8 +90,7 @@ $kwStmt = $pdo->prepare(
 $kwStmt->execute([$productId]);
 $keywords = $kwStmt->fetchAll(PDO::FETCH_COLUMN);
 
-echo json_encode([
-    'success' => true,
+jsonOk([
     'product' => [
         'id'                    => (int)    $product['id'],
         'product_name'          => (string) $product['product_name'],
@@ -120,4 +105,4 @@ echo json_encode([
         'images'                => $images,
         'keywords'              => array_values($keywords),
     ],
-], JSON_UNESCAPED_UNICODE);
+]);

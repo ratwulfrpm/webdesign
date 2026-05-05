@@ -285,8 +285,8 @@ $lang = currentLang();
     </footer>
 
     <script>
-    const SHOW_LABEL = <?= json_encode(t('show_password')) ?>;
-    const HIDE_LABEL = <?= json_encode(t('hide_password')) ?>;
+    const SHOW_LABEL = <?= json_encode(t('show_password'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+    const HIDE_LABEL = <?= json_encode(t('hide_password'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
     function togglePassword() {
         const input   = document.getElementById('password');

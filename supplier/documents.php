@@ -301,7 +301,7 @@ $csrfField = csrfField();
 $uploadPanelOpen = isset($errors['contract_file']);
 
 $username = htmlspecialchars($_SESSION['username'] ?? '', ENT_QUOTES, 'UTF-8');
-$initial  = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
+$initial  = strtoupper(substr($username, 0, 1));
 ?>
 <!DOCTYPE html>
 <html lang="<?= $lang ?>">
@@ -647,7 +647,7 @@ $initial  = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
         var open = <?= $uploadPanelOpen ? 'true' : 'false' ?>;
         var label = document.getElementById('upload-btn-label');
         if (open && label) {
-            label.textContent = <?= json_encode(t('btn_cancel')) ?>;
+            label.textContent = <?= json_encode(t('btn_cancel'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
         }
     })();
 
@@ -658,8 +658,8 @@ $initial  = strtoupper(substr((string) ($_SESSION['username'] ?? '?'), 0, 1));
         var willOpen = panel.style.display === 'none' || panel.style.display === '';
         panel.style.display = willOpen ? 'block' : 'none';
         label.textContent   = willOpen
-            ? <?= json_encode(t('btn_cancel')) ?>
-            : <?= json_encode(t('btn_add_contract')) ?>;
+            ? <?= json_encode(t('btn_cancel'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>
+            : <?= json_encode(t('btn_add_contract'), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
         if (willOpen) {
             var fi = panel.querySelector('input[type="file"]');
             if (fi) setTimeout(function () { fi.focus(); }, 50);

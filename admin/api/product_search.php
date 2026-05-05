@@ -10,13 +10,14 @@
  *   name        — product_name LIKE
  *   page        — int (default 1)
  *
- * Returns JSON: {success, total, page, pages, per_page, items:[...]}
+ * Returns JSON: {success:true, data:{total,page,pages,per_page,items:[...]}}
  *
  * Security:
- *  - Session auth required (admin/owner role).
+ *  - Session auth required (admin/owner role) via requireApiAuth().
  *  - All filters sanitized / parameterized — never concatenated into SQL.
  *  - FOB/CIF prices included — admin-only endpoint.
  *  - No CSRF required: GET read-only, auth enforced by session.
+ *  - Responses use standard envelope: {success, data} / {success, error:{code,message}}.
  */
 
 header('X-Frame-Options: DENY');
@@ -25,23 +26,14 @@ header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../../includes/session.php';
-
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../config/db.php';
 require_once __DIR__ . '/../../includes/org_scope.php';
 require_once __DIR__ . '/../../includes/storage.php';
+require_once __DIR__ . '/../../api/v1/_helpers.php';
 
-// ── RBAC ────────────────────────────────────────────────────
-if (empty($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'error' => 'Unauthorized']);
-    exit;
-}
-if (!in_array($_SESSION['role'] ?? '', ['admin', 'owner'], true)) {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Forbidden']);
-    exit;
-}
+// ── RBAC ─────────────────────────────────────────────────────
+$auth = requireApiAuth(['admin', 'owner']);
 
 // ── Input sanitization ───────────────────────────────────────
 $clean      = fn(string $v): string => mb_substr(trim($v), 0, 100);
@@ -55,26 +47,21 @@ define('PER_PAGE', 25);
 $offset = ($page - 1) * PER_PAGE;
 
 $pdo = getDB();
-$role = (string) ($_SESSION['role'] ?? '');
-$allowedOrgIds = loadAccessibleOrgIds($pdo, (int) $_SESSION['user_id'], $role);
+$allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
 $filterOrgId = (int) ($_GET['org'] ?? 0);
 
 if (empty($allowedOrgIds)) {
-    echo json_encode([
-        'success' => true,
-        'total' => 0,
-        'page' => $page,
-        'pages' => 0,
+    jsonOk([
+        'total'    => 0,
+        'page'     => $page,
+        'pages'    => 0,
         'per_page' => PER_PAGE,
-        'items' => [],
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+        'items'    => [],
+    ]);
 }
 
 if ($filterOrgId > 0 && !orgScopeContainsOrgId($allowedOrgIds, $filterOrgId)) {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Business unit not accessible']);
-    exit;
+    jsonError('Business unit not accessible', 403);
 }
 
 // ── Build WHERE clause ───────────────────────────────────────
@@ -152,19 +139,19 @@ $sql = "SELECT
             p.price_cif,
             u.username     AS supplier_username,
             u.company_name AS supplier_company,
-         o.name         AS org_name,
+            o.name         AS org_name,
             spi.file_path  AS front_img_path,
             (SELECT GROUP_CONCAT(DISTINCT pk.keyword ORDER BY pk.keyword SEPARATOR ', ')
                FROM product_keywords pk
               WHERE pk.product_id = p.id) AS keywords_csv
-        FROM supplier_products p
-        JOIN users u ON u.id = p.supplier_id
+          FROM supplier_products p
+          JOIN users u ON u.id = p.supplier_id
      LEFT JOIN organizations o ON o.id = p.org_id
-        LEFT JOIN supplier_product_images spi
-               ON spi.product_id = p.id AND spi.image_slot = 'front'
-        WHERE {$whereSQL}
-        ORDER BY p.product_name ASC
-        LIMIT " . PER_PAGE . " OFFSET " . $offset;
+     LEFT JOIN supplier_product_images spi
+            ON spi.product_id = p.id AND spi.image_slot = 'front'
+         WHERE {$whereSQL}
+         ORDER BY p.product_name ASC
+         LIMIT " . PER_PAGE . " OFFSET " . $offset;
 
 $stmt = $pdo->prepare($sql);
 $stmt->execute($bindParams);
@@ -176,24 +163,23 @@ $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $items = [];
 foreach ($rows as $r) {
     $items[] = [
-        'id'                   => (int)    $r['id'],
-        'product_name'         => (string) $r['product_name'],
-        'internal_product_code'=> (string) ($r['internal_product_code'] ?? ''),
-        'price_fob'            => $r['price_fob'] !== null ? (float) $r['price_fob'] : null,
-        'price_cif'            => $r['price_cif'] !== null ? (float) $r['price_cif'] : null,
-        'supplier_username'    => (string) $r['supplier_username'],
-        'supplier_company'     => (string) ($r['supplier_company'] ?? ''),
-        'org_name'             => $r['org_name'] ? (string) $r['org_name'] : null,
-        'front_img_url'        => $r['front_img_path'] ? Storage::imageUrl((string) $r['front_img_path']) : null,
-        'keywords_csv'         => $r['keywords_csv'] ? (string) $r['keywords_csv'] : null,
+        'id'                    => (int)    $r['id'],
+        'product_name'          => (string) $r['product_name'],
+        'internal_product_code' => (string) ($r['internal_product_code'] ?? ''),
+        'price_fob'             => $r['price_fob'] !== null ? (float) $r['price_fob'] : null,
+        'price_cif'             => $r['price_cif'] !== null ? (float) $r['price_cif'] : null,
+        'supplier_username'     => (string) $r['supplier_username'],
+        'supplier_company'      => (string) ($r['supplier_company'] ?? ''),
+        'org_name'              => $r['org_name'] ? (string) $r['org_name'] : null,
+        'front_img_url'         => $r['front_img_path'] ? Storage::imageUrl((string) $r['front_img_path']) : null,
+        'keywords_csv'          => $r['keywords_csv'] ? (string) $r['keywords_csv'] : null,
     ];
 }
 
-echo json_encode([
-    'success'  => true,
+jsonOk([
     'total'    => $total,
     'page'     => $page,
     'pages'    => (int) ceil($total / max(1, PER_PAGE)),
     'per_page' => PER_PAGE,
     'items'    => $items,
-], JSON_UNESCAPED_UNICODE);
+]);

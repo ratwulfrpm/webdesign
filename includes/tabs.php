@@ -235,7 +235,7 @@ function renderTabs(string $activePage): string
     }
 
     if ($safeRole !== '') {
-        $roleJs = json_encode($safeRole, JSON_UNESCAPED_UNICODE);
+        $roleJs = json_encode($safeRole, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE);
         $html .= '<script>(function(){var r=' . $roleJs . ';if(!r||!document.body)return;document.body.classList.add("role-"+r);document.body.setAttribute("data-role",r);})();</script>' . "\n";
     }
 

@@ -601,7 +601,7 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
         ];
         ?>
         <script>
-        var quoteConfig = <?= json_encode($jsConfig, JSON_UNESCAPED_UNICODE) ?>;
+        var quoteConfig = <?= json_encode($jsConfig, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) ?>;
 
         function fmtMoney(v) {
             return '$ ' + v.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});

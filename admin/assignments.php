@@ -801,6 +801,10 @@ if (!empty($scopedOrgIds)) {
 
 // ─── View helpers ─────────────────────────────────────────────
 $esc      = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
+// $jse: JSON-encodes a value for safe embedding inside a <script> block.
+// JSON_HEX_TAG prevents </script> breakout; other flags prevent XSS via &, ', ".
+$jse      = fn($v) => json_encode($v,
+    JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE);
 $username = htmlspecialchars($_SESSION['username'] ?? '', ENT_QUOTES, 'UTF-8');
 $initial  = strtoupper(substr($username, 0, 1));
 $orgName  = htmlspecialchars($_SESSION['org_name'] ?? '', ENT_QUOTES, 'UTF-8');
@@ -1754,7 +1758,7 @@ $statusClass = [
                                         </button>
                                     </form>
                                     <button type="button" class="btn-asgn-action btn-asgn-action--primary"
-                                        onclick="openRegenModal(<?= (int)$a['id'] ?>,<?= htmlspecialchars(json_encode($a['special_conditions'] ?? ''), ENT_QUOTES, 'UTF-8') ?>)">
+                                        onclick="openRegenModal(<?= (int)$a['id'] ?>,<?= htmlspecialchars(json_encode($a['special_conditions'] ?? '', JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT), ENT_QUOTES, 'UTF-8') ?>)">
                                         <?= $esc(t('asgn_btn_regen')) ?>
                                     </button>
                                 </div>
@@ -1836,23 +1840,23 @@ $statusClass = [
 
     // i18n strings passed from PHP
     var i18n = {
-        btn_select:    <?= json_encode(t('asgn_btn_select')) ?>,
-        btn_selected:  <?= json_encode(t('asgn_btn_selected')) ?>,
-        btn_details:   <?= json_encode(t('asgn_btn_details')) ?>,
-        btn_remove:    <?= json_encode(t('asgn_btn_remove')) ?>,
-        results_empty: <?= json_encode(t('asgn_results_empty')) ?>,
-        results_count: <?= json_encode(t('asgn_results_count')) ?>,
-        selected_empty:<?= json_encode(t('asgn_selected_empty')) ?>,
-        fob_label:     <?= json_encode(t('asgn_detail_fob_label')) ?>,
-        cif_label:     <?= json_encode(t('asgn_detail_cif_label')) ?>,
-        supplier_label:<?= json_encode(t('asgn_detail_supplier_label')) ?>,
-        org_label:     <?= json_encode(t('asgn_detail_org_label')) ?>,
-        desc_label:    <?= json_encode(t('quote_description_label')) ?>,
-        kw_label:      <?= json_encode(t('quote_keywords_label')) ?>,
-        subtotal_label:<?= json_encode(t('quote_subtotal_label')) ?>,
-        discount_label:<?= json_encode(t('asgn_field_discount')) ?>,
-        total_label:   <?= json_encode(t('quote_total_label')) ?>,
-        items_label:   <?= json_encode(t('asgn_col_items')) ?>,
+        btn_select:    <?= $jse(t('asgn_btn_select')) ?>,
+        btn_selected:  <?= $jse(t('asgn_btn_selected')) ?>,
+        btn_details:   <?= $jse(t('asgn_btn_details')) ?>,
+        btn_remove:    <?= $jse(t('asgn_btn_remove')) ?>,
+        results_empty: <?= $jse(t('asgn_results_empty')) ?>,
+        results_count: <?= $jse(t('asgn_results_count')) ?>,
+        selected_empty:<?= $jse(t('asgn_selected_empty')) ?>,
+        fob_label:     <?= $jse(t('asgn_detail_fob_label')) ?>,
+        cif_label:     <?= $jse(t('asgn_detail_cif_label')) ?>,
+        supplier_label:<?= $jse(t('asgn_detail_supplier_label')) ?>,
+        org_label:     <?= $jse(t('asgn_detail_org_label')) ?>,
+        desc_label:    <?= $jse(t('quote_description_label')) ?>,
+        kw_label:      <?= $jse(t('quote_keywords_label')) ?>,
+        subtotal_label:<?= $jse(t('quote_subtotal_label')) ?>,
+        discount_label:<?= $jse(t('asgn_field_discount')) ?>,
+        total_label:   <?= $jse(t('quote_total_label')) ?>,
+        items_label:   <?= $jse(t('asgn_col_items')) ?>,
     };
 
     // ═══════════════════════════════════════════════════════════
@@ -2377,7 +2381,7 @@ $statusClass = [
         } else {
             expiry = new Date(now.getTime() + amount * 86400000);
         }
-        var preview = <?= json_encode(t('asgn_validity_expires_at')) ?> + ' ' 
+        var preview = <?= $jse(t('asgn_validity_expires_at')) ?> + ' '
                     + expiry.toLocaleString('<?= $lang ?>');
         var prevEl = document.getElementById('validityPreview');
         if (prevEl) prevEl.textContent = preview;
@@ -2410,29 +2414,29 @@ $statusClass = [
         var ids  = Object.keys(selectedProducts);
 
         if (ids.length === 0) {
-            alert(<?= json_encode(t('asgn_err_no_products')) ?>);
+            alert(<?= $jse(t('asgn_err_no_products')) ?>);
             return false;
         }
         if (!selectedBase) {
-            alert(<?= json_encode(t('asgn_err_base_invalid')) ?>);
+            alert(<?= $jse(t('asgn_err_base_invalid')) ?>);
             return false;
         }
         var profitType = document.getElementById('profit_calculation_type').value;
         if (!profitType) {
-            alert(<?= json_encode(t('asgn_err_profit_required')) ?>);
+            alert(<?= $jse(t('asgn_err_profit_required')) ?>);
             return false;
         }
         if (profitType === 'percentage' && !document.getElementById('profit_percentage').value) {
-            alert(<?= json_encode(t('asgn_err_profit_invalid')) ?>);
+            alert(<?= $jse(t('asgn_err_profit_invalid')) ?>);
             return false;
         }
         if (profitType === 'fixed_amount' && !document.getElementById('profit_fixed_amount').value) {
-            alert(<?= json_encode(t('asgn_err_profit_invalid')) ?>);
+            alert(<?= $jse(t('asgn_err_profit_invalid')) ?>);
             return false;
         }
         var custName = document.getElementById('customer_name').value.trim();
         if (!custName) {
-            alert(<?= json_encode(t('asgn_err_customer_required')) ?>);
+            alert(<?= $jse(t('asgn_err_customer_required')) ?>);
             document.getElementById('customer_name').focus();
             return false;
         }
@@ -2492,7 +2496,7 @@ $statusClass = [
         var btn = document.querySelector('.link-copy-row .btn-secondary');
         if (!btn) return;
         var orig = btn.textContent;
-        btn.textContent = <?= json_encode(t('asgn_link_copied')) ?>;
+        btn.textContent = <?= $jse(t('asgn_link_copied')) ?>;
         btn.disabled = true;
         setTimeout(function() { btn.textContent = orig; btn.disabled = false; }, 2000);
     }

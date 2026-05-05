@@ -24,8 +24,7 @@
  * ── RBAC notes ───────────────────────────────────────────────
  *   Product images are catalog photos shared in customer-facing quotes.
  *   They are NOT confidential in the same way contracts are.
- *   supplier  — may view images for products within their own catalogue
- *               (Phase 2 can add stricter per-supplier IDOR check here)
+ *   supplier  — may view images for their own products only (IDOR enforced)
  *   admin     — may view any product image within their BUs
  *   owner     — may view all product images (global scope)
  *   support   — may view product images in their active BU
@@ -33,7 +32,6 @@
  *
  *   Admin → Owner parity: both admin and owner have full access here.
  *
- * TODO: Phase 2 — add per-supplier IDOR check for supplier role.
  * TODO: Phase 2 — swap serve logic to S3 signed URL if STORAGE_DRIVER=s3.
  */
 
@@ -82,6 +80,26 @@ $accessGranted = false;
 // 1. Authenticated session — any role is sufficient
 if (isset($_SESSION['user_id'], $_SESSION['role'])) {
     $accessGranted = true;
+}
+
+// 1a. Supplier IDOR check: a supplier may only view images of their own products.
+//     Admin and owner have global scope; support has BU scope — both keep full access here.
+//     Token-based access (block 2 below) is already scoped to the quote's product set.
+if ($accessGranted && ($_SESSION['role'] ?? '') === 'supplier') {
+    $accessGranted = false; // revoke; re-grant only if this product belongs to this supplier
+    if (preg_match('#^uploads/products/(\d+)/#', $normalised, $m)) {
+        $productId  = (int) $m[1];
+        $supplierId = (int) ($_SESSION['user_id'] ?? 0);
+        $pdo        = getDB();
+        $sSt = $pdo->prepare(
+            'SELECT 1 FROM supplier_products WHERE id = ? AND supplier_id = ? LIMIT 1'
+        );
+        $sSt->execute([$productId, $supplierId]);
+        if ($sSt->fetch()) {
+            $accessGranted = true;
+        }
+    }
+    // If the path does not match the expected pattern, leave $accessGranted = false
 }
 
 // 2. Public quote token — check ?t= parameter

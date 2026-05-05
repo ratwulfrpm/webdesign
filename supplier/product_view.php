@@ -92,7 +92,7 @@ $productKeywords = $kwStmt->fetchAll(PDO::FETCH_COLUMN);
 // ── View helpers ──────────────────────────────────────────────
 $esc      = fn($v): string => htmlspecialchars((string)($v ?? ''), ENT_QUOTES, 'UTF-8');
 $username  = htmlspecialchars($_SESSION['username'] ?? '', ENT_QUOTES, 'UTF-8');
-$initial   = strtoupper(substr((string)($_SESSION['username'] ?? '?'), 0, 1));
+$initial   = strtoupper(substr($username, 0, 1));
 $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
 
 // Format a price or show dash

@@ -359,7 +359,7 @@ $errMsg   = fn(string $key): string => isset($errors[$key])
     : '';
 
 $username  = htmlspecialchars($_SESSION['username'] ?? '', ENT_QUOTES, 'UTF-8');
-$initial   = strtoupper(substr((string)($_SESSION['username'] ?? '?'), 0, 1));
+$initial   = strtoupper(substr($username, 0, 1));
 $csrfField = csrfField();
 $csrfToken = htmlspecialchars(csrfToken(), ENT_QUOTES, 'UTF-8');
 

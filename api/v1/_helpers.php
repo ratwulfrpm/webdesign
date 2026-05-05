@@ -50,29 +50,52 @@ function jsonOk(array $payload, int $code = 200): never
 /**
  * Emit a JSON error response and exit.
  *
+ * Response envelope:
+ *   { "success": false, "error": { "code": "SNAKE_CODE", "message": "..." } }
+ *
  * Standard error codes:
- *   400 — bad request / invalid input
- *   401 — unauthenticated
- *   403 — forbidden
- *   404 — not found
- *   405 — method not allowed
- *   422 — unprocessable entity (validation errors)
- *   429 — too many requests
- *   500 — generic server error (no details leaked)
+ *   400 — bad request / invalid input       → BAD_REQUEST
+ *   401 — unauthenticated                   → UNAUTHORIZED
+ *   403 — forbidden                         → FORBIDDEN
+ *   404 — not found                         → NOT_FOUND
+ *   405 — method not allowed                → METHOD_NOT_ALLOWED
+ *   422 — unprocessable entity              → VALIDATION_ERROR
+ *   429 — too many requests                 → TOO_MANY_REQUESTS
+ *   500 — generic server error              → INTERNAL_ERROR
  */
 function jsonError(string $message, int $code = 400, array $extra = []): never
 {
+    $codeMap = [
+        400 => 'BAD_REQUEST',
+        401 => 'UNAUTHORIZED',
+        403 => 'FORBIDDEN',
+        404 => 'NOT_FOUND',
+        405 => 'METHOD_NOT_ALLOWED',
+        422 => 'VALIDATION_ERROR',
+        429 => 'TOO_MANY_REQUESTS',
+        500 => 'INTERNAL_ERROR',
+    ];
     http_response_code($code);
-    echo json_encode(
-        array_merge(['success' => false, 'error' => $message], $extra),
-        JSON_UNESCAPED_UNICODE
-    );
+    $payload = [
+        'success' => false,
+        'error'   => [
+            'code'    => $codeMap[$code] ?? 'ERROR',
+            'message' => $message,
+        ],
+    ];
+    if (!empty($extra)) {
+        $payload = array_merge($payload, $extra);
+    }
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 /**
  * Emit a 422 Unprocessable Entity JSON error with a field-level errors map.
  * Use this for form/body validation failures.
+ *
+ * Response envelope:
+ *   { "success": false, "error": { "code": "VALIDATION_ERROR", "message": "...", "fields": {...} } }
  *
  * @param  array<string, string>  $errors  field → message
  * @param  string                 $summary Optional top-level summary
@@ -82,8 +105,11 @@ function jsonValidationError(array $errors, string $summary = 'Validation failed
     http_response_code(422);
     echo json_encode([
         'success' => false,
-        'error'   => $summary,
-        'errors'  => $errors,
+        'error'   => [
+            'code'    => 'VALIDATION_ERROR',
+            'message' => $summary,
+            'fields'  => $errors,
+        ],
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -98,7 +124,10 @@ function jsonServerError(string $logContext = ''): never
         error_log('[API 500] ' . $logContext);
     }
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'An internal error occurred.'], JSON_UNESCAPED_UNICODE);
+    echo json_encode([
+        'success' => false,
+        'error'   => ['code' => 'INTERNAL_ERROR', 'message' => 'An internal error occurred.'],
+    ], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
