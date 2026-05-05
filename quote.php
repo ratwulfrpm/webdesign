@@ -29,6 +29,8 @@ header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
 header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
 header('Content-Type: text/html; charset=utf-8');
 
 // ── Bootstrap ────────────────────────────────────────────────
@@ -38,9 +40,28 @@ require_once __DIR__ . '/includes/audit.php';
 require_once __DIR__ . '/includes/session.php';   // centralized session bootstrap
 require_once __DIR__ . '/includes/storage.php';   // Storage::imageUrl() for secure image serving
 
+// ── PUBLIC TOKEN CONTEXT ISOLATION ───────────────────────────
+// This page operates in pure token-only mode.
+// The PHP session is opened ONLY to read/persist the visitor's language
+// preference.  After initLang() writes any pending lang change, we call
+// session_write_close() to release the session file immediately.
+//
+// Security contract:
+//  • Any authenticated admin/owner/support/supplier session that exists in
+//    the same browser is LEFT COMPLETELY INTACT on the server. We never
+//    modify or destroy the underlying session data.
+//  • Auth context keys (logged_in, user_id, role, org_id, etc.) are NEVER
+//    read by this page — the token in ?t= is the sole access credential.
+//  • After write_close(), $_SESSION becomes a local-only snapshot for this
+//    request; no subsequent changes can persist, preventing accidental bleed.
+//  • No private navigation, FOB/CIF prices, internal codes, or supplier IDs
+//    are rendered regardless of whether an authenticated session exists.
+//
 $lang = 'en';
-initLang();
+initLang();                // handle ?set_lang= redirect; normalise $_SESSION['lang']
 $lang = currentLang();
+session_write_close();     // release session lock — auth context preserved on server
+// ─────────────────────────────────────────────────────────────
 
 // ── Generic error page ────────────────────────────────────────
 function showExpiredPage(string $lang): void

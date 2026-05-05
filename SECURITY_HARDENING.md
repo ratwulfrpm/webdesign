@@ -219,3 +219,155 @@ if ($errors) {
 | A08 Software/Data Integrity | API response format standardized; no new trust issues |
 | A09 Logging/Monitoring | `jsonServerError` logs context via `error_log`; no change |
 | A10 SSRF | N/A (no outbound HTTP) |
+
+---
+
+## 8. Session, Cookie & Context Isolation Hardening (May 2026)
+
+### 8.1 Session Fixation Protection
+
+| Point | Mechanism | File |
+|-------|-----------|------|
+| Login — new session ID | `session_regenerate_id(true)` inside every `create*Session()` call | `includes/auth.php` |
+| Pending → full session promotion | `session_regenerate_id(true)` inside `selectOrg()` | `includes/auth.php` |
+| BU switch mid-session | `session_regenerate_id(true)` | `switch_org.php` |
+| Logout | `$_SESSION = []; setcookie(..., time()-42000, ...); session_destroy()` | `includes/auth.php` — `destroySession()` |
+| Logout response header | `Clear-Site-Data: "cache", "cookies", "storage"` | `logout.php` |
+
+Session ID is **never reused** across login events. The old session file is invalidated by `session_regenerate_id(true)` (`delete_old_session = true`).
+
+### 8.2 Role Context Isolation
+
+On every session creation all prior `$_SESSION` data is explicitly wiped (`$_SESSION = []`) before writing the new role context. Keys set per role:
+
+| Key | owner | admin | support | supplier |
+|-----|-------|-------|---------|----------|
+| `logged_in` | ✓ | ✓ | ✓ | ✓ |
+| `user_id` | ✓ | ✓ | ✓ | ✓ |
+| `role` | `owner` | `admin` | `support` | `supplier` |
+| `org_id` | `0` (global) | `0` (global) | Active BU id | Org id |
+| `org_slug/name` | empty | empty | Active BU | Org name |
+| `support_orgs` | — | — | Full list | — |
+| `session_start_time` | ✓ | ✓ | ✓ | ✓ |
+| `last_activity` | ✓ | ✓ | ✓ | ✓ |
+
+**Support active-BU revalidation**: On every `requireAuth()` call, if role = `support`, the live `org_members` table is queried to refresh `support_orgs` and validate `org_id`. If the active BU is revoked mid-session, the session automatically falls back to a valid assigned BU (or terminates if none remain).
+
+**Owner/admin no BU selector**: `createGlobalSession()` sets `org_id = 0`. TenantScope returns the full org list for owner and all assigned orgs for admin without reading `org_id` from session.
+
+### 8.3 Cookie Hardening
+
+Configured in `includes/session.php` via `session_set_cookie_params()`:
+
+| Attribute | Value | Notes |
+|-----------|-------|-------|
+| `lifetime` | `0` | Browser-session cookie — no persistent cookie written |
+| `path` | `/` | Entire application |
+| `secure` | Auto-detected from `$_SERVER['HTTPS']` | `true` in production (HTTPS); `false` in local dev |
+| `httponly` | `true` | JavaScript cannot read the session cookie |
+| `samesite` | `Lax` | CSRF mitigation; Strict avoided to not break OAuth/redirect flows |
+
+**Dev vs prod**: `secure=false` in local dev is intentional and safe — session data never leaves localhost. Before cloud deployment, ensure `HTTPS` is enabled at the proxy/load-balancer level so `secure=true` is auto-activated without code changes.
+
+No role, BU ID, or any business data is stored in cookies. The session cookie carries only the PHP session ID.
+
+### 8.4 Public Token Context Isolation (`quote.php`)
+
+The public quotation page operates in **token-only mode**:
+
+1. Session is started by `includes/session.php` solely to read `$_SESSION['lang']`.
+2. `initLang()` normalises/persists the language preference.
+3. `session_write_close()` is called **immediately** after lang is read — the session file is written and the lock released. No further session writes occur.
+4. All page logic below that point is pure token-based DB lookup — no `$_SESSION` auth key is ever read.
+
+Effect when an authenticated user opens a quote link:
+- Their session on the server is **not modified** in any way.
+- The quote renders with the token data only — no private navigation, no FOB/CIF prices, no `internal_product_code`, no `supplier_product_code`, no org IDs.
+- Returning to an admin page after viewing a quote works normally.
+
+### 8.5 Cache-Control Headers
+
+All sensitive responses now emit the full three-directive no-cache set:
+
+```
+Cache-Control: no-store, no-cache, must-revalidate
+Pragma: no-cache
+Expires: 0
+```
+
+**Where they are sent:**
+
+| Scope | Mechanism |
+|-------|-----------|
+| All fully-authenticated pages | `requireAuth()` → `sendNoCacheHeaders()` (automatic) |
+| Org-picker (pending session) | `requirePendingAuth()` → `sendNoCacheHeaders()` (automatic) |
+| All API v1 authenticated endpoints | `requireApiAuth()` (automatic) |
+| Login page | Direct `header()` calls in `index.php` |
+| Enrollment page | Direct `header()` calls in `enroll.php` |
+| Public quote page | Direct `header()` calls in `quote.php` |
+| Logout page | Direct `header()` calls in `logout.php` + `Clear-Site-Data` |
+| Org-switch | Direct `header()` calls in `switch_org.php` |
+
+### 8.6 Session Timeout
+
+Two independent expiry mechanisms operate on every authenticated request:
+
+| Mechanism | Limit | Trigger | Response |
+|-----------|-------|---------|----------|
+| **Idle timeout** | 30 min (`IDLE_TIMEOUT`) | `time() - last_activity > 1800` | `destroySession()` + redirect to `?reason=timeout` |
+| **Absolute ceiling** | 8 hours (`ABSOLUTE_TIMEOUT`) | `time() - session_start_time > 28800` | Same |
+
+Both checks run in `requireAuth()` (web) and inline in `requireApiAuth()` (API). Public token-only pages (`quote.php`) are not affected.
+
+`session_start_time` is written to `$_SESSION` by every session-creation function (`createSession`, `createGlobalSession`, `selectOrg`) and by `switch_org.php`.
+
+### 8.7 API Session / Token Separation
+
+| Concern | Design |
+|---------|--------|
+| API authentication mechanism | Cookie-based PHP session (same session started by `session.php`) |
+| Bearer token support | **Not implemented** — the API does not accept `Authorization: Bearer` headers |
+| Public quote API (`/api/v1/public/quote?t=TOKEN`) | Token-only, no session required or read |
+| Session vs API token | There is no separate API token system. All API calls use the same session cookie as the web UI. |
+| Session cannot elevate API token | N/A — there is no API token to elevate |
+| Public links ≠ API tokens | Public quote links are short-lived DB tokens (SHA-256 hash lookup), not API tokens |
+
+This separation must be documented in the API manual for integrators.
+
+### 8.8 Cross-Role Test Matrix
+
+| # | Scenario | Expected Result | Pass? |
+|---|----------|-----------------|-------|
+| 1 | Login owner → logout → login support, same browser | Support gets fresh session, owner context gone | Manual ✓ |
+| 2 | Login admin → open public quote link | Quote renders token-only; admin session untouched | Manual ✓ |
+| 3 | Login support BU-A → switch to BU-B | Session regenerated, org_id updated, BU-A context cleared | Manual ✓ |
+| 4 | Login supplier → access `/login/admin/products.php` | `requireRole()` redirects to supplier home | Manual ✓ |
+| 5 | Login admin → logout (incomplete sim) → login owner | Full destroySession on logout; owner gets clean session | Manual ✓ |
+| 6 | Open public quote in new tab while admin logged in | Quote tab: token-only view; admin tab: unaffected | Manual ✓ |
+
+### 8.9 Admin → Owner Parity Check
+
+| Behavior | Admin | Owner | Parity |
+|----------|-------|-------|--------|
+| Global session (no BU requirement) | ✓ | ✓ | ✓ Equal |
+| No BU selector shown | ✓ | ✓ | ✓ Equal |
+| Idle + absolute timeout | ✓ | ✓ | ✓ Equal |
+| No-cache headers | ✓ | ✓ | ✓ Equal |
+| Public quote isolation | Unaffected | Unaffected | ✓ Equal |
+| Owner-only: BU management | — | ✓ | Expected difference |
+| Owner-only: create admin users | — | ✓ | Expected difference |
+
+Owner retains all admin capabilities and adds BU-management exclusives. No admin capability was removed or degraded.
+
+### 8.10 Files Modified in This Pass
+
+| File | Change |
+|------|--------|
+| `includes/auth.php` | Added `ABSOLUTE_TIMEOUT` constant; `sendNoCacheHeaders()` helper; `requireAuth()` now calls `sendNoCacheHeaders()` + absolute timeout check; `requirePendingAuth()` now calls `sendNoCacheHeaders()`; all `create*Session()` functions write `session_start_time` |
+| `api/v1/_helpers.php` | `requireApiAuth()` now enforces idle timeout, absolute timeout, and no-cache headers |
+| `quote.php` | Added `Pragma` + `Expires` headers; added explicit session isolation block with `session_write_close()` |
+| `index.php` | Added `Pragma: no-cache` + `Expires: 0` headers |
+| `enroll.php` | Added `Pragma: no-cache` + `Expires: 0` headers |
+| `switch_org.php` | Added `Pragma: no-cache` + `Expires: 0` headers; writes `session_start_time` on BU switch |
+| `SECURITY_HARDENING.md` | This section |
+| `RBAC_API_MANUAL.md` | Session/API token separation section added |

@@ -136,6 +136,11 @@ function jsonServerError(string $logContext = ''): never
 /**
  * API auth guard: require an active session with one of the given roles.
  *
+ * Enforces the same idle-timeout and absolute-session-ceiling as the
+ * web-layer requireAuth(), so API requests cannot bypass the 30-minute
+ * inactivity limit or the 8-hour hard ceiling.
+ * Also sends no-store cache headers so API responses are never cached.
+ *
  * Returns context array: ['user_id', 'role', 'org_id'].
  *
  * Named requireApiAuth (not requireAuth) to avoid PHP fatal redeclaration
@@ -147,9 +152,34 @@ function jsonServerError(string $logContext = ''): never
  */
 function requireApiAuth(array $roles = ['admin', 'owner']): array
 {
+    // Emit no-store headers for all API authenticated responses.
+    if (!headers_sent()) {
+        header('Cache-Control: no-store, no-cache, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+    }
+
     if (empty($_SESSION['user_id'])) {
         jsonError('Unauthorized', 401);
     }
+
+    $now = time();
+
+    // Absolute session ceiling — mirrors ABSOLUTE_TIMEOUT in auth.php (8 h).
+    if (isset($_SESSION['session_start_time']) &&
+        ($now - (int) $_SESSION['session_start_time']) > 28800) {
+        session_unset();
+        session_destroy();
+        jsonError('Session expired', 401);
+    }
+
+    // Idle timeout — mirrors IDLE_TIMEOUT in auth.php (30 min).
+    if (($now - ($_SESSION['last_activity'] ?? 0)) > 1800) {
+        session_unset();
+        session_destroy();
+        jsonError('Session expired', 401);
+    }
+    $_SESSION['last_activity'] = $now;
 
     $role = $_SESSION['role'] ?? '';
     if (!in_array($role, $roles, true)) {

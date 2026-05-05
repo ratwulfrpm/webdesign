@@ -536,3 +536,68 @@ The three conditions must ALL be true for the rewrite to fire:
 | CSRF | Legacy pages enforce CSRF on POST forms | API uses `requireApiAuth()` token validation |
 | Session required | Yes (except public/token routes) | Yes (reads session; no session creation) |
 
+---
+
+## 12. Session & Cookie Security Reference (May 2026)
+
+### 12.1 Session lifecycle
+
+```
+Browser request
+  │
+  ▼
+includes/session.php          ← session_set_cookie_params + session_start (once)
+  │
+  ▼
+requireAuth() / requireApiAuth()
+  ├── sendNoCacheHeaders()     ← Cache-Control: no-store / Pragma / Expires: 0
+  ├── absolute timeout check   ← 8 h from session_start_time
+  ├── idle timeout check       ← 30 min from last_activity
+  └── DB revalidation          ← is_active; support org validity
+```
+
+### 12.2 Cookie attributes
+
+| Attribute | Value | Reason |
+|-----------|-------|--------|
+| `HttpOnly` | `true` | JS cannot read the session cookie — XSS cannot steal it |
+| `SameSite` | `Lax` | CSRF mitigation without breaking redirect-based flows |
+| `Secure` | Auto (HTTPS present) | HTTPS-only in production; plain HTTP in local dev |
+| `lifetime` | `0` | No persistent cookie — expires when browser closes |
+| `path` | `/` | All app paths share the same cookie |
+
+### 12.3 API token vs session authentication
+
+This application uses **session-cookie authentication exclusively**. There is no API token (Bearer) system.
+
+| Question | Answer |
+|----------|--------|
+| Does the API support `Authorization: Bearer`? | No. The API reads the PHP session cookie only. |
+| Can a public quote token authenticate API calls? | No. Quote tokens are short-lived DB lookup tokens, not auth credentials. |
+| Can session auth elevate to higher API permissions? | No. `requireApiAuth(roles)` validates `$_SESSION['role']` against the explicit allow-list. |
+| Are session and API authentication independent? | They share the same PHP session mechanism. There is no independent token layer. |
+| What happens on session expiry during an API call? | `requireApiAuth()` returns HTTP 401 `{"error":{"code":"UNAUTHORIZED",...}}`. |
+
+Integrators calling the API from a non-browser client must first authenticate via the web login flow to establish a session, then forward the `PHPSESSID` cookie on subsequent API requests. There is no stateless API token endpoint.
+
+### 12.4 Public quote isolation
+
+`GET /login/quote.php?t={token}` is the only truly unauthenticated page. Its isolation contract:
+
+1. Session is started for `lang` persistence only.
+2. `session_write_close()` is called before any DB or rendering logic — the session is no longer modifiable after that point.
+3. No auth session keys (`logged_in`, `user_id`, `role`, etc.) are read by the page.
+4. The token in `?t=` is the sole credential — hashed via SHA-256 and looked up in `quote_assignments`.
+5. An authenticated admin/owner opening a quote link: their session is untouched; the quote renders with public-only data.
+
+### 12.5 Session timeout constants
+
+Defined in `includes/auth.php`:
+
+| Constant | Value | Scope |
+|----------|-------|-------|
+| `IDLE_TIMEOUT` | 1800 s (30 min) | Web + API |
+| `ABSOLUTE_TIMEOUT` | 28800 s (8 h) | Web + API |
+| `ORG_PICK_TIMEOUT` | 300 s (5 min) | Org-picker pending session only |
+| `LOCKOUT_SECS` | 3600 s (1 h) | Login brute-force lockout |
+

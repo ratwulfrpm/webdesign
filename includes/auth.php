@@ -21,7 +21,8 @@ require_once __DIR__ . '/../config/db.php';
 
 define('MAX_ATTEMPTS', 3);
 define('LOCKOUT_SECS', 3600);
-define('IDLE_TIMEOUT', 1800);
+define('IDLE_TIMEOUT', 1800);       // 30-minute inactivity limit
+define('ABSOLUTE_TIMEOUT', 28800);  // 8-hour hard session ceiling
 define('ORG_PICK_TIMEOUT', 300);
 
 define('AUTH_INVALID',  'INVALID');
@@ -235,17 +236,18 @@ function selectOrg(int $orgId): bool
     session_regenerate_id(true);
     $_SESSION = [];
 
-    $_SESSION['logged_in']     = true;
-    $_SESSION['user_id']       = $userId;
-    $_SESSION['username']      = $username;
-    $_SESSION['role']          = $found['role'];
-    $_SESSION['org_id']        = (int) $found['id'];
-    $_SESSION['org_slug']      = $found['slug'];
-    $_SESSION['org_name']      = $found['name'];
-    $_SESSION['support_orgs']  = $supportOrgs;
-    $_SESSION['first_login']   = $firstLogin;
-    $_SESSION['lang']          = $lang;
-    $_SESSION['last_activity'] = time();
+    $_SESSION['logged_in']          = true;
+    $_SESSION['user_id']             = $userId;
+    $_SESSION['username']            = $username;
+    $_SESSION['role']                = $found['role'];
+    $_SESSION['org_id']              = (int) $found['id'];
+    $_SESSION['org_slug']            = $found['slug'];
+    $_SESSION['org_name']            = $found['name'];
+    $_SESSION['support_orgs']        = $supportOrgs;
+    $_SESSION['first_login']         = $firstLogin;
+    $_SESSION['lang']                = $lang;
+    $_SESSION['last_activity']       = time();
+    $_SESSION['session_start_time']  = time();
 
     return true;
 }
@@ -259,19 +261,20 @@ function createSession(array $user, array $org): void
     session_regenerate_id(true);
     $_SESSION = [];
 
-    $_SESSION['logged_in']     = true;
-    $_SESSION['user_id']       = (int) $user['id'];
-    $_SESSION['username']      = $user['username'];
-    $_SESSION['role']          = $org['role'];
-    $_SESSION['org_id']        = (int) $org['id'];
-    $_SESSION['org_slug']      = $org['slug'];
-    $_SESSION['org_name']      = $org['name'];
+    $_SESSION['logged_in']         = true;
+    $_SESSION['user_id']           = (int) $user['id'];
+    $_SESSION['username']          = $user['username'];
+    $_SESSION['role']              = $org['role'];
+    $_SESSION['org_id']            = (int) $org['id'];
+    $_SESSION['org_slug']          = $org['slug'];
+    $_SESSION['org_name']          = $org['name'];
     if (($org['role'] ?? '') === 'support') {
         $_SESSION['support_orgs'] = [$org];
     }
-    $_SESSION['first_login']   = (int) $user['first_login'];
-    $_SESSION['lang']          = $user['preferred_language'] ?? 'es';
-    $_SESSION['last_activity'] = time();
+    $_SESSION['first_login']        = (int) $user['first_login'];
+    $_SESSION['lang']               = $user['preferred_language'] ?? 'es';
+    $_SESSION['last_activity']      = time();
+    $_SESSION['session_start_time'] = time();
 }
 
 /**
@@ -282,16 +285,17 @@ function createGlobalSession(array $user, string $role): void
     session_regenerate_id(true);
     $_SESSION = [];
 
-    $_SESSION['logged_in']     = true;
-    $_SESSION['user_id']       = (int) $user['id'];
-    $_SESSION['username']      = $user['username'];
-    $_SESSION['role']          = $role;
-    $_SESSION['org_id']        = 0;
-    $_SESSION['org_slug']      = '';
-    $_SESSION['org_name']      = '';
-    $_SESSION['first_login']   = (int) $user['first_login'];
-    $_SESSION['lang']          = $user['preferred_language'] ?? 'es';
-    $_SESSION['last_activity'] = time();
+    $_SESSION['logged_in']         = true;
+    $_SESSION['user_id']           = (int) $user['id'];
+    $_SESSION['username']          = $user['username'];
+    $_SESSION['role']              = $role;
+    $_SESSION['org_id']            = 0;
+    $_SESSION['org_slug']          = '';
+    $_SESSION['org_name']          = '';
+    $_SESSION['first_login']       = (int) $user['first_login'];
+    $_SESSION['lang']              = $user['preferred_language'] ?? 'es';
+    $_SESSION['last_activity']     = time();
+    $_SESSION['session_start_time']= time();
 }
 
 /** True only when a full (org-selected) session is active. */
@@ -310,12 +314,37 @@ function isPendingLogin(): bool
         && !empty($_SESSION['pending_orgs']);
 }
 
+// ── Cache-control helper ─────────────────────────────────────
+
+/**
+ * Emit no-store / no-cache headers on every authenticated response.
+ *
+ * Covers HTTP/1.1 (Cache-Control), HTTP/1.0 (Pragma), and legacy
+ * proxy/browser expiry (Expires).  Call this at the top of every
+ * authenticated page guard so no sensitive view is ever cached —
+ * regardless of whether the page's own header block remembers to
+ * include all three directives.
+ */
+function sendNoCacheHeaders(): void
+{
+    if (!headers_sent()) {
+        header('Cache-Control: no-store, no-cache, must-revalidate');
+        header('Pragma: no-cache');
+        header('Expires: 0');
+    }
+}
+
+// ── Session guards ───────────────────────────────────────────
+
 /**
  * Guard for fully-authenticated pages.
- * Enforces idle timeout and DB revalidation.
+ * Enforces idle timeout, absolute session ceiling, and DB revalidation.
+ * Also emits no-store cache headers to prevent browser/proxy caching.
  */
 function requireAuth(): void
 {
+    sendNoCacheHeaders();
+
     if (!isLoggedIn()) {
         if (isPendingLogin()) {
             header('Location: /login/org-picker.php');
@@ -325,12 +354,23 @@ function requireAuth(): void
         exit;
     }
 
-    if ((time() - ($_SESSION['last_activity'] ?? 0)) > IDLE_TIMEOUT) {
+    $now = time();
+
+    // Absolute session ceiling — hard-limit regardless of activity.
+    if (isset($_SESSION['session_start_time']) &&
+        ($now - (int) $_SESSION['session_start_time']) > ABSOLUTE_TIMEOUT) {
         destroySession();
         header('Location: /login/index.php?reason=timeout');
         exit;
     }
-    $_SESSION['last_activity'] = time();
+
+    // Idle timeout — expire after IDLE_TIMEOUT seconds of inactivity.
+    if (($now - ($_SESSION['last_activity'] ?? 0)) > IDLE_TIMEOUT) {
+        destroySession();
+        header('Location: /login/index.php?reason=timeout');
+        exit;
+    }
+    $_SESSION['last_activity'] = $now;
 
     try {
         $pdo  = getDB();
@@ -389,9 +429,12 @@ function requireAuth(): void
 /**
  * Guard for the org-picker page.
  * Redirects away if already fully logged in or not authenticated at all.
+ * Emits no-store cache headers to prevent browser caching.
  */
 function requirePendingAuth(): void
 {
+    sendNoCacheHeaders();
+
     if (isLoggedIn()) {
         redirectToHome();
     }

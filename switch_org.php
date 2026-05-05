@@ -13,6 +13,8 @@
 header('X-Frame-Options: DENY');
 header('X-Content-Type-Options: nosniff');
 header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+header('Expires: 0');
 
 require_once __DIR__ . '/includes/session.php';
 
@@ -79,17 +81,18 @@ $lang       = $_SESSION['lang']        ?? 'es';
 session_regenerate_id(true);
 $_SESSION = [];
 
-$_SESSION['logged_in']     = true;
-$_SESSION['user_id']       = $userId;
-$_SESSION['username']      = $username;
-$_SESSION['role']          = $org['role'];
-$_SESSION['org_id']        = (int) $org['id'];
-$_SESSION['org_slug']      = $org['slug'];
-$_SESSION['org_name']      = $org['name'];
-$_SESSION['support_orgs']  = $supportOrgs;
-$_SESSION['first_login']   = $firstLogin;
-$_SESSION['lang']          = $lang;
-$_SESSION['last_activity'] = time();
+$_SESSION['logged_in']         = true;
+$_SESSION['user_id']           = $userId;
+$_SESSION['username']          = $username;
+$_SESSION['role']              = $org['role'];
+$_SESSION['org_id']            = (int) $org['id'];
+$_SESSION['org_slug']          = $org['slug'];
+$_SESSION['org_name']          = $org['name'];
+$_SESSION['support_orgs']      = $supportOrgs;
+$_SESSION['first_login']       = $firstLogin;
+$_SESSION['lang']              = $lang;
+$_SESSION['last_activity']     = time();
+$_SESSION['session_start_time']= time();
 
 header('Location: ' . $returnTo);
 exit;
