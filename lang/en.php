@@ -809,6 +809,7 @@ return [
     'field_internal_code_readonly_hint' => 'Assigned automatically by the system. Read-only.',
 
     // ── Business units (owner panel) ─────────────────────────
+    'btn_switch_bu'                => 'Switch',
     'tab_business_units'           => 'Business Units',
     'bu_page_title'                => 'Business Units — Local App',
     'bu_create_title'              => 'Create New Business Unit',

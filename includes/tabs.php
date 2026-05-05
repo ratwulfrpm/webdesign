@@ -215,7 +215,7 @@ function renderTabs(string $activePage): string
             $html .= '<form method="POST" action="/login/switch_org.php" style="display:flex;gap:8px;align-items:center;">';
             $html .= csrfField();
             $html .= '<input type="hidden" name="return_to" value="' . htmlspecialchars($_SERVER['REQUEST_URI'] ?? '/login/admin/products.php', ENT_QUOTES, 'UTF-8') . '">';
-            $html .= '<label for="support-org-switcher" style="font-size:.85rem;opacity:.8;">Business Unit:</label>';
+            $html .= '<label for="support-org-switcher" style="font-size:.85rem;opacity:.8;">' . htmlspecialchars(t('tab_business_units'), ENT_QUOTES, 'UTF-8') . ':</label>';
             $html .= '<select id="support-org-switcher" name="org_id" class="filter-select" style="min-width:180px;">';
             foreach ($supportOrgs as $org) {
                 $oid = (int) ($org['id'] ?? 0);
@@ -228,7 +228,7 @@ function renderTabs(string $activePage): string
                       . '</option>';
             }
             $html .= '</select>';
-            $html .= '<button type="submit" class="btn-secondary btn-sm">Switch</button>';
+            $html .= '<button type="submit" class="btn-secondary btn-sm">' . htmlspecialchars(t('btn_switch_bu'), ENT_QUOTES, 'UTF-8') . '</button>';
             $html .= '</form>';
             $html .= '</div>' . "\n";
         }

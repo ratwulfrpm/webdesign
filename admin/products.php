@@ -318,7 +318,7 @@ $filterUrl = function(array $overrides = []): string {
 
             <!-- ── Results count ──────────────────────────── -->
             <p class="text-muted" style="margin-bottom:10px;font-size:0.88rem;">
-                <?= count($products) ?> resultado(s)
+                <?= $esc(sprintf(t('asgn_results_count'), count($products))) ?>
             </p>
 
             <!-- ── Products table ────────────────────────── -->

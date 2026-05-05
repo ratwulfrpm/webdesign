@@ -807,6 +807,7 @@ return [
     'field_internal_code_readonly_hint' => '由系统自动生成，仅可读。',
 
     // ── 业务单元（所有者面板）────────────────────────────────
+    'btn_switch_bu'                => '切换',
     'tab_business_units'           => '业务单元',
     'bu_page_title'                => '业务单元 — 本地应用',
     'bu_create_title'              => '创建新业务单元',

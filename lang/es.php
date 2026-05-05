@@ -812,6 +812,7 @@ return [
     'field_internal_code_readonly_hint' => 'Asignado automáticamente por el sistema. Solo lectura.',
 
     // ── Unidades de negocio (panel de propietario) ────────────
+    'btn_switch_bu'                => 'Cambiar',
     'tab_business_units'           => 'Unidades de Negocio',
     'bu_page_title'                => 'Unidades de Negocio — Local App',
     'bu_create_title'              => 'Crear Nueva Unidad de Negocio',
