@@ -564,6 +564,7 @@ return [
     'email_verify_no_code'        => 'No active verification code found.',
     'email_verify_expired'        => 'Code expired. Resend the code and try again.',
     'email_verify_wrong_code'     => 'Incorrect code. Please check and try again.',
+    'email_already_in_use'        => 'This email address is already associated with another account.',
 
     // Expired banner
     'email_verify_expired_title'  => 'Verification code expired',

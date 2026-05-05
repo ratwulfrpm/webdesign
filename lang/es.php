@@ -444,6 +444,7 @@ return [
     'email_verify_no_code'        => 'No se encontró un código de verificación activo.',
     'email_verify_expired'        => 'El código expiró. Reenvíe el código e intente de nuevo.',
     'email_verify_wrong_code'     => 'Código incorrecto. Verifique e intente de nuevo.',
+    'email_already_in_use'        => 'Esta dirección de correo ya está asociada a otra cuenta.',
 
     // Banner de expirado
     'email_verify_expired_title'  => 'Código de verificación expirado',

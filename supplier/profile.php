@@ -224,9 +224,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                  && strtotime($pendingExpiry) > time();
 
                 if ($contactEmail !== $currentEmail) {
-                    if ($pendingActive && $contactEmail === $pendingEmail) {
+                    // Check if the requested email is already used by another account
+                    $dupStmt = $pdo->prepare(
+                        'SELECT 1 FROM users WHERE email = ? AND id != ? LIMIT 1'
+                    );
+                    $dupStmt->execute([$contactEmail, (int) $_SESSION['user_id']]);
+                    if ($dupStmt->fetch()) {
+                        $errors['contact_email'] = t('email_already_in_use');
+                        $profile = array_merge($profile, $f);
+                        // Fall through to render the form with the error
+                    } elseif ($pendingActive && $contactEmail === $pendingEmail) {
                         // Same email still within the 2h window — don't re-send, just remind
                         header('Location: /login/supplier/profile.php?ev=pending');
+                        exit;
                     } else {
                         // New email or re-attempt after expiry — start fresh verification
                         $code    = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
@@ -241,13 +251,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         $mailResult = sendVerificationEmail($contactEmail, $code, $lang);
                         $_SESSION['ev_smtp_sent'] = $mailResult['sent'];
                         header('Location: /login/supplier/profile.php?ev=sent');
+                        exit;
                     }
-                    exit;
                 }
             }
 
-            header('Location: /login/supplier/summary.php?saved=1');
-            exit;
+            if (empty($errors)) {
+                header('Location: /login/supplier/summary.php?saved=1');
+                exit;
+            }
         }
 
         // Re-populate on error
@@ -443,21 +455,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors['verify_code'] = t('email_verify_wrong_code');
         } else {
             // Correct code — apply the new email and clear pending state
-            $pdo->prepare(
-                'UPDATE users
-                    SET email                = ?,
-                        email_pending        = NULL,
-                        email_verify_code    = NULL,
-                        email_verify_expires = NULL
-                  WHERE id = ?'
-            )->execute([$vr['email_pending'], $uid]);
+            try {
+                $pdo->prepare(
+                    'UPDATE users
+                        SET email                = ?,
+                            email_pending        = NULL,
+                            email_verify_code    = NULL,
+                            email_verify_expires = NULL
+                      WHERE id = ?'
+                )->execute([$vr['email_pending'], $uid]);
 
-            // Refresh profile
-            $profileStmt->execute([$uid]);
-            $profile = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: $profile;
+                // Refresh profile
+                $profileStmt->execute([$uid]);
+                $profile = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: $profile;
 
-            header('Location: /login/supplier/profile.php?ev=done');
-            exit;
+                header('Location: /login/supplier/profile.php?ev=done');
+                exit;
+            } catch (\PDOException $e) {
+                if ($e->getCode() === '23000') {
+                    // Email taken by another account (race condition after duplicate check)
+                    // Clear the pending state so the user can try a different email
+                    $pdo->prepare(
+                        'UPDATE users
+                            SET email_pending        = NULL,
+                                email_verify_code    = NULL,
+                                email_verify_expires = NULL
+                          WHERE id = ?'
+                    )->execute([$uid]);
+                    $errors['verify_code'] = t('email_already_in_use');
+                } else {
+                    error_log('verify_email update failed: ' . $e->getMessage());
+                    $errors['verify_code'] = t('enroll_err_save');
+                }
+            }
         }
 
         // Refresh profile so the panel shows updated state

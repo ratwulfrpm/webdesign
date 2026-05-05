@@ -448,6 +448,7 @@ return [
     'email_verify_no_code'        => '未找到活跃的验证码。',
     'email_verify_expired'        => '验证码已过期。请重新发送验证码后重试。',
     'email_verify_wrong_code'     => '验证码不正确。请检查后重试。',
+    'email_already_in_use'        => '此电子邮件地址已与另一个账户关联。',
 
     // Expired banner
     'email_verify_expired_title'  => '验证码已过期',
