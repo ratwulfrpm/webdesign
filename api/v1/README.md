@@ -444,6 +444,85 @@ Rate limit: **20 requests / 10 min per IP**.
 | MIME spoofing | Server-side `finfo` validation on contract file uploads |
 | Path traversal | Storage paths always server-controlled, never from user input |
 | Privilege escalation | `requireAuth()` validates role on every request |
+| Mass assignment | All write endpoints use explicit field whitelists; extra keys silently ignored |
+| Price tampering | `final_unit_price` computed server-side from product prices + margin — never accepted from client |
+| DoS via large body | `parseBody()` rejects `Content-Length > 512 KB` and caps `fread` at 512 KB |
+| Input overflow | All string fields capped via `Validator::maxLen()` / `Input::postString()` before DB write |
+
+---
+
+## Standard Error Codes
+
+All error responses follow the shape:
+
+```json
+{ "success": false, "error": "<message>" }
+```
+
+Validation errors (HTTP 422) include a field map:
+
+```json
+{
+  "success": false,
+  "error": "Validation failed",
+  "fields": {
+    "price_fob": "price_fob must be a non-negative number (max 9999999.99)"
+  }
+}
+```
+
+| HTTP Code | Meaning |
+|---|---|
+| `400` | Bad Request — missing parameter or malformed input |
+| `401` | Unauthenticated — no active session |
+| `403` | Forbidden — role insufficient or resource outside scope |
+| `404` | Not Found — resource does not exist within caller scope |
+| `405` | Method Not Allowed |
+| `422` | Unprocessable Entity — validation failed (field-level errors when applicable) |
+| `429` | Too Many Requests — rate limit hit |
+| `500` | Internal Server Error — generic; details logged server-side only |
+
+---
+
+## Field Limits (canonical)
+
+All limits enforced by `includes/Validator.php` (`Validator::maxLen('key')`):
+
+| Field key | Max length | Used for |
+|---|---|---|
+| `username` | 50 | User usernames |
+| `email` | 254 | All email addresses |
+| `full_name` | 100 | User full name, customer name |
+| `company_name` | 150 | Company / business name |
+| `product_name` | 150 | Product display name |
+| `product_code` | 80 | supplier_product_code |
+| `phone` | 25 | Phone numbers |
+| `address` | 255 | Street addresses |
+| `city` | 100 | City field |
+| `state` | 100 | State / province |
+| `zip` | 20 | Postal code |
+| `technical_description` | 5000 | Product description |
+| `special_conditions` | 3000 | Quote conditions |
+| `notes` | 2000 | Free-form notes |
+| `keyword` | 40 | Product keywords |
+| `short` | 255 | Generic short text |
+| `medium` | 500 | Generic medium text |
+| `org_name` | 150 | Business unit name |
+| `org_slug` | 80 | Business unit slug |
+| `org_description` | 500 | Business unit description |
+
+**Numeric limits:**
+
+| Constant | Value | Context |
+|---|---|---|
+| `PRICE_MAX` | 9,999,999.99 | price_fob, price_cif, fixed amounts |
+| `DISCOUNT_MAX` | 100 | discount_percentage |
+| `PERCENTAGE_MAX` | 999 | profit_percentage |
+| `TRANSPORT_MAX` | 100 | transport_percentage |
+| `TAX_MAX` | 100 | tax_percentage |
+| `VALIDITY_DAYS_MAX` | 7 | Maximum quote validity |
+| `MAX_KEYWORDS` | 30 | Keywords per product |
+| `PAGINATION_MAX` | 500 | Maximum page number |
 
 ---
 

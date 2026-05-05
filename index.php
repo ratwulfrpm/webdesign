@@ -27,6 +27,8 @@ require_once __DIR__ . '/includes/session.php';
 require_once __DIR__ . '/includes/auth.php';
 require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/includes/lang.php';
+require_once __DIR__ . '/includes/Input.php';
+require_once __DIR__ . '/includes/Escape.php';
 
 // Language selection (PRG — returns if set_lang present)
 initLang();
@@ -70,9 +72,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // 1) CSRF check
     csrfValidate();
 
-    // 2) Collect & sanitise input
-    $identifier = trim(htmlspecialchars($_POST['identifier'] ?? '', ENT_QUOTES, 'UTF-8'));
+    // 2) Collect & sanitise input — NO htmlspecialchars here (that is for output only)
+    //    mb_substr caps length server-side to complement the HTML maxlength attribute.
+    $identifier = mb_substr(trim($_POST['identifier'] ?? ''), 0, 254, 'UTF-8');
     $password   = $_POST['password'] ?? '';
+
+    // Hard-cap password at 128 chars to prevent bcrypt DoS (bcrypt effective limit is 72)
+    if (strlen($password) > 128) {
+        $password = substr($password, 0, 128);
+    }
 
     // 3) Basic presence check
     if ($identifier === '' || $password === '') {

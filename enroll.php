@@ -29,6 +29,8 @@ require_once __DIR__ . '/includes/csrf.php';
 require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/image_validate.php';
 require_once __DIR__ . '/includes/storage.php';
+require_once __DIR__ . '/includes/Input.php';
+require_once __DIR__ . '/includes/Validator.php';
 
 // ── Language (no session-based auth, detect from GET/cookie) ─
 $supportedLangs = ['es', 'en', 'zh'];
@@ -122,11 +124,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $isSupplier = ($inv['role'] ?? '') === 'supplier';
 
         // ── Collect & sanitise form fields ────────────────────
-        $fullName  = trim($_POST['full_name']        ?? '');
-        $email     = trim($_POST['email']            ?? '');
-        $username  = trim($_POST['username']         ?? '');
-        $password  = $_POST['password']              ?? '';
-        $confirm   = $_POST['confirm_password']      ?? '';
+        $fullName  = mb_substr(trim($_POST['full_name']   ?? ''), 0, Validator::maxLen('full_name'),   'UTF-8');
+        $email     = mb_substr(trim($_POST['email']       ?? ''), 0, Validator::maxLen('email'),       'UTF-8');
+        $username  = mb_substr(trim($_POST['username']    ?? ''), 0, Validator::maxLen('username'),    'UTF-8');
+        $password  = $_POST['password']         ?? '';
+        $confirm   = $_POST['confirm_password'] ?? '';
+        // Bcrypt DoS prevention: hard-cap password at 128 chars before hashing
+        if (strlen($password) > 128) {
+            $password = substr($password, 0, 128);
+        }
 
         $formData = [
             'full_name' => $fullName,
@@ -142,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } elseif ($inv['invited_email'] !== null
                && strtolower($email) !== strtolower($inv['invited_email'])) {
             $formError = t('enroll_err_email_mismatch');
-        } elseif (strlen($username) < 3 || strlen($username) > 60) {
+        } elseif (strlen($username) < 3 || strlen($username) > Validator::maxLen('username')) {
             $formError = t('enroll_err_username_len');
         } elseif (!preg_match('/^[a-zA-Z0-9_\-]+$/', $username)) {
             $formError = t('enroll_err_username_chars');

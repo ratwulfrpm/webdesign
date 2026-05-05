@@ -185,11 +185,16 @@ function _createInvitation(array $auth, PDO $pdo): void
     $allowedOrgIds = loadAccessibleOrgIds($pdo, $auth['user_id'], $auth['role']);
     $orgId = intParam($body['org_id'] ?? $auth['org_id'], 'org_id');
     $role  = strField($body['role'] ?? 'supplier', 20);
-    $email = strField($body['invited_email'] ?? '', 254);
+    $email = strField($body['invited_email'] ?? '', Validator::maxLen('email'));
     $days  = max(1, min(30, (int) ($body['valid_days'] ?? 7)));
 
     if (!orgScopeContainsOrgId($allowedOrgIds, $orgId)) {
         jsonError('Business unit not accessible', 403);
+    }
+
+    // Validate email format if provided
+    if ($email !== '' && !Validator::email($email)) {
+        jsonError('invited_email must be a valid email address (max ' . Validator::maxLen('email') . ' chars)', 422);
     }
 
     // Role whitelist: owner → admin/support/supplier; admin → support/supplier
@@ -199,7 +204,7 @@ function _createInvitation(array $auth, PDO $pdo): void
         default  => [],
     };
     if (!in_array($role, $allowedRoles, true)) {
-        jsonError('Invalid role. Allowed: ' . implode(', ', $allowedRoles));
+        jsonError('Invalid role. Allowed: ' . implode(', ', $allowedRoles), 422);
     }
 
     // Verify org is active (should always be since session is set, but double-check)

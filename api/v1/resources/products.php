@@ -193,17 +193,30 @@ function _createProduct(array $auth, PDO $pdo): void
 {
     $body = parseBody();
 
-    $productName  = strField($body['product_name'] ?? '', 300);
-    $supplierCode = strField($body['supplier_product_code'] ?? '', 100);
-    $description  = strField($body['technical_description'] ?? '', 10000);
-    $priceFob     = isset($body['price_fob'])  && $body['price_fob']  !== '' ? (float) $body['price_fob']  : null;
-    $priceCif     = isset($body['price_cif'])  && $body['price_cif']  !== '' ? (float) $body['price_cif']  : null;
+    // Whitelist: only these fields are accepted — ignore everything else (mass assignment guard)
+    $productName  = strField($body['product_name'] ?? '', Validator::maxLen('product_name'));
+    $supplierCode = strField($body['supplier_product_code'] ?? '', Validator::maxLen('product_code'));
+    $description  = strField($body['technical_description'] ?? '', Validator::maxLen('technical_description'));
+
+    // Price fields — validate range; reject non-numeric or negative values
+    $rawFob  = $body['price_fob'] ?? null;
+    $rawCif  = $body['price_cif'] ?? null;
+    $priceFob = ($rawFob !== null && $rawFob !== '') ? Input::toDecimal($rawFob, 0, Validator::PRICE_MAX) : null;
+    $priceCif = ($rawCif !== null && $rawCif !== '') ? Input::toDecimal($rawCif, 0, Validator::PRICE_MAX) : null;
+
+    // Validate that invalid numeric inputs are caught (not silently null-ified)
+    if (($rawFob !== null && $rawFob !== '') && $priceFob === null) {
+        jsonError('price_fob must be a valid non-negative number (max ' . Validator::PRICE_MAX . ')', 422);
+    }
+    if (($rawCif !== null && $rawCif !== '') && $priceCif === null) {
+        jsonError('price_cif must be a valid non-negative number (max ' . Validator::PRICE_MAX . ')', 422);
+    }
 
     if ($productName === '') {
-        jsonError('product_name is required');
+        jsonError('product_name is required', 422);
     }
     if ($supplierCode === '') {
-        jsonError('supplier_product_code is required');
+        jsonError('supplier_product_code is required', 422);
     }
 
     // Determine supplier — org_id ALWAYS comes from session, never from request body
@@ -213,7 +226,7 @@ function _createProduct(array $auth, PDO $pdo): void
         : (int) ($body['supplier_id'] ?? 0);
 
     if ($supplierId <= 0) {
-        jsonError('supplier_id is required for admin/owner role');
+        jsonError('supplier_id is required for admin/owner role', 422);
     }
 
     // Verify supplier exists, is active, AND belongs to the current org
@@ -273,35 +286,50 @@ function _updateProduct(int $id, array $auth, PDO $pdo): void
 
     $body = parseBody();
 
-    // Fields updatable by all roles
-    $updatable = ['product_name', 'technical_description', 'price_fob', 'price_cif'];
-    // Admin/owner may also update the supplier code
+    // Explicit whitelist of updatable fields — mass assignment guard
+    // supplier_id, org_id, created_by are NEVER accepted from request body
+    $allowedFields = ['product_name', 'technical_description', 'price_fob', 'price_cif'];
     if (in_array($auth['role'], ['admin', 'owner'], true)) {
-        $updatable[] = 'supplier_product_code';
+        $allowedFields[] = 'supplier_product_code';
     }
 
     $sets   = [];
     $params = [];
+    $valErrors = [];
 
-    foreach ($updatable as $field) {
+    foreach ($allowedFields as $field) {
         if (!array_key_exists($field, $body)) {
             continue;
         }
         $val = $body[$field];
         if (in_array($field, ['price_fob', 'price_cif'], true)) {
-            $params[] = ($val !== null && $val !== '') ? (float) $val : null;
+            if ($val === null || $val === '') {
+                $params[] = null;
+            } else {
+                $n = Input::toDecimal($val, 0, Validator::PRICE_MAX);
+                if ($n === null) {
+                    $valErrors[$field] = "{$field} must be a non-negative number (max " . Validator::PRICE_MAX . ")";
+                    continue;
+                }
+                $params[] = $n;
+            }
         } else {
             $maxLen   = match ($field) {
-                'product_name', 'supplier_product_code' => 300,
-                default => 10000,
+                'product_name'          => Validator::maxLen('product_name'),
+                'supplier_product_code' => Validator::maxLen('product_code'),
+                default                 => Validator::maxLen('technical_description'),
             };
             $params[] = strField((string) $val, $maxLen);
         }
         $sets[] = "`{$field}` = ?";
     }
 
+    if (!empty($valErrors)) {
+        jsonValidationError($valErrors);
+    }
+
     if (empty($sets)) {
-        jsonError('No updatable fields provided in request body');
+        jsonError('No updatable fields provided in request body', 422);
     }
 
     $params[] = $id;
@@ -426,9 +454,18 @@ function _productKeywords(string $method, int $productId, string $kw, array $aut
 
     if ($method === 'POST') {
         $body    = parseBody();
-        $keyword = strField($body['keyword'] ?? '', 100);
+        $keyword = Input::normalizeKeyword($body['keyword'] ?? '');
         if ($keyword === '') {
-            jsonError('keyword field is required');
+            jsonError('keyword field is required and must be alphanumeric (max ' . Validator::maxLen('keyword') . ' chars)', 422);
+        }
+        if (!Validator::isKeyword($keyword)) {
+            jsonError('keyword may only contain letters, numbers, hyphens, and underscores', 422);
+        }
+        // Enforce per-product keyword count limit
+        $countSt = $pdo->prepare('SELECT COUNT(*) FROM product_keywords WHERE product_id = ?');
+        $countSt->execute([$productId]);
+        if ((int) $countSt->fetchColumn() >= Validator::MAX_KEYWORDS) {
+            jsonError('Maximum ' . Validator::MAX_KEYWORDS . ' keywords per product', 422);
         }
         try {
             $pdo->prepare(
@@ -442,9 +479,9 @@ function _productKeywords(string $method, int $productId, string $kw, array $aut
     }
 
     if ($method === 'DELETE') {
-        $keyword = strField(rawurldecode($kw), 100);
+        $keyword = Input::normalizeKeyword(rawurldecode($kw));
         if ($keyword === '') {
-            jsonError('Keyword required in URL path');
+            jsonError('Keyword required in URL path', 400);
         }
         $del = $pdo->prepare(
             'DELETE FROM product_keywords WHERE product_id = ? AND keyword = ?'

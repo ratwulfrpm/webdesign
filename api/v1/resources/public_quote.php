@@ -65,7 +65,7 @@ function _getPublicQuote(PDO $pdo): void
 
     // ── Token validation ────────────────────────────────────────
     $rawToken = trim($_GET['t'] ?? '');
-    if (!preg_match('/^[0-9a-f]{64}$/', $rawToken)) {
+    if (!Validator::isHexToken64($rawToken)) {
         jsonError('Invalid or missing token', 400);
     }
 
@@ -241,17 +241,4 @@ function _getPublicQuote(PDO $pdo): void
     ]);
 }
 
-// ── Client IP helper ──────────────────────────────────────────
-
-function _publicClientIp(): string
-{
-    foreach (['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'] as $key) {
-        if (!empty($_SERVER[$key])) {
-            $ip = trim(explode(',', $_SERVER[$key])[0]);
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
-                return $ip;
-            }
-        }
-    }
-    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
-}
+// NOTE: _publicClientIp() is defined in api/v1/_helpers.php — do not re-define here.

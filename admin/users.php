@@ -32,6 +32,7 @@ require_once __DIR__ . '/../includes/contract_validity_admin.php';
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/org_scope.php';
 require_once __DIR__ . '/../includes/mailer.php';
+require_once __DIR__ . '/../includes/Validator.php';
 
 // Auth checks
 requireAuth();
@@ -153,7 +154,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit;
             }
             $invRole  = $_POST['inv_role'] ?? 'supplier';
-            $invEmail = trim($_POST['invited_email'] ?? '');
+            $invEmail = mb_substr(trim($_POST['invited_email'] ?? ''), 0, Validator::maxLen('email'), 'UTF-8');
             $allowedInvRoles = ($role === 'owner') ? ['admin', 'support', 'supplier'] : ['support', 'supplier'];
             if (!in_array($invRole, $allowedInvRoles, true)) {
                 $invRole = 'supplier';

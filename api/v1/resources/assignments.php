@@ -257,15 +257,19 @@ function _createAssignment(array $auth, PDO $pdo): void
         jsonError('Business unit not accessible', 403);
     }
 
-    // Customer & company info
-    $customerName = strField($body['assigned_customer_name'] ?? '', 200);
-    $companyName  = strField($body['company_name']           ?? '', 200);
-    $conditions   = strField($body['special_conditions']     ?? '', 5000);
+    // Customer & company info — explicit whitelist (mass assignment guard)
+    $customerName = strField($body['assigned_customer_name'] ?? '', Validator::maxLen('full_name'));
+    $companyName  = strField($body['company_name']           ?? '', Validator::maxLen('company_name'));
+    $conditions   = strField($body['special_conditions']     ?? '', Validator::maxLen('special_conditions'));
     $baseType     = strField($body['price_base_type']        ?? '', 3);
     
     // ── Discount (existing) ──
     $discountPct  = isset($body['discount_percentage']) && $body['discount_percentage'] !== ''
-                    ? (float) $body['discount_percentage'] : null;
+                    ? Input::toDecimal($body['discount_percentage'], Validator::DISCOUNT_MIN, Validator::DISCOUNT_MAX) : null;
+    if (array_key_exists('discount_percentage', $body) && $body['discount_percentage'] !== '' &&
+        $body['discount_percentage'] !== null && $discountPct === null) {
+        jsonError('discount_percentage must be between ' . Validator::DISCOUNT_MIN . ' and ' . Validator::DISCOUNT_MAX, 422);
+    }
     
     // ── PROFIT: percentage or fixed amount ──
     $profitCalcType = strtolower(strField($body['profit_calculation_type'] ?? '', 20));
@@ -275,14 +279,18 @@ function _createAssignment(array $auth, PDO $pdo): void
     $profitPct    = null;
     $profitAmount = null;
     if ($profitCalcType === 'percentage') {
-        $profitPct = isset($body['profit_percentage']) ? (float) $body['profit_percentage'] : null;
-        if ($profitPct === null || $profitPct < 0 || $profitPct > 999) {
-            jsonError('profit_percentage must be a number between 0 and 999');
+        $profitPct = isset($body['profit_percentage'])
+            ? Input::toDecimal($body['profit_percentage'], Validator::PERCENTAGE_MIN, Validator::PERCENTAGE_MAX)
+            : null;
+        if ($profitPct === null) {
+            jsonError('profit_percentage must be a number between ' . Validator::PERCENTAGE_MIN . ' and ' . Validator::PERCENTAGE_MAX, 422);
         }
     } else {
-        $profitAmount = isset($body['profit_fixed_amount']) ? (float) $body['profit_fixed_amount'] : null;
-        if ($profitAmount === null || $profitAmount < 0) {
-            jsonError('profit_fixed_amount must be a non-negative number');
+        $profitAmount = isset($body['profit_fixed_amount'])
+            ? Input::toDecimal($body['profit_fixed_amount'], 0, Validator::PRICE_MAX)
+            : null;
+        if ($profitAmount === null) {
+            jsonError('profit_fixed_amount must be a non-negative number (max ' . Validator::PRICE_MAX . ')', 422);
         }
     }
     
@@ -292,14 +300,14 @@ function _createAssignment(array $auth, PDO $pdo): void
     $transportAmount = null;
     if ($transportCalcType !== '' && in_array($transportCalcType, ['percentage', 'fixed_amount'], true)) {
         if ($transportCalcType === 'percentage') {
-            $transportPct = isset($body['transport_percentage']) ? (float) $body['transport_percentage'] : 0.0;
-            if ($transportPct < 0 || $transportPct > 100) {
-                jsonError('transport_percentage must be between 0 and 100');
+            $transportPct = Input::toDecimal($body['transport_percentage'] ?? 0, 0, Validator::TRANSPORT_MAX);
+            if ($transportPct === null) {
+                jsonError('transport_percentage must be between 0 and ' . Validator::TRANSPORT_MAX, 422);
             }
         } else {
-            $transportAmount = isset($body['transport_fixed_amount']) ? (float) $body['transport_fixed_amount'] : 0.0;
-            if ($transportAmount < 0) {
-                jsonError('transport_fixed_amount must be non-negative');
+            $transportAmount = Input::toDecimal($body['transport_fixed_amount'] ?? 0, 0, Validator::PRICE_MAX);
+            if ($transportAmount === null) {
+                jsonError('transport_fixed_amount must be a non-negative number (max ' . Validator::PRICE_MAX . ')', 422);
             }
         }
     } else {
@@ -312,31 +320,31 @@ function _createAssignment(array $auth, PDO $pdo): void
     $taxAmount = null;
     if ($taxCalcType !== '' && in_array($taxCalcType, ['percentage', 'fixed_amount'], true)) {
         if ($taxCalcType === 'percentage') {
-            $taxPct = isset($body['tax_percentage']) ? (float) $body['tax_percentage'] : 0.0;
-            if ($taxPct < 0 || $taxPct > 100) {
-                jsonError('tax_percentage must be between 0 and 100');
+            $taxPct = Input::toDecimal($body['tax_percentage'] ?? 0, 0, Validator::TAX_MAX);
+            if ($taxPct === null) {
+                jsonError('tax_percentage must be between 0 and ' . Validator::TAX_MAX, 422);
             }
         } else {
-            $taxAmount = isset($body['tax_fixed_amount']) ? (float) $body['tax_fixed_amount'] : 0.0;
-            if ($taxAmount < 0) {
-                jsonError('tax_fixed_amount must be non-negative');
+            $taxAmount = Input::toDecimal($body['tax_fixed_amount'] ?? 0, 0, Validator::PRICE_MAX);
+            if ($taxAmount === null) {
+                jsonError('tax_fixed_amount must be a non-negative number (max ' . Validator::PRICE_MAX . ')', 422);
             }
         }
     } else {
         $taxCalcType = null;
     }
     
-    // ── VALIDITY: duration in hours or days, max 7 days ──
-    $validityAmount = (int) ($body['validity_amount'] ?? 7);
+    // ── VALIDITY: duration in hours or days, max VALIDITY_DAYS_MAX days ──
+    $validityAmount = (int) ($body['validity_amount'] ?? Validator::VALIDITY_DAYS_MAX);
     $validityUnit   = strtolower(strField($body['validity_unit'] ?? '', 10));
     if (!in_array($validityUnit, ['hours', 'days'], true)) {
         $validityUnit = 'days';
     }
-    // Validate max 7 days
-    $maxHours = 7 * 24; // 168 hours
+    // Validate max VALIDITY_DAYS_MAX days
+    $maxHours = Validator::VALIDITY_DAYS_MAX * 24;
     $validityHours = $validityUnit === 'hours' ? $validityAmount : $validityAmount * 24;
     if ($validityHours <= 0 || $validityHours > $maxHours) {
-        jsonError('Validity cannot exceed 7 days (168 hours)');
+        jsonError('Validity cannot exceed ' . Validator::VALIDITY_DAYS_MAX . ' days (' . $maxHours . ' hours)', 422);
     }
     
     // ── MAX VISITS: optional, positive integer ──
@@ -344,7 +352,7 @@ function _createAssignment(array $auth, PDO $pdo): void
     if (isset($body['max_visits']) && $body['max_visits'] !== '' && $body['max_visits'] !== null) {
         $maxVisits = (int) $body['max_visits'];
         if ($maxVisits <= 0) {
-            jsonError('max_visits must be a positive integer');
+            jsonError('max_visits must be a positive integer', 422);
         }
     }
     
@@ -352,13 +360,10 @@ function _createAssignment(array $auth, PDO $pdo): void
 
     // ── VALIDATION ──
     if ($customerName === '') {
-        jsonError('assigned_customer_name is required');
+        jsonError('assigned_customer_name is required', 422);
     }
     if (!in_array($baseType, ['fob', 'cif'], true)) {
-        jsonError('price_base_type must be "fob" or "cif"');
-    }
-    if ($discountPct !== null && ($discountPct < 0 || $discountPct > 100)) {
-        jsonError('discount_percentage must be between 0 and 100');
+        jsonError('price_base_type must be "fob" or "cif"', 422);
     }
     $productIds = array_values(array_unique(array_filter($productIds, fn($v) => $v > 0)));
     if (empty($productIds)) {
@@ -585,7 +590,7 @@ function _cloneAssignment(int $id, array $auth, PDO $pdo): void
 
     // Allow optional customer name override
     $body         = parseBody();
-    $customerName = strField($body['assigned_customer_name'] ?? '', 200);
+    $customerName = strField($body['assigned_customer_name'] ?? '', Validator::maxLen('full_name'));
     if ($customerName === '') {
         $customerName = $parent['assigned_customer_name'];
     }

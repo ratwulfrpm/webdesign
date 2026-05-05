@@ -235,7 +235,7 @@ function _patchScopedUser(int $id, array $auth, PDO $pdo): void
     $body = parseBody();
     $action = strField($body['action'] ?? '', 20);
     if (!in_array($action, ['activate', 'deactivate', 'unlock'], true)) {
-        jsonError('Invalid action. Allowed: activate, deactivate, unlock');
+        jsonError('Invalid action. Allowed: activate, deactivate, unlock', 422);
     }
 
     if ($action === 'deactivate' && $id === (int) $auth['user_id']) {

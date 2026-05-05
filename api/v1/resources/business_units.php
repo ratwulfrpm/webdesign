@@ -120,16 +120,20 @@ function _createBusinessUnit(array $auth, PDO $pdo): void
 {
     $body = parseBody();
 
-    $name        = strField($body['name']        ?? '', 200);
+    // Explicit whitelist — mass assignment guard (never accept id, created_at, etc.)
+    $name        = strField($body['name']        ?? '', Validator::maxLen('org_name'));
     $slug        = _sanitizeSlug($body['slug']   ?? '');
-    $description = strField($body['description'] ?? '', 500);
+    $description = strField($body['description'] ?? '', Validator::maxLen('org_description'));
     $isActive    = isset($body['is_active']) ? (int) (bool) $body['is_active'] : 1;
 
     if ($name === '') {
-        jsonError('name is required');
+        jsonError('name is required', 422);
     }
     if ($slug === '') {
-        jsonError('slug is required and must contain only letters, numbers, and hyphens');
+        jsonError('slug is required and must contain only lowercase letters, numbers, and hyphens', 422);
+    }
+    if (!Validator::isSlug($slug)) {
+        jsonError('slug must start with a letter or digit and contain only lowercase letters, numbers, and hyphens', 422);
     }
 
     // Uniqueness pre-check (friendly error before DB unique constraint)
@@ -193,21 +197,26 @@ function _updateBusinessUnit(int $id, PDO $pdo): void
     }
 
     $body = parseBody();
+
+    // Explicit whitelist — mass assignment guard
+    $allowedBodyFields = ['name', 'description', 'is_active', 'slug'];
     $sets   = [];
     $params = [];
+    $valErrors = [];
 
     if (array_key_exists('name', $body)) {
-        $name = strField($body['name'], 200);
+        $name = strField($body['name'], Validator::maxLen('org_name'));
         if ($name === '') {
-            jsonError('name cannot be empty');
+            $valErrors['name'] = 'name cannot be empty';
+        } else {
+            $sets[]   = '`name` = ?';
+            $params[] = $name;
         }
-        $sets[]   = '`name` = ?';
-        $params[] = $name;
     }
 
     if (array_key_exists('description', $body)) {
         $sets[]   = '`description` = ?';
-        $params[] = strField($body['description'], 500) ?: null;
+        $params[] = strField($body['description'], Validator::maxLen('org_description')) ?: null;
     }
 
     if (array_key_exists('is_active', $body)) {
@@ -218,22 +227,29 @@ function _updateBusinessUnit(int $id, PDO $pdo): void
     // Slug update: must remain unique
     if (array_key_exists('slug', $body)) {
         $newSlug = _sanitizeSlug($body['slug']);
-        if ($newSlug === '') {
-            jsonError('slug must contain only letters, numbers, and hyphens');
-        }
-        if ($newSlug !== $existing['slug']) {
-            $dupChk = $pdo->prepare('SELECT id FROM organizations WHERE slug = ? AND id != ? LIMIT 1');
-            $dupChk->execute([$newSlug, $id]);
-            if ($dupChk->fetch()) {
-                jsonError("Slug '{$newSlug}' is already in use", 422);
+        if ($newSlug === '' || !Validator::isSlug($newSlug)) {
+            $valErrors['slug'] = 'slug must contain only lowercase letters, numbers, and hyphens';
+        } else {
+            if ($newSlug !== $existing['slug']) {
+                $dupChk = $pdo->prepare('SELECT id FROM organizations WHERE slug = ? AND id != ? LIMIT 1');
+                $dupChk->execute([$newSlug, $id]);
+                if ($dupChk->fetch()) {
+                    $valErrors['slug'] = "Slug '{$newSlug}' is already in use";
+                }
+            }
+            if (!isset($valErrors['slug'])) {
+                $sets[]   = '`slug` = ?';
+                $params[] = $newSlug;
             }
         }
-        $sets[]   = '`slug` = ?';
-        $params[] = $newSlug;
+    }
+
+    if (!empty($valErrors)) {
+        jsonValidationError($valErrors);
     }
 
     if (empty($sets)) {
-        jsonError('No updatable fields provided');
+        jsonError('No updatable fields provided (allowed: name, description, is_active, slug)', 422);
     }
 
     $params[] = $id;

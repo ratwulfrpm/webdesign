@@ -37,6 +37,7 @@ require_once __DIR__ . '/includes/tabs.php';
 require_once __DIR__ . '/includes/mailer.php';
 require_once __DIR__ . '/includes/audit.php';
 require_once __DIR__ . '/includes/org_scope.php';
+require_once __DIR__ . '/includes/Validator.php';
 
 requireAuth();
 initLang();
@@ -88,7 +89,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // ── Generate invitation ───────────────────────────────────
     if ($action === 'generate_invitation') {
         $invRole  = $_POST['inv_role'] ?? 'supplier';
-        $invEmail = trim($_POST['invited_email'] ?? '');
+        $invEmail = mb_substr(trim($_POST['invited_email'] ?? ''), 0, Validator::maxLen('email'), 'UTF-8');
 
         // Validate role hierarchy
         $allowedRoles = match ($role) {

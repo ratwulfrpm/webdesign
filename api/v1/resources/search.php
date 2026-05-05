@@ -44,14 +44,13 @@ function handleSearch(string $method, string $sub): void
 
 function _searchProducts(array $auth, PDO $pdo): void
 {
-    // Input sanitization — all values capped and stripped
-    $trim100    = fn(string $v): string => mb_substr(trim($v), 0, 100);
-    $q          = $trim100($_GET['q']           ?? '');
-    $supplierF  = $trim100($_GET['supplier']    ?? '');
-    $nameF      = $trim100($_GET['name']        ?? '');
-    $descF      = $trim100($_GET['description'] ?? '');
-    $page       = max(1, (int) ($_GET['page']   ?? 1));
-    $offset     = ($page - 1) * SEARCH_PER_PAGE;
+    // Input sanitization — all values capped and stripped; use Input helpers
+    $q         = Input::cleanString($_GET['q']           ?? '', 200);
+    $supplierF = Input::cleanString($_GET['supplier']    ?? '', Validator::maxLen('company_name'));
+    $nameF     = Input::cleanString($_GET['name']        ?? '', Validator::maxLen('product_name'));
+    $descF     = Input::cleanString($_GET['description'] ?? '', 200);
+    $page      = max(1, min((int) ($_GET['page'] ?? 1), Validator::PAGINATION_MAX));
+    $offset    = ($page - 1) * SEARCH_PER_PAGE;
 
     // TENANT ISOLATION: always scope to session org
     $where      = ['p.active = 1', 'p.org_id = ?'];

@@ -32,6 +32,8 @@ require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/mailer.php';
 require_once __DIR__ . '/../includes/image_validate.php';
+require_once __DIR__ . '/../includes/Validator.php';
+require_once __DIR__ . '/../includes/Input.php';
 
 requireAuth();
 initLang();
@@ -108,29 +110,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             mb_substr(trim($_POST[$key] ?? ''), 0, $max);
 
         $f = [
-            'full_name'               => $s('full_name', 200),
-            'company_name'            => $s('company_name', 200),
-            'tax_id'                  => $s('tax_id', 50),
-            'legal_rep_name'          => $s('legal_rep_name', 200),
-            'legal_rep_id'            => $s('legal_rep_id', 50),
-            'company_phone_code'      => $s('company_phone_code', 10),
-            'company_phone_number'    => $s('company_phone_number', 30),
-            'legal_rep_phone_code'    => $s('legal_rep_phone_code', 10),
-            'legal_rep_phone_number'  => $s('legal_rep_phone_number', 30),
-            'addr_street'             => $s('addr_street', 300),
-            'addr_city'               => $s('addr_city', 100),
-            'addr_state'              => $s('addr_state', 100),
-            'addr_zip'                => $s('addr_zip', 20),
+            'full_name'               => Input::postString('full_name',              Validator::maxLen('full_name')),
+            'company_name'            => Input::postString('company_name',           Validator::maxLen('company_name')),
+            'tax_id'                  => Input::postString('tax_id',                 50),
+            'legal_rep_name'          => Input::postString('legal_rep_name',         Validator::maxLen('full_name')),
+            'legal_rep_id'            => Input::postString('legal_rep_id',           50),
+            'company_phone_code'      => Input::postString('company_phone_code',     10),
+            'company_phone_number'    => Input::postString('company_phone_number',   Validator::maxLen('phone')),
+            'legal_rep_phone_code'    => Input::postString('legal_rep_phone_code',   10),
+            'legal_rep_phone_number'  => Input::postString('legal_rep_phone_number', Validator::maxLen('phone')),
+            'addr_street'             => Input::postString('addr_street',             Validator::maxLen('address')),
+            'addr_city'               => Input::postString('addr_city',               Validator::maxLen('city')),
+            'addr_state'              => Input::postString('addr_state',              Validator::maxLen('state')),
+            'addr_zip'                => Input::postString('addr_zip',                Validator::maxLen('zip')),
             'addr_country_id'         => (int) ($_POST['addr_country_id'] ?? 0),
-            'factory_street'          => $s('factory_street', 300),
-            'factory_city'            => $s('factory_city', 100),
-            'factory_state'           => $s('factory_state', 100),
-            'factory_zip'             => $s('factory_zip', 20),
+            'factory_street'          => Input::postString('factory_street',          Validator::maxLen('address')),
+            'factory_city'            => Input::postString('factory_city',            Validator::maxLen('city')),
+            'factory_state'           => Input::postString('factory_state',           Validator::maxLen('state')),
+            'factory_zip'             => Input::postString('factory_zip',             Validator::maxLen('zip')),
             'factory_country_id'      => (int) ($_POST['factory_country_id'] ?? 0),
         ];
 
         // Contact email (triggers verification if different from current login email)
-        $contactEmail = mb_strtolower(mb_substr(trim($_POST['contact_email'] ?? ''), 0, 254));
+        $contactEmail = mb_strtolower(mb_substr(trim($_POST['contact_email'] ?? ''), 0, Validator::maxLen('email'), 'UTF-8'));
 
         // Required fields
         $required = [

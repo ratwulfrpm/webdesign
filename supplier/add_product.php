@@ -40,6 +40,8 @@ require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/image_validate.php';
 require_once __DIR__ . '/../includes/product_code.php';
 require_once __DIR__ . '/../includes/storage.php';
+require_once __DIR__ . '/../includes/Validator.php';
+require_once __DIR__ . '/../includes/Input.php';
 
 requireAuth();
 initLang();
@@ -107,12 +109,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $supplierId = (int) $_SESSION['user_id'];
 
-        $fv['supplier_product_code'] = $s('supplier_product_code', 100);
-        $fv['admin_product_code']    = $s('admin_product_code', 100);
-        $fv['product_name']          = $s('product_name', 300);
-        $fv['technical_description'] = mb_substr(trim($_POST['technical_description'] ?? ''), 0, 10000);
-        $fv['price_fob']             = $s('price_fob', 30);
-        $fv['price_cif']             = $s('price_cif', 30);
+        $fv['supplier_product_code'] = Input::postString('supplier_product_code', Validator::maxLen('product_code'));
+        $fv['admin_product_code']    = Input::postString('admin_product_code',    Validator::maxLen('product_code'));
+        $fv['product_name']          = Input::postString('product_name',          Validator::maxLen('product_name'));
+        $fv['technical_description'] = Input::postText('technical_description',   Validator::maxLen('technical_description'));
+        $fv['price_fob']             = Input::postString('price_fob', 30);
+        $fv['price_cif']             = Input::postString('price_cif', 30);
 
         // ── Text field validations ────────────────────────────
 
@@ -126,20 +128,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $priceFobClean = null;
         if ($fv['price_fob'] !== '') {
             $c = str_replace([',',' '], ['.',''], $fv['price_fob']);
-            if (!is_numeric($c) || (float)$c < 0) {
+            $priceFobClean = Input::toDecimal($c, 0, Validator::PRICE_MAX);
+            if ($priceFobClean === null) {
                 $errors['price_fob'] = t('err_price_fob_numeric');
-            } else {
-                $priceFobClean = (float)$c;
             }
         }
 
         $priceCifClean = null;
         if ($fv['price_cif'] !== '') {
             $c = str_replace([',',' '], ['.',''], $fv['price_cif']);
-            if (!is_numeric($c) || (float)$c < 0) {
+            $priceCifClean = Input::toDecimal($c, 0, Validator::PRICE_MAX);
+            if ($priceCifClean === null) {
                 $errors['price_cif'] = t('err_price_cif_numeric');
-            } else {
-                $priceCifClean = (float)$c;
             }
         }
 
@@ -186,7 +186,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 foreach ($decoded as $kw) {
                     $kw = mb_strtolower(trim((string) $kw));
                     if ($kw === '') continue;
-                    if (mb_strlen($kw) > 60) {
+                    if (mb_strlen($kw) > Validator::maxLen('keyword')) {
                         $errors['keywords'] = t('err_keyword_too_long');
                         break;
                     }

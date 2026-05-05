@@ -35,6 +35,8 @@ require_once __DIR__ . '/../includes/tabs.php';
 require_once __DIR__ . '/../includes/audit.php';
 require_once __DIR__ . '/../includes/mailer.php';
 require_once __DIR__ . '/../includes/org_scope.php';
+require_once __DIR__ . '/../includes/Validator.php';
+require_once __DIR__ . '/../includes/Input.php';
 
 requireAuth();
 initLang();
@@ -97,26 +99,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $errors[] = t('error_no_org');
         }
 
-        // 1. Customer name (required)
-        $customerName = mb_substr(trim($_POST['customer_name'] ?? ''), 0, 200);
+        // 1. Customer name (required) — explicit length limit via Validator
+        $customerName = mb_substr(trim($_POST['customer_name'] ?? ''), 0, Validator::maxLen('full_name'), 'UTF-8');
         if ($customerName === '') {
             $errors[] = t('asgn_err_customer_required');
         }
 
         // 2. Company (optional)
-        $companyName = mb_substr(trim($_POST['company_name'] ?? ''), 0, 200);
+        $companyName = mb_substr(trim($_POST['company_name'] ?? ''), 0, Validator::maxLen('company_name'), 'UTF-8');
 
         // 3. Special conditions (optional)
-        $specialConditions = mb_substr(trim($_POST['special_conditions'] ?? ''), 0, 2000);
+        $specialConditions = mb_substr(trim($_POST['special_conditions'] ?? ''), 0, Validator::maxLen('special_conditions'), 'UTF-8');
 
-        // 4. Discount percentage (optional, 0–100)
+        // 4. Discount percentage (optional, 0–DISCOUNT_MAX)
         $discountRaw = trim($_POST['discount_percentage'] ?? '');
         $discountPct = null;
         if ($discountRaw !== '') {
-            if (!is_numeric($discountRaw) || (float)$discountRaw < 0 || (float)$discountRaw > 100) {
+            $discountPct = Input::toDecimal($discountRaw, Validator::DISCOUNT_MIN, Validator::DISCOUNT_MAX);
+            if ($discountPct === null) {
                 $errors[] = t('asgn_err_discount_invalid');
-            } else {
-                $discountPct = round((float)$discountRaw, 2);
             }
         }
 
@@ -134,23 +135,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($profitType, ['percentage', 'fixed_amount'], true)) {
                 $errors[] = t('asgn_err_invalid_fee');
             } elseif ($profitType === 'percentage') {
-                $profitRaw = trim($_POST['profit_percentage'] ?? '');
-                if ($profitRaw !== '' && is_numeric($profitRaw)) {
-                    $profitPct = (float) $profitRaw;
-                    if ($profitPct < 0 || $profitPct > 999) {
-                        $errors[] = t('asgn_err_profit_invalid');
-                    }
-                } else {
+                $profitPct = Input::toDecimal($_POST['profit_percentage'] ?? '', Validator::PERCENTAGE_MIN, Validator::PERCENTAGE_MAX);
+                if ($profitPct === null) {
                     $errors[] = t('asgn_err_profit_invalid');
                 }
             } elseif ($profitType === 'fixed_amount') {
-                $profitRaw = trim($_POST['profit_fixed_amount'] ?? '');
-                if ($profitRaw !== '' && is_numeric($profitRaw)) {
-                    $profitAmt = round((float) $profitRaw, 2);
-                    if ($profitAmt < 0) {
-                        $errors[] = t('asgn_err_invalid_fee');
-                    }
-                } else {
+                $profitAmt = Input::toDecimal($_POST['profit_fixed_amount'] ?? '', 0, Validator::PRICE_MAX);
+                if ($profitAmt === null) {
                     $errors[] = t('asgn_err_invalid_fee');
                 }
             }
@@ -168,20 +159,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($transportType, ['percentage', 'fixed_amount'], true)) {
                 $errors[] = t('asgn_err_invalid_transport');
             } elseif ($transportType === 'percentage') {
-                $transportRaw = trim($_POST['transport_percentage'] ?? '');
-                if ($transportRaw !== '' && is_numeric($transportRaw)) {
-                    $transportPct = (float) $transportRaw;
-                    if ($transportPct < 0 || $transportPct > 100) {
-                        $errors[] = t('asgn_err_invalid_transport');
-                    }
+                $transportPct = Input::toDecimal($_POST['transport_percentage'] ?? '', 0, Validator::TRANSPORT_MAX);
+                if ($transportPct === null) {
+                    $errors[] = t('asgn_err_invalid_transport');
                 }
             } elseif ($transportType === 'fixed_amount') {
-                $transportRaw = trim($_POST['transport_fixed_amount'] ?? '');
-                if ($transportRaw !== '' && is_numeric($transportRaw)) {
-                    $transportAmt = round((float) $transportRaw, 2);
-                    if ($transportAmt < 0) {
-                        $errors[] = t('asgn_err_invalid_transport');
-                    }
+                $transportAmt = Input::toDecimal($_POST['transport_fixed_amount'] ?? '', 0, Validator::PRICE_MAX);
+                if ($transportAmt === null) {
+                    $errors[] = t('asgn_err_invalid_transport');
                 }
             }
         }
@@ -194,32 +179,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($taxType, ['percentage', 'fixed_amount'], true)) {
                 $errors[] = t('asgn_err_invalid_tax');
             } elseif ($taxType === 'percentage') {
-                $taxRaw = trim($_POST['tax_percentage'] ?? '');
-                if ($taxRaw !== '' && is_numeric($taxRaw)) {
-                    $taxPct = (float) $taxRaw;
-                    if ($taxPct < 0 || $taxPct > 100) {
-                        $errors[] = t('asgn_err_invalid_tax');
-                    }
+                $taxPct = Input::toDecimal($_POST['tax_percentage'] ?? '', 0, Validator::TAX_MAX);
+                if ($taxPct === null) {
+                    $errors[] = t('asgn_err_invalid_tax');
                 }
             } elseif ($taxType === 'fixed_amount') {
-                $taxRaw = trim($_POST['tax_fixed_amount'] ?? '');
-                if ($taxRaw !== '' && is_numeric($taxRaw)) {
-                    $taxAmt = round((float) $taxRaw, 2);
-                    if ($taxAmt < 0) {
-                        $errors[] = t('asgn_err_invalid_tax');
-                    }
+                $taxAmt = Input::toDecimal($_POST['tax_fixed_amount'] ?? '', 0, Validator::PRICE_MAX);
+                if ($taxAmt === null) {
+                    $errors[] = t('asgn_err_invalid_tax');
                 }
             }
         }
 
-        // 6d. Validity (hours/days, max 7 days)
-        $validityAmount = (int) ($_POST['validity_amount'] ?? 7);
+        // 6d. Validity (hours/days, max VALIDITY_DAYS_MAX days)
+        $validityAmount = (int) ($_POST['validity_amount'] ?? Validator::VALIDITY_DAYS_MAX);
         $validityUnit = strtolower(trim($_POST['validity_unit'] ?? 'days'));
         if (!in_array($validityUnit, ['hours', 'days'], true)) {
             $validityUnit = 'days';
         }
         $validityHours = $validityUnit === 'hours' ? $validityAmount : ($validityAmount * 24);
-        if ($validityHours <= 0 || $validityHours > 168) {
+        $maxValidityHours = Validator::VALIDITY_DAYS_MAX * 24;
+        if ($validityHours <= 0 || $validityHours > $maxValidityHours) {
             $errors[] = t('asgn_err_validity_exceeded');
         }
 
@@ -568,10 +548,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif ($action === 'regen_link') {
 
         $parentId        = (int) ($_POST['assignment_id'] ?? 0);
-        $newCustomerName = mb_substr(trim($_POST['customer_name'] ?? ''), 0, 200);
-        $newCompanyName  = mb_substr(trim($_POST['company_name'] ?? ''), 0, 200);
+        $newCustomerName = mb_substr(trim($_POST['customer_name'] ?? ''), 0, Validator::maxLen('full_name'), 'UTF-8');
+        $newCompanyName  = mb_substr(trim($_POST['company_name'] ?? ''), 0, Validator::maxLen('company_name'), 'UTF-8');
         // special_conditions: accept edited value from form (pre-loaded from parent)
-        $newConditions   = mb_substr(trim($_POST['special_conditions'] ?? ''), 0, 2000);
+        $newConditions   = mb_substr(trim($_POST['special_conditions'] ?? ''), 0, Validator::maxLen('special_conditions'), 'UTF-8');
 
         if ($parentId <= 0) {
             $_SESSION['asgn_feedback']      = t('asgn_err_assignment_invalid');
@@ -642,10 +622,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!in_array($validityUnit, ['hours', 'days'], true)) {
                 $validityUnit = 'days';
             }
-            // Cap at 7 days max
+            // Cap at VALIDITY_DAYS_MAX days max
             $validityHours = $validityUnit === 'hours' ? $validityAmount : ($validityAmount * 24);
-            if ($validityHours <= 0 || $validityHours > 168) {
-                $validityAmount = 7;
+            if ($validityHours <= 0 || $validityHours > (Validator::VALIDITY_DAYS_MAX * 24)) {
+                $validityAmount = Validator::VALIDITY_DAYS_MAX;
                 $validityUnit   = 'days';
             }
 
