@@ -162,7 +162,7 @@ function _getPublicQuote(PDO $pdo): void
             'product_name'          => (string) $r['product_name'],
             'technical_description' => (string) ($r['technical_description'] ?? ''),
             'unit_price'            => (float)  $r['final_unit_price'],
-            'front_img_path'        => $r['front_img_path'] ? (string) $r['front_img_path'] : null,
+            'front_img_url'         => $r['front_img_path'] ? Storage::imageUrl((string) $r['front_img_path']) : null,
         ], $lineItems);
 
         jsonOk([
@@ -229,7 +229,7 @@ function _getPublicQuote(PDO $pdo): void
                 'product_name'          => (string) $row['product_name'],
                 'technical_description' => (string) ($row['technical_description'] ?? ''),
                 'unit_price'            => (float)  $row['final_price'],
-                'front_img_path'        => $row['front_img_path'] ? (string) $row['front_img_path'] : null,
+                'front_img_url'         => $row['front_img_path'] ? Storage::imageUrl((string) $row['front_img_path']) : null,
             ]],
             'totals' => [
                 'subtotal'         => (float) $row['final_price'],

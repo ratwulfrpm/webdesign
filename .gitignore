@@ -1,6 +1,9 @@
 # Credentials — never commit real passwords
 config/mail.php
 
+# Environment config (contains real secrets/paths)
+.env
+
 # Uploaded files (runtime data, never commit)
 uploads/contracts/**
 uploads/products/**
@@ -11,6 +14,9 @@ uploads/products/**
 !uploads/contracts/.gitkeep
 !uploads/products/
 !uploads/products/.gitkeep
+
+# External storage root (when APP_STORAGE_ROOT is inside the repo)
+app_storage/
 
 # Dev logs
 logs/

@@ -291,9 +291,30 @@ Router::any('/supplier/documents', static function (array $p): void {
 
 /**
  * Supplier contract file download/serve.
- * Streams the stored contract file with access control.
+ * Streams the stored contract file with per-role access control.
+ * supplier  — may only access their own contracts.
+ * admin     — may access contracts within their assigned BUs.
+ * owner     — may access all contracts (global scope).
+ *
+ * Admin → Owner parity: both admin and owner have access here.
+ *
  * Legacy URL: /login/supplier/contract_file.php
  */
 Router::any('/supplier/contract-file', static function (array $p): void {
     require __DIR__ . '/../supplier/contract_file.php';
-}, ['supplier']);
+}, ['supplier', 'admin', 'owner']);
+
+/**
+ * Secure product-image serving endpoint.
+ * Serves stored product images from outside the webroot.
+ * Authentication: session-based (any role) OR valid public quote token.
+ *
+ * Admin → Owner parity: both admin and owner have access here.
+ * See: storage-file.php for full RBAC and security details.
+ *
+ * GET /storage-file?path={relative_path}[&t={quote_token}]
+ * Legacy URL: /login/storage-file.php
+ */
+Router::any('/storage-file', static function (array $p): void {
+    require __DIR__ . '/../storage-file.php';
+}, [], true);   // public=true: file has its own access control (session OR token)

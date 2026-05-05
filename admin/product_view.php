@@ -22,6 +22,7 @@ require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
+require_once __DIR__ . '/../includes/storage.php';
 
 requireAuth();
 initLang();
@@ -392,7 +393,7 @@ $fmtSize = function (int $bytes): string {
                 <?php if (isset($images['front'])): ?>
                 <div style="margin-bottom:16px;">
                     <div class="gallery-slot gallery-slot--aerial">
-                        <img src="/login/<?= $esc($images['front']['file_path']) ?>"
+                        <img src="<?= $esc(Storage::imageUrl($images['front']['file_path'])) ?>"
                              alt="<?= $esc(t('img_slot_front')) ?>"
                              class="gallery-slot-img"
                              onclick="openLightbox(this.src, this.alt)">
@@ -418,7 +419,7 @@ $fmtSize = function (int $bytes): string {
                     <?php foreach ($optionalSlots as $slot): ?>
                         <?php if (isset($images[$slot])): ?>
                         <div class="gallery-slot">
-                            <img src="/login/<?= $esc($images[$slot]['file_path']) ?>"
+                            <img src="<?= $esc(Storage::imageUrl($images[$slot]['file_path'])) ?>"
                                  alt="<?= $esc(t('img_slot_' . $slot)) ?>"
                                  class="gallery-slot-img"
                                  onclick="openLightbox(this.src, this.alt)">

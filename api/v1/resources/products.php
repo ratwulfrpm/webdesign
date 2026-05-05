@@ -147,14 +147,14 @@ function _getProduct(int $id, array $auth, PDO $pdo): void
         jsonError('Forbidden', 403);
     }
 
-    // Images keyed by slot
+    // Images keyed by slot — return secure serving URLs, not raw paths
     $imgSt = $pdo->prepare(
         'SELECT image_slot, file_path FROM supplier_product_images WHERE product_id = ?'
     );
     $imgSt->execute([$id]);
     $images = [];
     foreach ($imgSt->fetchAll() as $img) {
-        $images[$img['image_slot']] = $img['file_path'];
+        $images[$img['image_slot']] = Storage::imageUrl((string) $img['file_path']);
     }
 
     // Keywords
@@ -367,7 +367,14 @@ function _productImages(string $method, int $productId, string $slot, array $aut
               ORDER BY FIELD(image_slot, "front","back","left","right","aerial","bottom")'
         );
         $imgSt->execute([$productId]);
-        jsonOk(['images' => $imgSt->fetchAll()]);
+        $rows = $imgSt->fetchAll();
+        // Return secure image_url, not raw file_path
+        $rows = array_map(function ($r) {
+            $r['image_url'] = Storage::imageUrl((string) $r['file_path']);
+            unset($r['file_path']);
+            return $r;
+        }, $rows);
+        jsonOk(['images' => $rows]);
     }
 
     if ($method === 'DELETE') {

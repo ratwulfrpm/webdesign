@@ -29,6 +29,7 @@ require_once __DIR__ . '/../../includes/session.php';
 require_once __DIR__ . '/../../includes/auth.php';
 require_once __DIR__ . '/../../config/db.php';
 require_once __DIR__ . '/../../includes/org_scope.php';
+require_once __DIR__ . '/../../includes/storage.php';
 
 // ── RBAC ────────────────────────────────────────────────────
 if (empty($_SESSION['user_id'])) {
@@ -183,7 +184,7 @@ foreach ($rows as $r) {
         'supplier_username'    => (string) $r['supplier_username'],
         'supplier_company'     => (string) ($r['supplier_company'] ?? ''),
         'org_name'             => $r['org_name'] ? (string) $r['org_name'] : null,
-        'front_img_path'       => $r['front_img_path'] ? (string) $r['front_img_path'] : null,
+        'front_img_url'        => $r['front_img_path'] ? Storage::imageUrl((string) $r['front_img_path']) : null,
         'keywords_csv'         => $r['keywords_csv'] ? (string) $r['keywords_csv'] : null,
     ];
 }

@@ -36,6 +36,7 @@ require_once __DIR__ . '/config/db.php';
 require_once __DIR__ . '/includes/lang.php';
 require_once __DIR__ . '/includes/audit.php';
 require_once __DIR__ . '/includes/session.php';   // centralized session bootstrap
+require_once __DIR__ . '/includes/storage.php';   // Storage::imageUrl() for secure image serving
 
 $lang = 'en';
 initLang();
@@ -546,7 +547,7 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
             <div class="quote-section">
                 <div class="quote-section-title"><?= $esc(t('quote_gallery_label')) ?></div>
                 <?php if (isset($images['front'])): ?>
-                <img src="/login/<?= $esc($images['front']) ?>"
+                <img src="<?= $esc(Storage::imageUrl($images['front'], $plainToken)) ?>"
                      alt="<?= $esc($slotLabels['front']) ?>"
                      class="quote-front-img"
                      onclick="openLightbox(this.src,this.alt)">
@@ -560,8 +561,8 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
                     <?php foreach ($optSlots as $slot): ?>
                         <?php if (isset($images[$slot])): ?>
                         <div class="quote-gallery-slot"
-                             onclick="openLightbox('/login/<?= $esc($images[$slot]) ?>','<?= $esc($slotLabels[$slot] ?? $slot) ?>')">
-                            <img src="/login/<?= $esc($images[$slot]) ?>"
+                             onclick="openLightbox('<?= $esc(Storage::imageUrl($images[$slot], $plainToken)) ?>','<?= $esc($slotLabels[$slot] ?? $slot) ?>')">
+                            <img src="<?= $esc(Storage::imageUrl($images[$slot], $plainToken)) ?>"
                                  alt="<?= $esc($slotLabels[$slot] ?? $slot) ?>" loading="lazy">
                             <div class="quote-gallery-caption"><?= $esc($slotLabels[$slot] ?? $slot) ?></div>
                         </div>
@@ -718,7 +719,7 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
             <div class="quote-section">
                 <div class="quote-section-title"><?= $esc(t('quote_gallery_label')) ?></div>
                 <?php if (isset($legacyImages['front'])): ?>
-                <img src="/login/<?= $esc($legacyImages['front']) ?>"
+                <img src="<?= $esc(Storage::imageUrl($legacyImages['front'], $plainToken)) ?>"
                      alt="<?= $esc($slotLabels['front']) ?>"
                      class="quote-front-img"
                      onclick="openLightbox(this.src,this.alt)">
@@ -732,8 +733,8 @@ $customerName = $isNewFormat ? $quoteData['assigned_customer_name'] : $legacyAss
                     <?php foreach ($optSlots as $slot): ?>
                         <?php if (isset($legacyImages[$slot])): ?>
                         <div class="quote-gallery-slot"
-                             onclick="openLightbox('/login/<?= $esc($legacyImages[$slot]) ?>','<?= $esc($slotLabels[$slot] ?? $slot) ?>')">
-                            <img src="/login/<?= $esc($legacyImages[$slot]) ?>"
+                             onclick="openLightbox('<?= $esc(Storage::imageUrl($legacyImages[$slot], $plainToken)) ?>','<?= $esc($slotLabels[$slot] ?? $slot) ?>')">
+                            <img src="<?= $esc(Storage::imageUrl($legacyImages[$slot], $plainToken)) ?>"
                                  alt="<?= $esc($slotLabels[$slot] ?? $slot) ?>" loading="lazy">
                             <div class="quote-gallery-caption"><?= $esc($slotLabels[$slot] ?? $slot) ?></div>
                         </div>

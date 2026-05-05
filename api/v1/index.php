@@ -37,6 +37,7 @@ require_once __DIR__ . '/../../config/db.php';
 require_once __DIR__ . '/../../includes/auth.php';   // procedural helpers + Auth class
 require_once __DIR__ . '/../../includes/RBAC.php';
 require_once __DIR__ . '/../../includes/TenantScope.php';
+require_once __DIR__ . '/../../includes/storage.php'; // Storage class (imageUrl, etc.)
 require_once __DIR__ . '/_helpers.php';              // requireApiAuth + JSON helpers
 
 // ── Path parsing ──────────────────────────────────────────────

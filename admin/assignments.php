@@ -1960,8 +1960,8 @@ $statusClass = [
             html += '<div class="result-card' + (isSel ? ' is-selected' : '') + '" id="rc-' + item.id + '">';
 
             // Thumbnail
-            if (item.front_img_path) {
-                html += '<img class="result-thumb" src="/login/' + esc(item.front_img_path) + '" alt="" loading="lazy">';
+            if (item.front_img_url) {
+                html += '<img class="result-thumb" src="' + esc(item.front_img_url) + '" alt="" loading="lazy">';
             } else {
                 html += '<div class="result-thumb-placeholder">'
                     + '<svg width="24" height="24" viewBox="0 0 24 24" fill="none">'
@@ -2058,7 +2058,7 @@ $statusClass = [
             html += '<div class="detail-images">';
             ['front','back','left','right','aerial','bottom'].forEach(function(slot) {
                 if (p.images[slot]) {
-                    html += '<img class="detail-img" src="/login/' + esc(p.images[slot]) + '" alt="' + esc(slot) + '"'
+                    html += '<img class="detail-img" src="' + esc(p.images[slot]) + '" alt="' + esc(slot) + '"'
                         + ' onclick="openDetailLightbox(this.src)">';
                 }
             });

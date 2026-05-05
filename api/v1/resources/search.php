@@ -155,7 +155,7 @@ function _searchProducts(array $auth, PDO $pdo): void
         'price_cif'             => $r['price_cif'] !== null ? (float) $r['price_cif'] : null,
         'supplier_username'     => (string) $r['supplier_username'],
         'supplier_company'      => (string) ($r['supplier_company'] ?? ''),
-        'front_img_path'        => $r['front_img_path'] ? (string) $r['front_img_path'] : null,
+        'front_img_url'         => $r['front_img_path'] ? Storage::imageUrl((string) $r['front_img_path']) : null,
         'keywords_csv'          => $r['keywords_csv'] ? (string) $r['keywords_csv'] : null,
     ], $rows);
 

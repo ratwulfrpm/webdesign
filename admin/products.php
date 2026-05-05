@@ -28,6 +28,7 @@ require_once __DIR__ . '/../includes/csrf.php';
 require_once __DIR__ . '/../includes/lang.php';
 require_once __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../includes/tabs.php';
+require_once __DIR__ . '/../includes/storage.php';
 
 requireAuth();
 initLang();
@@ -347,7 +348,7 @@ $filterUrl = function(array $overrides = []): string {
                         <tr>
                             <td>
                             <?php if (!empty($p['front_img_path'])): ?>
-                                <img src="/login/<?= $esc($p['front_img_path']) ?>"
+                                <img src="<?= $esc(Storage::imageUrl($p['front_img_path'])) ?>"
                                      alt="<?= $esc($p['product_name']) ?>"
                                      style="width:56px;height:42px;object-fit:cover;
                                             border-radius:8px;border:1px solid var(--color-border);">
