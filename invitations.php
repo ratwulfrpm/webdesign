@@ -53,11 +53,10 @@ $accessibleOrgs = loadAccessibleOrganizations($pdo, $userId, $role);
 $accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
 
 if ($role === 'support') {
-    $accessibleOrgs = array_values(array_filter(
-        $accessibleOrgs,
-        fn($row) => (int) ($row['id'] ?? 0) === $orgId
-    ));
-    $accessibleOrgIds = array_map('intval', array_column($accessibleOrgs, 'id'));
+    // Invitations are integrated under Users for support.
+    // Keep this route as legacy alias and forward support users.
+    header('Location: /login/admin/users.php#invitations');
+    exit;
 }
 
 // ── Helpers ───────────────────────────────────────────────────
