@@ -100,7 +100,15 @@ apple-login/
 │   ├── TenantScope.php    # Resolución de scope multi-tenant
 │   ├── Router.php         # Router progresivo (nuevo)
 │   ├── csrf.php           # Tokens CSRF
-│   └── lang.php           # Soporte multilenguaje (ES/EN/ZH)
+│   ├── lang.php           # Soporte multilenguaje (ES/EN/ZH)
+│   ├── services/
+│   │   └── UserManagementService.php  # Servicio centralizado de gestión de usuarios
+│   └── views/users/       # Vistas compartidas para admin/owner (users)
+│       ├── users_page.php         # Shell HTML de página completa
+│       ├── users_table.php        # Tabla de usuarios con paginación
+│       ├── user_row.php           # Fila individual de usuario
+│       ├── user_actions.php       # Botones de acción por usuario
+│       └── invitation_section.php # Panel de invitaciones
 │
 └── setup/
     ├── create_db.sql      # Script SQL para crear BD
@@ -762,7 +770,15 @@ apple-login/
 │   ├── TenantScope.php    # Multi-tenant scope resolver
 │   ├── Router.php         # Progressive router (new)
 │   ├── csrf.php           # CSRF tokens
-│   └── lang.php           # Multi-language support (ES/EN/ZH)
+│   ├── lang.php           # Multi-language support (ES/EN/ZH)
+│   ├── services/
+│   │   └── UserManagementService.php  # Centralized user management service
+│   └── views/users/       # Shared views for admin/owner user pages
+│       ├── users_page.php         # Full-page HTML shell
+│       ├── users_table.php        # Users table with pagination
+│       ├── user_row.php           # Individual user row
+│       ├── user_actions.php       # Per-user action buttons
+│       └── invitation_section.php # Invitations panel
 │
 └── setup/
     ├── create_db.sql      # SQL script to create the DB

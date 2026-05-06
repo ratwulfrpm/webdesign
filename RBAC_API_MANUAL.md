@@ -818,3 +818,95 @@ All changes in this closure adhere to the parity rule:
 - `must_change_password` API guard — applies regardless of role; owner is not exempt.
 - `switch_org.php` flag preservation — support role only (owner/admin do not use BU switch).
 
+---
+
+## 14) User Management Refactor — Shared Service + Views (June 2026)
+
+### 14.1 Motivation
+
+`admin/users.php` and `owner/users.php` contained ~400 lines of near-identical PHP (POST action handler, data fetch, session flash consumption) and ~300+ lines of near-identical HTML. Any logic change had to be made twice, risking drift.
+
+### 14.2 New files
+
+| File | Purpose |
+|------|---------|
+| `includes/services/UserManagementService.php` | Central POST action handler + data-fetch helpers (shared by admin & owner) |
+| `includes/views/users/users_page.php` | Full-page HTML shell; `require`d from both entrypoints |
+| `includes/views/users/users_table.php` | Users table + pagination; included by `users_page.php` |
+| `includes/views/users/user_row.php` | Single user row; included by `users_table.php` |
+| `includes/views/users/user_actions.php` | Per-user action buttons/forms; included by `user_row.php` |
+| `includes/views/users/invitation_section.php` | Invitations panel (list + generate form); included by `users_page.php` |
+
+### 14.3 Entrypoints after refactor
+
+Both entrypoints are now ~140 lines of PHP only (no HTML):
+
+1. Bootstrap (security headers + requires)
+2. Auth guard (`requireAuth` / `requireRole`)
+3. Build `$actor` context array
+4. POST handler — `csrfValidate()` → `UserManagementService::handleAction()` → session vars → redirect
+5. Data fetch — `UserManagementService::getUsersForActor()`, `getInvitationsForActor()`, `cvrListValidityRequests()`, `password_requests` query
+6. Flash var consumption (PRG pattern)
+7. Page-specific variables
+8. `require includes/views/users/users_page.php`
+
+### 14.4 `UserManagementService` — key contracts
+
+**`handleAction(PDO $pdo, array $actor, string $action, array $post): array`**
+
+Returns `['ok' => bool, 'feedback' => string, 'session_vars' => array, 'redirect' => string]`.
+
+RBAC is enforced inside the service:
+
+| Action | Allowed roles | Notes |
+|--------|--------------|-------|
+| `activate` / `deactivate` / `unlock` | owner, admin, support | Support scoped to own BU |
+| `change_role` | owner only | Admin call → 403 + audit log |
+| `reset_password` | owner, admin | Support blocked; admin cannot reset admin/owner |
+| `resolve_request` | owner, admin | Password-request resolution |
+| `approve_contract_validity` / `reject_contract_validity` | owner, admin | |
+| `generate_invitation` | owner, admin | Admin cannot invite `admin` role |
+| `revoke_invitation` | owner, admin | Support blocked |
+
+**`getUsersForActor(PDO $pdo, string $actor, array $scopedOrgIds, int $page, int $perPage = 50): array`**
+
+Returns `['users', 'total', 'pages', 'page']`. Empty `$scopedOrgIds` = global (owner).
+
+**`getInvitationsForActor(PDO $pdo, string $actor, array $accessibleOrgIds): array`**
+
+Returns invitation rows. Empty `$accessibleOrgIds` = global (owner).
+
+### 14.5 Role-specific variables passed to shared view
+
+| Variable | Admin | Owner |
+|----------|-------|-------|
+| `$actorRole` | `'admin'` | `'owner'` |
+| `$canChangeRole` | `false` | `true` |
+| `$isOwner` | `false` | `true` |
+| `$scopedOrgIds` | assigned BU IDs | `[]` (global) |
+| `$orgId` | session org ID | `0` |
+
+The shared view checks `$canChangeRole` before rendering the role-change form, and `$isOwner` for owner-exclusive UI (org-picker for admin invitations).
+
+### 14.6 Owner-only protections preserved
+
+- **`change_role`** — `UserManagementService::_changeRole()` checks `$actor['role'] === 'owner'`; any other caller gets HTTP 403 + `forbidden_role_change_attempt` audit log.
+- **Business unit creation** — remains exclusively in `owner/business_units.php`. Not referenced by the shared service or views.
+- **`RBAC::can('users.change_role')`** — rank 4 (owner) required in the permission matrix.
+- **`RBAC::can('business_units.create')`** — rank 4 (owner) required.
+
+### 14.7 Admin / Owner parity
+
+All user actions available to admin are also available to owner with broader scope:
+
+| Capability | Admin | Owner |
+|-----------|-------|-------|
+| List users | Assigned BUs only | Global |
+| Activate / deactivate / unlock | In scope | Global |
+| Change role | ✗ | ✓ (any role incl. admin) |
+| Reset password | support, supplier in scope | admin, support, supplier globally |
+| Manage invitations | support, supplier roles | admin, support, supplier roles |
+| View password requests | In scope | Global |
+| View contract validity requests | In scope | Global |
+| Create business units | ✗ | ✓ (owner/business_units.php) |
+
