@@ -13,8 +13,6 @@ CREATE TABLE IF NOT EXISTS `supplier_products` (
     `id`                     INT UNSIGNED    NOT NULL AUTO_INCREMENT,
     `supplier_id`            INT UNSIGNED    NOT NULL  COMMENT 'FK → users.id (role=supplier)',
     `supplier_product_code`  VARCHAR(100)    NOT NULL  COMMENT 'Unique within a supplier',
-    `admin_product_code`     VARCHAR(100)    NULL DEFAULT NULL
-                                                      COMMENT 'Global unique code assigned by admin; nullable',
     `product_name`           VARCHAR(300)    NOT NULL,
     `technical_description`  TEXT            NULL DEFAULT NULL,
     `price_fob`              DECIMAL(15,2)   NULL DEFAULT NULL,
@@ -29,9 +27,6 @@ CREATE TABLE IF NOT EXISTS `supplier_products` (
 
     -- Each supplier can only have one product with a given code
     UNIQUE KEY `uq_supplier_code` (`supplier_id`, `supplier_product_code`),
-
-    -- Admin code must be globally unique (NULLs are exempt from unique constraints in MySQL)
-    UNIQUE KEY `uq_admin_code` (`admin_product_code`),
 
     KEY `idx_supplier`    (`supplier_id`),
     KEY `idx_active`      (`active`),

@@ -198,18 +198,6 @@ $fmtSize = function (int $bytes): string {
                                 </span>
                             </div>
 
-                            <?php if (!empty($product['admin_product_code'])): ?>
-                            <div class="detail-row">
-                                <span class="detail-label"><?= $esc(t('field_admin_code')) ?></span>
-                                <span class="detail-value">
-                                    <code style="font-size:0.9rem;background:#f0f0f3;
-                                                 padding:2px 8px;border-radius:6px;">
-                                        <?= $esc($product['admin_product_code']) ?>
-                                    </code>
-                                </span>
-                            </div>
-                            <?php endif; ?>
-
                             <div class="detail-row">
                                 <span class="detail-label"><?= $esc(t('col_internal_code')) ?></span>
                                 <span class="detail-value">

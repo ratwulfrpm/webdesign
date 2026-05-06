@@ -89,8 +89,7 @@ $flash     = '';
 
 $fv = [
     'supplier_product_code' => '',
-    'admin_product_code'    => '',
-    'product_name'          => '',
+    'product_name'          => '',,
     'technical_description' => '',
     'price_fob'             => '',
     'price_cif'             => '',
@@ -110,7 +109,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $supplierId = (int) $_SESSION['user_id'];
 
         $fv['supplier_product_code'] = Input::postString('supplier_product_code', Validator::maxLen('product_code'));
-        $fv['admin_product_code']    = Input::postString('admin_product_code',    Validator::maxLen('product_code'));
         $fv['product_name']          = Input::postString('product_name',          Validator::maxLen('product_name'));
         $fv['technical_description'] = Input::postText('technical_description',   Validator::maxLen('technical_description'));
         $fv['price_fob']             = Input::postString('price_fob', 30);
@@ -158,19 +156,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $dup->execute([$supplierId, $fv['supplier_product_code']]);
             if ($dup->fetch()) {
                 $errors['supplier_product_code'] = t('err_supplier_code_duplicate');
-            }
-        }
-
-        $adminCodeClean = null;
-        if ($isAdmin && $fv['admin_product_code'] !== '') {
-            $adup = $pdo->prepare(
-                'SELECT id FROM supplier_products WHERE admin_product_code = ? LIMIT 1'
-            );
-            $adup->execute([$fv['admin_product_code']]);
-            if ($adup->fetch()) {
-                $errors['admin_product_code'] = t('err_admin_code_duplicate');
-            } else {
-                $adminCodeClean = $fv['admin_product_code'];
             }
         }
 
@@ -259,16 +244,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                 $pdo->prepare(
                     'INSERT INTO supplier_products
-                        (supplier_id, org_id, supplier_product_code, admin_product_code,
+                        (supplier_id, org_id, supplier_product_code,
                          internal_product_code,
                          product_name, technical_description,
                          price_fob, price_cif, active, created_by)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)'
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)'
                 )->execute([
                     $supplierId,
                     $orgId,
                     $fv['supplier_product_code'],
-                    $adminCodeClean,
                     $internalCode,
                     $fv['product_name'],
                     $fv['technical_description'] !== '' ? $fv['technical_description'] : null,
@@ -527,20 +511,6 @@ HTML;
                         <span class="input-help"><?= $esc(t('field_supplier_code_help')) ?></span>
                         <?= $errMsg('supplier_product_code') ?>
                     </div>
-
-                    <?php if ($isAdmin): ?>
-                    <!-- Código admin — solo visible para rol admin -->
-                    <div class="input-wrap" style="margin-bottom:16px;">
-                        <label for="admin_product_code"><?= $esc(t('field_admin_code')) ?></label>
-                        <input type="text" id="admin_product_code" name="admin_product_code"
-                               value="<?= $val('admin_product_code') ?>"
-                               placeholder="<?= $esc(t('field_admin_code_ph')) ?>"
-                               class="<?= ltrim($clsInput('admin_product_code')) ?>"
-                               maxlength="100">
-                        <span class="input-help"><?= $esc(t('field_admin_code_help')) ?></span>
-                        <?= $errMsg('admin_product_code') ?>
-                    </div>
-                    <?php endif; ?>
 
                     <!-- Nombre -->
                     <div class="input-wrap" style="margin-bottom:16px;">

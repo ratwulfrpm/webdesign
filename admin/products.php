@@ -5,7 +5,7 @@
  * Access  : role = 'admin' OR role = 'owner'
  * Features:
  *  - Lists ALL products from ALL suppliers across ALL organizations
- *  - Columns: product name, supplier code, admin code, supplier,
+ *  - Columns: product name, supplier code, supplier,
  *             business unit (org), status, creation date,
  *             photo count, has front view, keywords
  *  - Search/filter: name/code, supplier, org, status, front-view presence
@@ -107,12 +107,11 @@ if ($role === 'support') {
 if ($fSearch !== '') {
     $like = '%' . $fSearch . '%';
     $conditions[] = '(p.product_name LIKE ? OR p.supplier_product_code LIKE ?
-                       OR p.admin_product_code LIKE ?
                        OR p.internal_product_code LIKE ?
                        OR u.username LIKE ? OR u.company_name LIKE ?
                        OR EXISTS (SELECT 1 FROM product_keywords pk2
                                    WHERE pk2.product_id = p.id AND pk2.keyword LIKE ?))';
-    $params = array_merge($params, [$like, $like, $like, $like, $like, $like, $like]);
+    $params = array_merge($params, [$like, $like, $like, $like, $like, $like]);
 }
 
 // Org filter: allowed for all roles, but admin can only filter within their allowed orgs
@@ -149,7 +148,6 @@ $sql = "
     SELECT
         p.id,
         p.supplier_product_code,
-        p.admin_product_code,
         p.internal_product_code,
         p.product_name,
         p.active,
@@ -168,7 +166,7 @@ $sql = "
     JOIN users u        ON u.id = p.supplier_id
     JOIN organizations o ON o.id = p.org_id
     WHERE $whereClause
-    GROUP BY p.id, p.supplier_product_code, p.admin_product_code, p.internal_product_code, p.product_name,
+    GROUP BY p.id, p.supplier_product_code, p.internal_product_code, p.product_name,
              p.active, p.created_at,
              u.id, u.username, u.company_name,
              o.id, o.name
@@ -332,7 +330,6 @@ $filterUrl = function(array $overrides = []): string {
                             <th style="width:64px;"><?= $esc(t('col_front_view')) ?></th>
                             <th><?= $esc(t('col_product_name')) ?></th>
                             <th><?= $esc(t('col_product_code')) ?></th>
-                            <th><?= $esc(t('field_admin_code')) ?></th>
                             <th><?= $esc(t('col_internal_code')) ?></th>
                             <th><?= $esc(t('col_supplier')) ?></th>
                             <th><?= $esc(t('col_org')) ?></th>
@@ -372,13 +369,6 @@ $filterUrl = function(array $overrides = []): string {
                             </td>
                             <td>
                                 <code class="code-cell"><?= $esc($p['supplier_product_code']) ?></code>
-                            </td>
-                            <td>
-                                <?php if ($p['admin_product_code']): ?>
-                                <code class="code-cell"><?= $esc($p['admin_product_code']) ?></code>
-                                <?php else: ?>
-                                <span class="text-muted">—</span>
-                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($p['internal_product_code']): ?>

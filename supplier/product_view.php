@@ -124,8 +124,7 @@ if (isset($_GET['updated'])) {
 
 $editFv = [
     'supplier_product_code' => $product['supplier_product_code'] ?? '',
-    'admin_product_code'    => $product['admin_product_code'] ?? '',
-    'product_name'          => $product['product_name'] ?? '',
+    'product_name'          => $product['product_name'] ?? '',,
     'technical_description' => $product['technical_description'] ?? '',
     'price_fob'             => $product['price_fob'] !== null ? $product['price_fob'] : '',
     'price_cif'             => $product['price_cif'] !== null ? $product['price_cif'] : '',
@@ -142,7 +141,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             mb_substr(trim($_POST[$k] ?? ''), 0, $max);
 
         $editFv['supplier_product_code'] = $s('supplier_product_code', 100);
-        $editFv['admin_product_code']    = $s('admin_product_code', 100);
         $editFv['product_name']          = $s('product_name', 300);
         $editFv['technical_description'] = mb_substr(trim($_POST['technical_description'] ?? ''), 0, 10000);
         $editFv['price_fob']             = $s('price_fob', 30);
@@ -427,18 +425,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <?php endif; ?>
                     </span>
                 </div>
-
-                <?php if (!empty($product['admin_product_code'])): ?>
-                <div class="detail-row">
-                    <span class="detail-label"><?= $esc(t('field_admin_code')) ?></span>
-                    <span class="detail-value">
-                        <code style="font-size:0.9rem;background:#f0f0f3;
-                                     padding:2px 8px;border-radius:6px;">
-                            <?= $esc($product['admin_product_code']) ?>
-                        </code>
-                    </span>
-                </div>
-                <?php endif; ?>
 
                 <div class="detail-row">
                     <span class="detail-label"><?= $esc(t('field_product_name')) ?></span>

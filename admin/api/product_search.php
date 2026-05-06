@@ -159,7 +159,7 @@ $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
 // ── Build response ───────────────────────────────────────────
 // FOB/CIF included — admin-only endpoint (RBAC verified above).
-// supplier_product_code and admin_product_code are intentionally omitted.
+// supplier_product_code is intentionally omitted.
 $items = [];
 foreach ($rows as $r) {
     $items[] = [

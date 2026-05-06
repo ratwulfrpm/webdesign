@@ -11,7 +11,7 @@
  *  - Session auth (admin/owner) via requireApiAuth().
  *  - Accepts only integer product ID.
  *  - FOB/CIF prices included — admin-only.
- *  - supplier_product_code and admin_product_code intentionally omitted from response.
+ *  - supplier_product_code intentionally omitted from response.
  *  - Responses use standard envelope: {success, data} / {success, error:{code,message}}.
  */
 

@@ -49,7 +49,7 @@ final class Validator
 
         // Products
         'product_name'          => 150,
-        'product_code'          => 80,   // supplier_product_code, admin_product_code, internal_product_code
+        'product_code'          => 80,   // supplier_product_code, internal_product_code
         'technical_description' => 5000,
 
         // Assignments / Quotes

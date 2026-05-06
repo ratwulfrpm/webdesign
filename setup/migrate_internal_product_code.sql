@@ -12,7 +12,7 @@
 -- 1. Add the nullable column (nullable during backfill phase only)
 ALTER TABLE supplier_products
     ADD COLUMN internal_product_code VARCHAR(20) NULL DEFAULT NULL
-    AFTER admin_product_code;
+    AFTER supplier_product_code;
 
 -- 2. Add unique index
 ALTER TABLE supplier_products
