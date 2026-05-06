@@ -89,7 +89,7 @@ $flash     = '';
 
 $fv = [
     'supplier_product_code' => '',
-    'product_name'          => '',,
+    'product_name'          => '',
     'technical_description' => '',
     'price_fob'             => '',
     'price_cif'             => '',
