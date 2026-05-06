@@ -17,16 +17,16 @@
 --   SELECT COUNT(*) FROM supplier_products
 --     WHERE admin_product_code IS NOT NULL;
 --   -- If result is 0, safe to proceed immediately.
+--
+-- Note: Compatible with MySQL 5.7+ (no IF EXISTS on DDL).
 -- ============================================================
 
 USE `apple_login`;
 
 -- 1. Drop the unique index before dropping the column
-ALTER TABLE supplier_products
-    DROP INDEX IF EXISTS `uq_admin_code`;
+ALTER TABLE supplier_products DROP INDEX `uq_admin_code`;
 
 -- 2. Drop the column
-ALTER TABLE supplier_products
-    DROP COLUMN IF EXISTS `admin_product_code`;
+ALTER TABLE supplier_products DROP COLUMN `admin_product_code`;
 
 SELECT CONCAT('admin_product_code column removed from supplier_products.') AS status;
